@@ -60,6 +60,9 @@ Fetched with User-Agent `CebuBrownoutTracker/0.1`, a few seconds apart: `robots.
 - City-first (2024 – early 2025): `Portion of Cebu City (Tisa) including portions of South Hills Subdivision.`
 - Barangay-first (late 2025 →): `Portion of Banilad & Talamban, Cebu City, along portions of Banilad Road, …`
 - Two towns: `Portion of Consolacion & Liloan (Calero, Cansaga, Tayud)`. Tayud is a barangay in both towns.
+- **Structured (mid-June → early August 2025, found in Phase 1, owner 2026-11-11):** the value cell repeats the label, then lists one field per line: `Areas Affected:  Portion of Cebu City` / `Barangays:  Camputhaw` / `Streets: …` / `Sitios: …` / `Establishments / Institutions: …`. Sub-labels vary freely (`Barangay`, `Street / Road`, `Zones/Sitios`, `Religious Sites`, …). Seen in every outage of `…june-15-21-2025` to `…july-27-august-2-2025`; absent from `…may-31-june-7-2025` and `…august-24-30-2025`.
+- **Wrapped:** a normal-layout value can continue on a second line in the same cell (`…september-21-27-2025`: `… along diversion road` / `going to Lataban road.`).
+- `copy-of-service-interruption-july-6-12-2025` is the only post for that week (an odd slug, not a duplicate).
 - Names that don't match PSGC directly: `Duljo Fatima` (→ Duljo), `Quiot` (→ Quiot Pardo), `Tugbungan` (→ Tugbongan), `North/South Reclamation Area` and `Greenhills` (not barangays).
 
 ### 3.4 Boundaries (for Phase 2+)
@@ -115,6 +118,8 @@ NFKC; ` ` and other spaces → space; `‑`, `–`, `—` → `-`; collapse whi
 A state machine over the lines: `HEADING → (TIME → PURPOSE → AREAS → MAP?)+`. Label and value may share a line or sit on consecutive lines. Lines before the first heading (title, "x days ago", "Updated: …") and after the last block (related-posts list) are ignored. Status comes from a suffix after the time (`CANCELLED`, `ADDITIONAL`, loose on dashes/spaces); strikethrough in a block adds a warning but does not change status.
 
 `ParsedOutage`: `seq` (order in the post), `heading_text`, `start_at`, `end_at`, `duration_label`, `status` (`scheduled` | `cancelled` | `additional`), `purpose`, `areas_raw`, `areas_key`, `map_image_url | None`, `warnings: list[str]`.
+
+`areas_raw` (owner, 2026-11-11): every non-empty line after `Areas Affected:` up to the next `Time:`, `Map:` or date heading, joined with `\n`; a repeated leading `Areas Affected:` is dropped. This covers the one-line, wrapped and structured layouts (§3.3) with one rule; Phase 2 reads the sub-labels.
 
 `areas_key`: `areas_raw` lowercased, punctuation removed, whitespace collapsed.
 
