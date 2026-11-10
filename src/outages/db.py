@@ -14,8 +14,13 @@ from dataclasses import dataclass
 from datetime import date
 from importlib import resources
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from outages.extract import ExtractedPost
+
+if TYPE_CHECKING:
+    from outages.parse import ParsedOutage
+    from outages.upsert import Change
 
 
 @dataclass(frozen=True)
@@ -153,6 +158,74 @@ def set_parse_status(
     conn.execute(
         "UPDATE posts SET parse_status = ?, parse_error = ? WHERE id = ?", (status, error, post_id)
     )
+
+
+def _outage_values(n: ParsedOutage) -> tuple:
+    return (
+        n.seq,
+        n.heading_text,
+        n.start_at.isoformat(),
+        n.end_at.isoformat(),
+        n.duration_label,
+        n.status,
+        n.purpose,
+        n.areas_raw,
+        n.areas_key,
+        n.map_image_url,
+        json.dumps(list(n.warnings), ensure_ascii=False),
+    )
+
+
+_COLS = (
+    "seq, heading_text, start_at, end_at, duration_label, status, purpose, areas_raw, areas_key,"
+    " map_image_url, warnings_json"
+)
+
+
+def apply_changes(
+    conn: sqlite3.Connection,
+    post_id: int,
+    version_id: int,
+    changes: list[Change],
+    log: bool,
+    detected_at: str,
+) -> None:
+    """Write `upsert.match` results. Matched rows take the new values; `removed` rows are kept
+    with that status. `log=False` (a post's first parse) writes no `outage_changes` (spec 6.1)."""
+    set_cols = ", ".join(f"{c.strip()} = ?" for c in _COLS.split(","))
+    for ch in changes:
+        if ch.kind == "added":
+            assert ch.new is not None
+            cur = conn.execute(
+                f"INSERT INTO outages (post_id, {_COLS}, first_seen_version_id,"
+                " last_seen_version_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (post_id, *_outage_values(ch.new), version_id, version_id),
+            )
+            outage_id = cur.lastrowid
+        elif ch.kind == "removed":
+            assert ch.old is not None
+            conn.execute("UPDATE outages SET status = 'removed' WHERE id = ?", (ch.old.id,))
+            outage_id = ch.old.id
+        else:
+            assert ch.old is not None and ch.new is not None
+            conn.execute(
+                f"UPDATE outages SET {set_cols}, last_seen_version_id = ? WHERE id = ?",
+                (*_outage_values(ch.new), version_id, ch.old.id),
+            )
+            outage_id = ch.old.id
+        if log and ch.kind != "unchanged":
+            conn.execute(
+                "INSERT INTO outage_changes (outage_id, version_id, kind, old_json, new_json,"
+                " detected_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    outage_id,
+                    version_id,
+                    ch.kind,
+                    json.dumps(ch.old.to_json(), ensure_ascii=False) if ch.old else None,
+                    json.dumps(ch.new.to_json(), ensure_ascii=False) if ch.new else None,
+                    detected_at,
+                ),
+            )
 
 
 def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
