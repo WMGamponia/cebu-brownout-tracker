@@ -21,7 +21,7 @@ Success:
 | Discovery | `blog-posts-sitemap.xml`, posts whose slug contains `service-interruption`. Slugs are never constructed. The listing pages are not crawled. |
 | Polling | Checks at 07:00 and 17:00 Asia/Manila. Phase 3 adds one fetch of the current week's post right before each alert run (≤ ~4 requests/day in total). |
 | Runs on | The owner's PC. One `serve` process; catch-up check on start if the last check is > 12 h old. |
-| LLM | None in Phase 1. Phase 2: barangays and cities by rules, LLM only for streets/sitios/landmarks. |
+| LLM | None in Phase 1. Phase 2: barangays and cities by rules; streets/sitios/landmarks by rules or local Qwen via Ollama (the default LLM), chosen by the eval. Claude Haiku is an optional eval arm, run only when `ANTHROPIC_API_KEY` is set. No paid service is required. |
 | Identity on re-parse | Matching passes (§6.3), not "date + time + areas", so a time change is recorded as a change. |
 | Vanished outages | An outage missing from a newer version without a CANCELLED mark becomes `removed` (kept, logged), not deleted. |
 | Map image | Optional column. No post at recon time has one; store it if one appears. |
@@ -68,7 +68,7 @@ Fetched with User-Agent `CebuBrownoutTracker/0.1`, a few seconds apart: `robots.
 ## 4. Constraints
 
 - Windows 11, Python 3.14 in `.venv`; the code targets 3.12+.
-- New dependencies: `httpx`, `selectolax`, `apscheduler`; dev: `pytest`, `pytest-cov`, `ruff`. Later phases confirm their own (`fastapi`, `python-telegram-bot`, `anthropic`, …).
+- New dependencies: `httpx`, `selectolax`, `apscheduler`; dev: `pytest`, `pytest-cov`, `ruff`. Later phases confirm their own (`fastapi`, `python-telegram-bot`, `ollama`, optional `anthropic`, …).
 - Personal tool, single user. Simplicity beats generality.
 - Raw HTML, the database and logs live in `data/` (gitignored). Fixtures are public posts and need no scrubbing.
 

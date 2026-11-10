@@ -22,6 +22,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - **Identity on re-parse:** matching passes (exact → same areas, new time → same time, new areas → removed/added) instead of date+time+areas, so a time change is a change, not delete+add.
   - **Map scope:** VECO's 8 towns only; Lapu-Lapu and Cordova (MECO) shown as not covered.
   - **GitHub repo private for now** (owner, 2026-11-10).
+  - **Local Qwen (Ollama) is the default LLM; Claude Haiku is an optional eval arm** (owner, 2026-11-10). A claude.ai plan gives no API access, and the project must not depend on a paid service. The eval runs rules vs local Qwen, plus Haiku only when `ANTHROPIC_API_KEY` is set (skipped and noted otherwise). The pipeline uses whichever of rules / Qwen wins.
 
 ### Known issues
 _None yet._
@@ -45,8 +46,8 @@ _None yet._
 ## Phase 2 — Areas and evals
 - [ ] Rule-based barangay/city extraction for both layouts and two-town lines.
 - [ ] PSGC gazetteer from the pinned boundary release; alias table (e.g. Duljo Fatima → Duljo, Quiot → Quiot Pardo, Tugbungan → Tugbongan); unmatched → review queue, never dropped.
-- [ ] LLM (Claude Haiku, behind a swappable interface) extracts streets, sitios and landmarks only.
-- [ ] Hand-label 30–50 historical "Areas Affected" strings; pytest eval reports barangay precision/recall (rules vs LLM), PSGC match rate, street precision/recall. Results in README.
+- [ ] Street/sitio/landmark extraction behind one interface: rule-based splitter, local Qwen via Ollama (default LLM, JSON-schema output), Claude Haiku (optional, only with an API key).
+- [ ] Hand-label 30–50 historical "Areas Affected" strings; pytest eval reports barangay precision/recall and PSGC match rate (rules), and street precision/recall for rules vs Qwen (vs Haiku when a key is set). Pick the default from the results. Results in README.
 
 ## Phase 3 — Telegram alerts (my barangay)
 - [ ] Bot, alert at ~20:00 the evening before and ~06:00 the morning of, and on cancelled / time changed / added / removed.
@@ -79,7 +80,7 @@ _None yet._
 | Parsing | selectolax + regex state machine (no LLM) |
 | Storage | SQLite via stdlib `sqlite3`, numbered migrations |
 | Scheduling | APScheduler in the `serve` process |
-| Areas | Rules + PSGC gazetteer; Claude Haiku for streets only (swappable) |
+| Areas | Rules + PSGC gazetteer; streets by rules or local Qwen (Ollama), whichever the eval picks; Claude Haiku optional in the eval |
 | Alerts | python-telegram-bot |
 | Map | FastAPI, Leaflet + OSM tiles, vanilla JS |
 | Quality | pytest, ruff, GitHub Actions |
