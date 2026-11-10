@@ -35,7 +35,7 @@
 
 ---
 
-## Session 2 — scaffold, fixtures, parser
+## Part A — scaffold, fixtures, parser
 
 ### Task 1: Project scaffold, CI and `.github/` docs
 
@@ -151,11 +151,11 @@
 - [ ] **Step 3:** Run; expect FAIL.
 - [ ] **Step 4: Implement** the state machine (spec §5.4). Value = text after `Label:` on the same line, else the next non-empty line. Purpose and Map may be missing (Purpose missing → warning; Map missing is normal before 2026). Lines after the last block's Areas/Map that aren't a heading or `Time:` end parsing.
 - [ ] **Step 5:** Run; expect PASS. Then generate expected JSON for the remaining 7 fixtures from parser output, **review each line against the post**, commit them only after that review, and note "reviewed" in the fixtures README.
-- [ ] **Step 6:** Full suite + ruff pass. Commit `feat(parse): rule-based post parser with golden tests`. **Stop: session 2 ends** (see session prompt).
+- [ ] **Step 6:** Full suite + ruff pass. Commit `feat(parse): rule-based post parser with golden tests`.
 
 ---
 
-## Session 3 — storage, fetching, CLI, backfill
+## Part B — storage, fetching, CLI, backfill
 
 ### Task 6: `db` and migrations
 
@@ -248,4 +248,4 @@
 - [ ] **Step 3: Triage every failure and warning.** A new format → add a fixture + failing test, fix, `reparse`. Do not guess; anything unclear goes to the owner.
 - [ ] **Step 4:** Run `check` twice in a row; the second fetches only the sitemap and current-week posts and logs no changes.
 - [ ] **Step 5:** Update `ROADMAP.md` (tick Phase 1 items, progress entry with posts/outages/warnings counts, lessons). Commit `docs: Phase 1 backfill results`.
-- [ ] **Step 6: Stop and show the owner** the report. Ask before creating the private GitHub repo, pushing and opening the PR (enable CI Auto-fix on it). Write `prompts/phase2_session1.md` for the Phase 2 brainstorm.
+- [ ] **Step 6: Stop and show the owner** the report. Ask before creating the private GitHub repo, pushing and opening the PR (enable CI Auto-fix on it). Write `prompts/phase2.md` for the Phase 2 brainstorm.

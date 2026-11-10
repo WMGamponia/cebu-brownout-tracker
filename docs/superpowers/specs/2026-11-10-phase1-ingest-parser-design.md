@@ -174,10 +174,9 @@ An outage with the same `start_at`, `end_at` and `areas_key` in two posts is sto
 - A manual `check` after VECO edits the current week's post logs the expected changes.
 - ROADMAP updated with the backfill numbers and any lessons.
 
-## 10. Session schedule (detailed in the plan)
+## 10. Execution
 
-- **Session 2:** scaffold + CI, fixtures, `normalize`, `timeparse`, `extract`, `parse` with golden tests. Stop for review.
-- **Session 3:** schema + migrations, `upsert`, `discover`, `fetch`, `pipeline`, CLI, `serve`, live backfill, report. Stop for review.
+The whole phase runs in one session (owner, 2026-11-10), from `prompts/phase1.md`, with no mid-phase stop except a format the spec does not list (stop and report). The owner reviews at the end of the phase.
 
 ## 11. Risks and accepted limits
 
