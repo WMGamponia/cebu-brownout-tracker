@@ -16,7 +16,7 @@ Base URL: `https://www.visayanelectric.com/post/<slug>`.
 | `service-interruption-november-30-december-6-2025` | 2026-11-10T15:40:46Z | barangay-first layout; cross-month week; `- ADDITIONAL` (3); `12:00 AM to 6:00 AM` |
 | `service-interruption-november-8-14-2026` | 2026-11-10T15:40:52Z | newest week at fetch; `- CANCELLED` and `-CANCELLED` (3); empty `Map:` cells; multi-day headings |
 | `service-interruption-december-28-2025` | 2026-11-10T15:41:16Z | year-end one-day post (no week in the sitemap crosses a year; rollover is unit-tested) |
-| `service-interruption-september-27-october-3-2026` | 2026-11-10T15:41:23Z | cross-month week; status as Unicode bold `𝐂𝐀𝐍𝐂𝐄𝐋𝐋𝐄𝐃` / `𝐀𝐃𝐃𝐈𝐓𝐈𝐎𝐍𝐀𝐋` with no dash; `(2.5hrs)`, `(8 hrs)`, `:30` times; cancelled overnight |
+| `service-interruption-september-27-october-3-2026` | 2026-11-10T15:41:23Z | cross-month week; **map thumbnail in each of its 30 `Map:` cells** (recon saw none); status as Unicode bold `𝐂𝐀𝐍𝐂𝐄𝐋𝐋𝐄𝐃` / `𝐀𝐃𝐃𝐈𝐓𝐈𝐎𝐍𝐀𝐋` with no dash; `(2.5hrs)`, `(8 hrs)`, `:30` times; cancelled overnight |
 | `service-interruption-june-29-july-3-2024` | 2026-11-10T15:41:30Z | mid-2024 cross-month week; `June 29,  2024  (Saturday)` with double spaces |
 | `interruption-june-22-28-2025` | 2026-11-10T15:41:37Z | slug without `service-`; **structured areas** layout (`Barangays:` / `Streets:` / … lines) |
 | `copy-of-service-interruption-july-6-12-2025` | 2026-11-10T15:51:47Z | `copy-of-` slug (the only post for that week); structured areas |
