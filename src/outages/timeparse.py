@@ -32,24 +32,50 @@ WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", 
 
 _MONTH = r"(?:" + "|".join(MONTHS) + r")"
 
+# `CANCELLED` after a heading cancels every outage under it.
+_HEADING_STATUS = r"(?:\s*-\s*(?P<status>cancelled))?$"
+# The year may follow without a comma (`April 18-19 2026`); the closing `)` may be missing.
 _HEADING = re.compile(
-    rf"^(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:,\s*(?P<y1>\d{{4}}))?"
+    rf"^(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:\s*,\s*(?P<y1>\d{{4}}))?"
     rf"(?:\s*-\s*(?:(?P<m2>{_MONTH})\s+)?(?P<d2>\d{{1,2}}))?"
-    rf",\s*(?P<y2>\d{{4}})"
-    r"(?:\s*\((?P<wd>[^)]*)\))?$",
+    rf"(?:\s*,\s*|\s+)(?P<y2>\d{{4}})"
+    r"(?:\s*\((?P<wd>[^)]*)\)?)?" + _HEADING_STATUS,
+    re.IGNORECASE,
+)
+# Two full dates, each with its weekday: `August 29, 2024 (Thursday)-August 30, 2024 (Friday)`.
+_HEADING_PAIR = re.compile(
+    rf"^(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})\s*,\s*(?P<y1>\d{{4}})\s*\((?P<wd1>[^)]*)\)"
+    rf"\s*-\s*(?P<m2>{_MONTH})\s+(?P<d2>\d{{1,2}})\s*,\s*(?P<y2>\d{{4}})"
+    r"(?:\s*\((?P<wd2>[^)]*)\)?)?" + _HEADING_STATUS,
     re.IGNORECASE,
 )
 
-_CLOCK = r"\d{1,2}:\d{2}\s*[AP]M"
+_CLOCK = r"\d{1,2}:\d{2}\s*(?:[AP]M|NN)"
 _TIME = re.compile(
     rf"^(?P<t1>{_CLOCK})(?:\s+of\s+(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}}))?"
     rf"\s+to\s+(?P<t2>{_CLOCK})(?:\s+of\s+(?P<m2>{_MONTH})\s+(?P<d2>\d{{1,2}}))?"
-    r"(?:\s*\((?P<label>(?P<hours>\d+(?:\.\d+)?)\s*hrs?)\))?"
-    r"(?:\s*-?\s*(?P<status>cancelled|additional))?$",
+    r"(?:\s*\((?P<label>(?P<hours>\d+(?:\.\d+)?)\s*hrs?(?:\s*(?P<mins>\d+)\s*mins?)?)\))?"
+    r"(?:\s*-?\s*\(?(?P<status>additional\s*-\s*cancel+ed+|cancel+ed+|additional(?:\s+outage)?|revised)\)?)?$",
     re.IGNORECASE,
+)
+# Mechanical typo repairs applied before matching (2026-11-11 backfill).
+_REPAIRS = (
+    (re.compile(r"^time:\s*", re.IGNORECASE), ""),  # `Time:` repeated inside the value
+    (re.compile(r"\b([AP])\.\s*M\.?", re.IGNORECASE), r"\1M"),  # `A.M.`
+    (re.compile(r"\b(\d{1,2}):(\d) (\d)\b"), r"\1:\2\3"),  # `5:0 0 PM`
+    (re.compile(r"\)\)+"), ")"),  # `(4hrs))`
+    (re.compile(r"(\(\d+(?:\.\d+)?\s*hrs?)\s*$", re.IGNORECASE), r"\1)"),  # unclosed `(8hrs`
 )
 
 Status = Literal["scheduled", "cancelled", "additional"]
+
+
+class AmPmSlip(ValueError):
+    """The duration label is 12 h off the times: one AM/PM is wrong, but not which one."""
+
+
+class HeadingOutsideWeek(ValueError):
+    """A heading date outside the post's own week that its weekday can't pin down."""
 
 
 @dataclass(frozen=True)
@@ -59,6 +85,7 @@ class DateRange:
     start: date
     end: date
     weekday_text: str | None
+    status: Literal["cancelled"] | None = None
 
 
 @dataclass(frozen=True)
@@ -80,22 +107,103 @@ def _date(y: int, m: str, d: str) -> date | None:
 def parse_heading(line: str) -> DateRange | None:
     """`November 11-12, 2026 (Wednesday-Thursday)` and the other spec 5.3 forms, else None."""
     m = _HEADING.match(line)
-    if not m:
-        return None
-    y2 = int(m["y2"])
-    if m["d2"] is None:
-        start = _date(y2, m["m1"], m["d1"])
-        end = start
+    if m:
+        y2 = int(m["y2"])
+        if m["d2"] is None:
+            start = _date(y2, m["m1"], m["d1"])
+            end = start
+        else:
+            end = _date(y2, m["m2"] or m["m1"], m["d2"])
+            y1 = int(m["y1"]) if m["y1"] else y2
+            start = _date(y1, m["m1"], m["d1"])
+            if start and end and start > end and not m["y1"]:
+                start = _date(y2 - 1, m["m1"], m["d1"])  # `December 31 - January 1, 2026`
+        wd = m["wd"].strip() if m["wd"] else None
     else:
-        end = _date(y2, m["m2"] or m["m1"], m["d2"])
-        y1 = int(m["y1"]) if m["y1"] else y2
-        start = _date(y1, m["m1"], m["d1"])
-        if start and end and start > end and not m["y1"]:
-            start = _date(y2 - 1, m["m1"], m["d1"])  # `December 31 - January 1, 2026`
+        m = _HEADING_PAIR.match(line)
+        if not m:
+            return None
+        start = _date(int(m["y1"]), m["m1"], m["d1"])
+        end = _date(int(m["y2"]), m["m2"], m["d2"])
+        wd = "-".join(w.strip() for w in (m["wd1"], m["wd2"]) if w and w.strip())
     if start is None or end is None or end < start:
         return None
-    wd = m["wd"].strip() if m["wd"] else None
-    return DateRange(start, end, wd or None)
+    return DateRange(start, end, wd or None, "cancelled" if m["status"] else None)
+
+
+_SLUG = re.compile(
+    r"interruption-(?P<m1>[a-z]+)-(?P<d1>\d{1,2})(?:-(?P<y1>20\d\d))?"
+    r"(?:-(?:(?P<m2>[a-z]+)-)?(?P<d2>\d{1,2}))?-(?P<y2>20\d\d)(?:-\d+)?$"
+)
+
+
+def _slug_month(s: str) -> str | None:
+    """`oct` and `october` -> `october`."""
+    return next((n for n in MONTHS if len(s) >= 3 and n.startswith(s)), None)
+
+
+def slug_week(slug: str | None) -> tuple[date, date] | None:
+    """The days a post covers, from its slug (`…-interruption-december-7-11-2024`), else None.
+
+    A one-date slug gives None: in 2024 those are publish dates (`april-6-2024` runs to April 9).
+    """
+    m = _SLUG.search(slug or "")
+    if not m or m["d2"] is None:
+        return None
+    m1 = _slug_month(m["m1"])
+    m2 = _slug_month(m["m2"]) if m["m2"] else m1
+    if m1 is None or m2 is None:
+        return None
+    y2 = int(m["y2"])
+    end = _date(y2, m2, m["d2"] or m["d1"])
+    start = _date(int(m["y1"]) if m["y1"] else y2, m1, m["d1"])
+    if start and end and start > end and not m["y1"]:
+        start = _date(y2 - 1, m1, m["d1"])
+    if start is None or end is None or start > end:
+        return None
+    return start, end
+
+
+SLUG_SLACK = timedelta(days=2)
+
+
+def fix_heading(h: DateRange, week: tuple[date, date] | None) -> tuple[DateRange, tuple[str, ...]]:
+    """Correct a heading date that falls outside the post's own week (VECO typos such as
+    `November 7, 2024 (Saturday)` in the December 7-11 post).
+
+    A date within SLUG_SLACK days of the week is kept: slugs are sometimes a day short (the
+    `april-6-2024` post also lists April 7), and overnight work ends the day after. The typos
+    seen are 7 to 30 days off. Further out, the weekday must name exactly one day of the week;
+    that day replaces the date, with a warning. Otherwise HeadingOutsideWeek: the post fails
+    rather than storing a guess.
+    """
+    if week is None:
+        return h, ()
+    ws, we = week
+    lo, hi = ws - SLUG_SLACK, we + SLUG_SLACK
+    names = [w.strip().lower() for w in (h.weekday_text or "").split("-")]
+    days = [ws + timedelta(days=i) for i in range((we - ws).days + 1)]
+    warnings: list[str] = []
+
+    def pin(d: date, name: str) -> date:
+        if lo <= d <= hi:
+            return d
+        hits = [x for x in days if WEEKDAYS[x.weekday()] == name]
+        if len(hits) != 1:
+            raise HeadingOutsideWeek(
+                f"heading date {d} is outside the post's week {ws}..{we} and its weekday "
+                f"{name!r} doesn't pin one day"
+            )
+        warnings.append(f"heading date {d} corrected to {hits[0]} (post week {ws}..{we})")
+        return hits[0]
+
+    start = pin(h.start, names[0])
+    end = start if h.end == h.start else pin(h.end, names[-1])
+    if end < start:
+        raise HeadingOutsideWeek(f"corrected heading {start}..{end} runs backwards")
+    if (start, end) == (h.start, h.end):
+        return h, ()
+    return DateRange(start, end, h.weekday_text, h.status), tuple(warnings)
 
 
 def heading_warnings(h: DateRange) -> tuple[str, ...]:
@@ -112,12 +220,24 @@ def heading_warnings(h: DateRange) -> tuple[str, ...]:
 
 
 def _clock(s: str) -> time | None:
-    hm, ampm = s[:-2].strip(), s[-2:].upper()
+    hm, suffix = s[:-2].strip(), s[-2:].upper()
     h, mi = (int(x) for x in hm.split(":"))
     if not (1 <= h <= 12 and 0 <= mi <= 59):
         return None
+    if suffix == "NN":  # `12:00 NN` is noon; NN on any other hour is nonsense
+        return time(12, mi) if h == 12 else None
     # 12:00 AM is midnight at the start of the day; 12:00 PM is noon.
-    return time(h % 12 + (12 if ampm == "PM" else 0), mi)
+    return time(h % 12 + (12 if suffix == "PM" else 0), mi)
+
+
+def _flip(s: str) -> str:
+    return s[:-2] + {"AM": "PM", "PM": "AM"}.get(s[-2:].upper(), s[-2:])
+
+
+def _repair(line: str) -> str:
+    for rx, repl in _REPAIRS:
+        line = rx.sub(repl, line)
+    return line.strip()
 
 
 def _explicit(m: str, d: str, h: DateRange) -> date | None:
@@ -127,8 +247,11 @@ def _explicit(m: str, d: str, h: DateRange) -> date | None:
 
 
 def parse_time(line: str, heading: DateRange) -> TimeRange | None:
-    """A time line under `heading`; None when it matches no known form (a hard failure)."""
-    m = _TIME.match(line)
+    """A time line under `heading`; None when it matches no known form (a hard failure).
+
+    Raises AmPmSlip when the duration label is exactly 12 h off the times.
+    """
+    m = _TIME.match(_repair(line))
     if not m:
         return None
     t1, t2 = _clock(m["t1"]), _clock(m["t2"])
@@ -150,14 +273,40 @@ def parse_time(line: str, heading: DateRange) -> TimeRange | None:
         if end <= start:
             warnings.append(f"end {end.isoformat()} is not after start {start.isoformat()}")
 
-    for d in {d for d in (d1, d2) if d is not None and (m["m1"] or m["m2"])}:
-        if not heading.start <= d <= heading.end:
-            warnings.append(f"explicit date {d} outside heading {heading.start}..{heading.end}")
+    # An end on the day after the heading is overnight work, not a stray date.
+    outside = {
+        d
+        for d, explicit, last in (
+            (d1, m["m1"], heading.end),
+            (d2, m["m2"], heading.end + timedelta(days=1)),
+        )
+        if explicit and d is not None and not heading.start <= d <= last
+    }
+    for d in sorted(outside):
+        warnings.append(f"explicit date {d} outside heading {heading.start}..{heading.end}")
 
     if m["hours"] is not None:
         computed = (end - start).total_seconds() / 3600
-        if abs(computed - float(m["hours"])) > 0.01:
+        labelled = float(m["hours"]) + int(m["mins"] or 0) / 60
+        off = abs(computed - labelled)
+        if abs(off - 12) < 0.01:
+            # Flipping either AM/PM moves the span by the same 12 h, so the label can't say
+            # which one is wrong (owner, 2026-11-11: fail rather than guess).
+            raise AmPmSlip(
+                f"AM/PM slip in {line!r}: label {m['label']!r} but times span {computed:g}h; "
+                f"could be {_flip(m['t1'])!r} or {_flip(m['t2'])!r}"
+            )
+        if off > 0.01:
             warnings.append(f"duration label {m['label']!r} but times span {computed:g}h")
 
-    status: Status = m["status"].lower() if m["status"] else "scheduled"  # type: ignore[assignment]
+    word = (m["status"] or "").lower()
+    status: Status = "scheduled"
+    if "cancel" in word:
+        status = "cancelled"
+        if "additional" in word:
+            warnings.append(f"{m['status']!r} read as cancelled")
+    elif word.startswith("additional"):
+        status = "additional"
+    elif word == "revised":
+        warnings.append("marked REVISED; status left as scheduled")
     return TimeRange(start, end, m["label"], status, tuple(sorted(warnings)))

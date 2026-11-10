@@ -103,7 +103,7 @@ def _drop_block(html: str, areas_marker: str) -> str:
 def test_unchanged_hash_skips_parse(conn, monkeypatch):
     html = read_post(JAN)
     pipeline.process_post(conn, ref(JAN), html, NOW)
-    monkeypatch.setattr(pipeline, "parse_post", lambda ex: pytest.fail("parsed again"))
+    monkeypatch.setattr(pipeline, "parse_post", lambda ex, slug=None: pytest.fail("parsed again"))
     assert pipeline.process_post(conn, ref(JAN), html, NOW) == "unchanged"
     assert _count(conn, "SELECT count(*) FROM post_versions") == 1
 
@@ -188,8 +188,9 @@ def test_reparse_after_parser_fix_logs_nothing(conn, monkeypatch):
     pipeline.process_post(conn, ref(JAN), read_post(JAN), NOW)
     real = pipeline.parse_post
 
-    def fixed(ex):  # a "parser fix" that changes one outage's areas
-        r = real(ex)
+    def fixed(ex, slug=None):  # a "parser fix" that changes one outage's areas
+        assert slug == JAN  # the slug gives parse_post the post's week
+        r = real(ex, slug)
         o2 = replace(r.outages[0], areas_raw="X", areas_key="x")
         return replace(r, outages=(o2, *r.outages[1:]))
 
@@ -208,9 +209,9 @@ def test_reparse_of_newer_failed_version_logs_changes(conn, monkeypatch):
     # The parser learns to ignore "maybe": reparse now reads the newer version, a real edit.
     real = pipeline.parse_post
 
-    def lenient(ex):
+    def lenient(ex, slug=None):
         lines = tuple(replace(ln, text=ln.text.replace(" maybe", "")) for ln in ex.lines)
-        return real(replace(ex, lines=lines))
+        return real(replace(ex, lines=lines), slug)
 
     monkeypatch.setattr(pipeline, "parse_post", lenient)
     pipeline.reparse(conn, NOW)

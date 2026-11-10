@@ -10,16 +10,30 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from outages.extract import ExtractedPost, Line
-from outages.timeparse import DateRange, heading_warnings, parse_heading, parse_time
+from outages.timeparse import (
+    AmPmSlip,
+    DateRange,
+    HeadingOutsideWeek,
+    fix_heading,
+    heading_warnings,
+    parse_heading,
+    parse_time,
+    slug_week,
+)
 
-_LABEL = re.compile(r"^(time|purpose|areas affected|map):\s*(.*)$", re.IGNORECASE)
-# A line that starts like a date and holds a year but isn't a known heading form
-# (`Nov. 10, 2026`): failing beats filing the next outages under the previous date.
+# `ime:` is a real typo for `Time:` (2026-11-11 backfill).
+_LABEL = re.compile(r"^(t?ime|purpose|areas affected|map):\s*(.*)$", re.IGNORECASE)
+# A time value with no `Time:` label before it.
+_BARE_TIME = re.compile(r"^\d{1,2}:\s?\d")
+# A line that starts like a date and then holds a year-ish number or a `(weekday` but isn't a
+# known heading form (`Nov. 10, 2026`, `November 20, 024 (Wednesday)`): failing beats filing
+# the next outages under the previous date.
 _HEADING_LIKE = re.compile(
-    r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b.*\b20\d{2}\b",
+    r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}\b"
+    r"(?:.*\b\d{2,4}\b|\s*\()",
     re.IGNORECASE,
 )
 _NOT_WORD = re.compile(r"[^\w\s]")
@@ -75,7 +89,10 @@ def areas_key(s: str) -> str:
 
 def _label(line: Line) -> tuple[str, str] | None:
     m = _LABEL.match(line.text)
-    return (m[1].lower(), m[2].strip()) if m else None
+    if not m:
+        return None
+    name = m[1].lower()
+    return ("time" if name == "ime" else name, m[2].strip())
 
 
 def _is_boundary(line: Line) -> bool:
@@ -122,63 +139,83 @@ def _strip_repeated_label(text: str, label: str) -> str:
 class _Block:
     heading: DateRange
     heading_text: str
+    heading_fix: tuple[str, ...] = ()
     time: list[Line] | None = None
     purpose: list[Line] | None = None
     areas: list[Line] | None = None
     map: list[Line] | None = None
 
 
-def _finish(b: _Block, seq: int) -> ParsedOutage:
+def _finish(b: _Block, seq: int) -> list[ParsedOutage]:
+    """The block's outages: one, or one per range when a line holds `A to B (1hr); C to D`."""
     if not b.time:
         raise _Fail(f"block under {b.heading_text!r} has no time")
     if not b.areas:
         raise _Fail(f"block at {b.time[0].text!r} under {b.heading_text!r} has no areas")
     time_text = " ".join(ln.text for ln in b.time)
-    tr = parse_time(time_text, b.heading)
-    if tr is None:
-        raise _Fail(f"unknown time format {time_text!r} under {b.heading_text!r}")
-    warnings = list(heading_warnings(b.heading)) + list(tr.warnings)
+    parts = [p.strip() for p in time_text.split(";") if p.strip()]
+    ranges = []
+    for part in parts:
+        try:
+            tr = parse_time(part, b.heading)
+        except AmPmSlip as e:
+            raise _Fail(f"{e} under {b.heading_text!r}") from None
+        if tr is None:
+            raise _Fail(f"unknown time format {time_text!r} under {b.heading_text!r}")
+        ranges.append(tr)
+
+    common = [*b.heading_fix, *heading_warnings(b.heading)]
     if not b.purpose:
-        warnings.append("no purpose")
+        common.append("no purpose")
     lines = [*b.time, *(b.purpose or []), *b.areas, *(b.map or [])]
     if any(ln.struck for ln in lines):
-        warnings.append("strikethrough in block (status left as posted)")
+        common.append("strikethrough in block (status left as posted)")
     imgs = [u for ln in (b.map or []) for u in ln.img_urls]
     if len(imgs) > 1:
-        warnings.append(f"{len(imgs)} map images; kept the first")
+        common.append(f"{len(imgs)} map images; kept the first")
+    if len(ranges) > 1:
+        common.append(f"one of {len(ranges)} time ranges on one line")
+    if b.heading.status == "cancelled":
+        common.append("cancelled by its date heading")
     area_lines = [ln.text for ln in b.areas]
     area_lines[0] = _strip_repeated_label(area_lines[0], "areas affected")
     areas_raw = "\n".join(t for t in area_lines if t)
-    return ParsedOutage(
-        seq=seq,
-        heading_text=b.heading_text,
-        start_at=tr.start,
-        end_at=tr.end,
-        duration_label=tr.duration_label,
-        status=tr.status,
-        purpose=" ".join(ln.text for ln in b.purpose or []),
-        areas_raw=areas_raw,
-        areas_key=areas_key(areas_raw),
-        map_image_url=imgs[0] if imgs else None,
-        warnings=tuple(warnings),
-    )
+    return [
+        ParsedOutage(
+            seq=seq + k,
+            heading_text=b.heading_text,
+            start_at=tr.start,
+            end_at=tr.end,
+            duration_label=tr.duration_label,
+            status=b.heading.status or tr.status,
+            purpose=" ".join(ln.text for ln in b.purpose or []),
+            areas_raw=areas_raw,
+            areas_key=areas_key(areas_raw),
+            map_image_url=imgs[0] if imgs else None,
+            warnings=(*common, *tr.warnings),
+        )
+        for k, tr in enumerate(ranges)
+    ]
 
 
 def _has_more_blocks(lines: tuple[Line, ...], i: int) -> bool:
     return any(_is_boundary(ln) or (_label(ln) or ("",))[0] == "time" for ln in lines[i:])
 
 
-def _parse(lines: tuple[Line, ...]) -> tuple[list[ParsedOutage], list[str]]:
+def _parse(
+    lines: tuple[Line, ...], week: tuple[date, date] | None
+) -> tuple[list[ParsedOutage], list[str]]:
     outages: list[ParsedOutage] = []
     post_warnings: list[str] = []
     heading: DateRange | None = None
     heading_text = ""
+    heading_fix: tuple[str, ...] = ()
     block: _Block | None = None
 
     def close() -> None:
         nonlocal block
         if block is not None:
-            outages.append(_finish(block, len(outages)))
+            outages.extend(_finish(block, len(outages)))
             block = None
 
     i = 0
@@ -187,7 +224,11 @@ def _parse(lines: tuple[Line, ...]) -> tuple[list[ParsedOutage], list[str]]:
         h = parse_heading(ln.text)
         if h is not None:
             close()
-            heading, heading_text = h, ln.text
+            try:
+                heading, heading_fix = fix_heading(h, week)
+            except HeadingOutsideWeek as e:
+                raise _Fail(f"{e} ({ln.text!r})") from None
+            heading_text = ln.text
             i += 1
             continue
         if heading is None:  # title, "x days ago", "Updated: …" before the first heading
@@ -196,6 +237,11 @@ def _parse(lines: tuple[Line, ...]) -> tuple[list[ParsedOutage], list[str]]:
         if _HEADING_LIKE.match(ln.text):
             raise _Fail(f"unknown date heading format {ln.text!r}")
         lab = _label(ln)
+        if lab is not None and ln.text[:4].lower() == "ime:":
+            post_warnings.append(f"label {ln.text[:4]!r} read as 'Time:'")
+        if lab is None and _BARE_TIME.match(ln.text):
+            post_warnings.append(f"time line without 'Time:' label: {ln.text!r}")
+            lab = ("time", ln.text)
         if lab is None:
             if _has_more_blocks(lines, i + 1):
                 post_warnings.append(f"ignored line {ln.text!r}")
@@ -205,7 +251,7 @@ def _parse(lines: tuple[Line, ...]) -> tuple[list[ParsedOutage], list[str]]:
         name, rest = lab
         if name == "time":
             close()
-            block = _Block(heading, heading_text)
+            block = _Block(heading, heading_text, heading_fix)
         elif block is None:
             raise _Fail(f"{name!r} before any time under {heading_text!r}")
         value, i = _value(lines, i, name, rest)
@@ -223,10 +269,13 @@ def _parse(lines: tuple[Line, ...]) -> tuple[list[ParsedOutage], list[str]]:
     return outages, post_warnings
 
 
-def parse_post(post: ExtractedPost) -> ParseResult:
-    """Parse a post; on any hard failure return `error` and no outages (spec 5.4)."""
+def parse_post(post: ExtractedPost, slug: str | None = None) -> ParseResult:
+    """Parse a post; on any hard failure return `error` and no outages (spec 5.4).
+
+    `slug` gives the post's own week, used to correct heading dates outside it (fix_heading).
+    """
     try:
-        outages, warnings = _parse(post.lines)
+        outages, warnings = _parse(post.lines, slug_week(slug))
     except _Fail as e:
         return ParseResult((), (), str(e))
     return ParseResult(tuple(outages), tuple(warnings), None)

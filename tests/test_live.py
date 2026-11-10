@@ -24,6 +24,6 @@ def test_live_newest_post_parses():
         assert html is not None
     finally:
         f.close()
-    result = parse_post(extract_post(html))
+    result = parse_post(extract_post(html), refs[-1].slug)
     assert result.error is None, f"{refs[-1].slug}: {result.error}"
     assert result.outages

@@ -58,10 +58,11 @@ def _parse_and_apply(
     ex: ExtractedPost,
     now: datetime,
     log_changes: bool,
+    slug: str | None = None,
 ) -> bool:
     """Parse and upsert one stored version; False when parsing failed, which leaves the
     stored outages untouched (spec 6.2). A post's first outages are never logged (6.1)."""
-    result = parse_post(ex)
+    result = parse_post(ex, slug)
     if result.error:
         log.warning("post %s: parse failed: %s", post_id, result.error)
         db.set_parse_status(conn, post_id, "failed", result.error, result.warnings)
@@ -87,7 +88,9 @@ def process_post(conn: sqlite3.Connection, ref: PostRef, html: str, now: datetim
         version_id = db.store_version(conn, post_id, ex, _utc(now))
         if version_id is None:
             return "unchanged"
-        if not _parse_and_apply(conn, post_id, version_id, ex, now, log_changes=True):
+        if not _parse_and_apply(
+            conn, post_id, version_id, ex, now, log_changes=True, slug=ref.slug
+        ):
             return "failed"
         return "changed" if had_version else "new"
 
@@ -194,7 +197,9 @@ def reparse(conn: sqlite3.Connection, now: datetime) -> CheckSummary:
             ).fetchone()[0]
             newer = seen is not None and seen < version_id
             before = [o.to_json() for o in db.active_outages(conn, post_id)]
-            ok = _parse_and_apply(conn, post_id, version_id, ex, now, log_changes=newer)
+            ok = _parse_and_apply(
+                conn, post_id, version_id, ex, now, log_changes=newer, slug=row["slug"]
+            )
             after = [o.to_json() for o in db.active_outages(conn, post_id)]
         summary = CheckSummary(
             summary.fetched,
