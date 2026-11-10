@@ -10,7 +10,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 ## Status
 
 **Current phase:** Phase 0 — Setup (in progress).
-**Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `service-interruption` (151 posts, Jan 2024 → now).
+**Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
 - **2026-11-10** — Project started. Recon and brainstorm done. Phase 1 spec: `docs/superpowers/specs/2026-11-10-phase1-ingest-parser-design.md`.
@@ -24,6 +24,10 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - **GitHub repo private for now** (owner, 2026-11-10).
   - **Local Qwen (Ollama) is the default LLM; Claude Haiku is an optional eval arm** (owner, 2026-11-10). A claude.ai plan gives no API access, and the project must not depend on a paid service. The eval runs rules vs local Qwen, plus Haiku only when `ANTHROPIC_API_KEY` is set (skipped and noted otherwise). The pipeline uses whichever of rules / Qwen wins.
 
+- **2026-11-10** — Spec approved. Phase 1 plan written: `docs/superpowers/plans/2026-11-10-phase1-ingest-parser.md` (10 tasks, TDD). **Session 2** (Tasks 1–5): scaffold + CI, fixtures, normalize/timeparse, extract, parser with golden tests, then stop for review. **Session 3** (Tasks 6–10): DB, upsert, discover/fetch, CLI + serve, live backfill and report. Start session 2 with `prompts/phase1_session2.md`.
+  - Planning caught one inconsistent slug: `interruption-june-22-28-2025` has no `service-` prefix, so discovery matches slugs containing `interruption` (151 posts).
+  - The text hash skips everything before the first date heading, because `5 days ago` / `Updated: 6 hours ago` sit inside the post and would make every fetch look like an edit.
+
 ### Known issues
 _None yet._
 
@@ -32,7 +36,7 @@ _None yet._
 
 ## Phase 0 — Setup
 - [x] Recon, brainstorm, ROADMAP, Phase 1 spec.
-- [ ] Phase 1 plan with session schedule and hand-off prompts.
+- [x] Phase 1 plan with session schedule and hand-off prompts.
 - [ ] Git repo (private, `WMGamponia`), `pyproject.toml`, ruff + pytest, `.github/` (copilot instructions, PR template, prompts), CI on Ubuntu + Windows.
 
 ## Phase 1 — Ingest, parse, store, backfill

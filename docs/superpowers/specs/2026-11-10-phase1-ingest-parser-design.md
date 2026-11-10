@@ -18,7 +18,7 @@ Success:
 
 | Topic | Decision |
 |---|---|
-| Discovery | `blog-posts-sitemap.xml`, posts whose slug contains `service-interruption`. Slugs are never constructed. The listing pages are not crawled. |
+| Discovery | `blog-posts-sitemap.xml`, posts whose slug contains `interruption` (one post, `interruption-june-22-28-2025`, lacks the `service-` prefix). Slugs are never constructed. The listing pages are not crawled. |
 | Polling | Checks at 07:00 and 17:00 Asia/Manila. Phase 3 adds one fetch of the current week's post right before each alert run (≤ ~4 requests/day in total). |
 | Runs on | The owner's PC. One `serve` process; catch-up check on start if the last check is > 12 h old. |
 | LLM | None in Phase 1. Phase 2: barangays and cities by rules; streets/sitios/landmarks by rules or local Qwen via Ollama (the default LLM), chosen by the eval. Claude Haiku is an optional eval arm, run only when `ANTHROPIC_API_KEY` is set. No paid service is required. |
@@ -47,7 +47,7 @@ Fetched with User-Agent `CebuBrownoutTracker/0.1`, a few seconds apart: `robots.
 - `robots.txt`: `User-agent: * / Allow: / / Disallow: *?lightbox=`. Blog posts are allowed.
 - No terms-of-use page in `pages-sitemap.xml`. The privacy statement says nothing about automated access.
 - Wix site. Each post page is ~1.3 MB; the post content is server-rendered (Ricos), largely as table cells.
-- `blog-posts-sitemap.xml` lists 552 posts with `lastmod` (a date, no time). 151 slugs contain `service-interruption`, the oldest from January 2024. 2024 has many one-day posts and follow-ups with a `-1` suffix (`…january-24-2024-1`).
+- `blog-posts-sitemap.xml` lists 552 posts with `lastmod` (a date, no time). 151 slugs contain `interruption` (150 of them `service-interruption`), the oldest from January 2024. 2024 has many one-day posts and follow-ups with a `-1` suffix (`…january-24-2024-1`).
 
 ### 3.2 Post structure
 - A date heading is followed by one or more outage blocks. The date is **not** repeated per outage.
