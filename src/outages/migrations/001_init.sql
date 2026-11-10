@@ -18,7 +18,8 @@ CREATE TABLE posts (
     text_hash        TEXT,
     parse_status     TEXT NOT NULL DEFAULT 'pending'
                      CHECK (parse_status IN ('ok', 'failed', 'pending')),
-    parse_error      TEXT
+    parse_error      TEXT,
+    parse_warnings_json TEXT NOT NULL DEFAULT '[]'  -- post-level warnings (ignored lines)
 );
 
 -- One row per distinct text_hash of a post; content_gz is the gzipped content-node HTML.

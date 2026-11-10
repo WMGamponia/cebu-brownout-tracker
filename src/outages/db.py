@@ -153,11 +153,30 @@ def active_outages(conn: sqlite3.Connection, post_id: int) -> list[StoredOutage]
 
 
 def set_parse_status(
-    conn: sqlite3.Connection, post_id: int, status: str, error: str | None
+    conn: sqlite3.Connection,
+    post_id: int,
+    status: str,
+    error: str | None,
+    warnings: tuple[str, ...] | None = None,
 ) -> None:
+    """Record a parse outcome; `warnings` (post-level) replace the stored ones when given."""
     conn.execute(
         "UPDATE posts SET parse_status = ?, parse_error = ? WHERE id = ?", (status, error, post_id)
     )
+    if warnings is not None:
+        conn.execute(
+            "UPDATE posts SET parse_warnings_json = ? WHERE id = ?",
+            (json.dumps(list(warnings), ensure_ascii=False), post_id),
+        )
+
+
+def latest_version(conn: sqlite3.Connection, post_id: int) -> tuple[int, str] | None:
+    """(version id, content-node HTML) of the post's newest stored version."""
+    row = conn.execute(
+        "SELECT id, content_gz FROM post_versions WHERE post_id = ? ORDER BY id DESC LIMIT 1",
+        (post_id,),
+    ).fetchone()
+    return (row[0], gzip.decompress(row[1]).decode("utf-8")) if row else None
 
 
 def _outage_values(n: ParsedOutage) -> tuple:
