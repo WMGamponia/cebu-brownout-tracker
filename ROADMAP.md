@@ -35,8 +35,11 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - Also seen and handled: status in Unicode bold `𝐂𝐀𝐍𝐂𝐄𝐋𝐋𝐄𝐃` with no dash (NFKC), `(2.5hrs)` / `(8 hrs)`, `:30` times, a `copy-of-` slug that is the only post for its week.
   - Each post is one DB transaction, so an interrupted backfill resumes cleanly; `reparse` logs changes only for a version newer than the outages' source, so a parser fix is never reported as a VECO edit.
 
+- **2026-11-11** — **Live backfill: 151 posts fetched, 113 parsed (2,112 outages: 127 cancelled, 29 additional), 38 failed, 45 warnings, 0 fetch errors** (~19 min, one DNS error recovered by the retry). Stopped for the owner: the failures are formats the spec doesn't list.
+
 ### Known issues
-_None yet._
+- **38 posts fail to parse** (2026-11-11 backfill), each on its first unknown line: two time ranges in one line (7), `CANCELLED` on the date heading (3), other heading forms (9), unclosed `(8hrs` (5), and 14 one-offs (`12:00 NN`, `A.M.`, `5:0 0 PM`, `(4hrs))`, `Time:` repeated in the value, `CANCELLEDD`, `(ADDITIONAL)`, `ADDITIONAL-CANCELLED`, `REVISED`, `(1hr 30mins)`, `ime:`, a missing `Time:` label, a second `Purpose:`). Waiting on the owner's decisions.
+- **Some stored dates are probably wrong**: VECO typos in headings (`November 7, 2024 (Saturday)` in the Dec 7–11 2024 post, `February 25, 2025 (Wednesday)` in Feb 1–7, `January 15-26`) and AM/PM slips (`8hrs` label, 20 h span). Today they're stored with a warning. Waiting on the owner's decision.
 
 ### Lessons for later phases
 _None yet._
