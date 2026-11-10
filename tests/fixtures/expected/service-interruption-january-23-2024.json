@@ -1,0 +1,67 @@
+[
+  {
+    "seq": 0,
+    "heading_text": "January 23, 2024 (Tuesday)",
+    "start_at": "2024-01-23T09:00:00+08:00",
+    "end_at": "2024-01-23T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To prevent unnecessary interruptions due to obstruction of pole in the distribution system serving Brgy. Tisa by facilitating relocation of primary pole as per customer request.",
+    "areas_raw": "Portion of Cebu City (Tisa) including portions of South Hills Subdivision.",
+    "areas_key": "portion of cebu city tisa including portions of south hills subdivision",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 1,
+    "heading_text": "January 23, 2024 (Tuesday)",
+    "start_at": "2024-01-23T08:00:00+08:00",
+    "end_at": "2024-01-23T10:00:00+08:00",
+    "duration_label": "2hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Casuntingan by facilitating removal of line device hardware (DS/FCO/Insulator/LBS).",
+    "areas_raw": "Portion of Mandaue City (Casuntingan) along L.C. Cabrera St., A.Seno St. and Gethsemane Road, including Holy Trinity Subd., Villa Concordia, Zen Residences, Felisa Villag and TBU Complex Aniceto.",
+    "areas_key": "portion of mandaue city casuntingan along l c cabrera st a seno st and gethsemane road including holy trinity subd villa concordia zen residences felisa villag and tbu complex aniceto",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 2,
+    "heading_text": "January 23, 2024 (Tuesday)",
+    "start_at": "2024-01-23T09:00:00+08:00",
+    "end_at": "2024-01-23T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Binaliw by facilitating installation of primary pole.",
+    "areas_raw": "Portion of Cebu City (Binaliw) along Orchard Drive including Piccadilly Premier Land, Inc.",
+    "areas_key": "portion of cebu city binaliw along orchard drive including piccadilly premier land inc",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 3,
+    "heading_text": "January 23, 2024 (Tuesday)",
+    "start_at": "2024-01-23T09:00:00+08:00",
+    "end_at": "2024-01-23T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Danglag by facilitating installation of primary pole.",
+    "areas_raw": "Portion of Consolacion (Danglag) along Diversion Road including Hsinlei Development Corp.",
+    "areas_key": "portion of consolacion danglag along diversion road including hsinlei development corp",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 4,
+    "heading_text": "January 23, 2024 (Tuesday)",
+    "start_at": "2024-01-23T09:00:00+08:00",
+    "end_at": "2024-01-23T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To prevent unnecessary interruptions due to obstruction of pole in the distribution system serving Brgy. Tilhaong by facilitating relocation of primary pole as per customer request.",
+    "areas_raw": "Portion of Consolacion (Tilhaong) including portions of Sitio's Tambis and Mangga also NC Hard Rock Trading.",
+    "areas_key": "portion of consolacion tilhaong including portions of sitio s tambis and mangga also nc hard rock trading",
+    "map_image_url": null,
+    "warnings": []
+  }
+]

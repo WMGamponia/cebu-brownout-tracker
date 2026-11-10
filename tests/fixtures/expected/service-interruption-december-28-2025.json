@@ -1,0 +1,15 @@
+[
+  {
+    "seq": 0,
+    "heading_text": "December 28, 2025 (Sunday)",
+    "start_at": "2025-12-28T08:00:00+08:00",
+    "end_at": "2025-12-28T16:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Alang-Alang by facilitating replacement of distribution transformer.",
+    "areas_raw": "Portion of Alang-Alang, Mandaue City along Portions of Plaridel St., Orlacan St., and J.P Burgos St.",
+    "areas_key": "portion of alang alang mandaue city along portions of plaridel st orlacan st and j p burgos st",
+    "map_image_url": null,
+    "warnings": []
+  }
+]

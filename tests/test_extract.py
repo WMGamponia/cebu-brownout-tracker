@@ -124,6 +124,18 @@ def test_cell_holding_paragraphs_is_not_doubled():
     assert [ln.text for ln in post.lines] == ["a", "b", "c"]
 
 
+def test_cell_index_groups_paragraphs():
+    post = extract_post(
+        _wrap("<p>h</p><table><tr><td><p>a</p><p>b</p></td><td><p>c</p></td></tr></table>")
+    )
+    assert [(ln.text, ln.cell) for ln in post.lines] == [
+        ("h", None),
+        ("a", 0),
+        ("b", 0),
+        ("c", 1),
+    ]
+
+
 def test_no_content_raises():
     with pytest.raises(ExtractError):
         extract_post("<html></html>")

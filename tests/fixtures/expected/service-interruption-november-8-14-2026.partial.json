@@ -1,0 +1,80 @@
+[
+  {
+    "seq": 0,
+    "heading_text": "November 8, 2026 (Sunday)",
+    "start_at": "2026-11-08T07:00:00+08:00",
+    "end_at": "2026-11-08T16:00:00+08:00",
+    "duration_label": "9hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Jubay Poblacion & Cotcot by facilitating installation of primary lines",
+    "areas_raw": "Portion of Jubay, Poblacion & Cotcot, Liloan, along portions of F. Ramas St., J. Luna St., Cebu North Road, & Mabini St",
+    "areas_key": "portion of jubay poblacion cotcot liloan along portions of f ramas st j luna st cebu north road mabini st",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 1,
+    "heading_text": "November 9, 2026 (Monday)",
+    "start_at": "2026-11-09T09:00:00+08:00",
+    "end_at": "2026-11-09T12:00:00+08:00",
+    "duration_label": "3hrs",
+    "status": "scheduled",
+    "purpose": "To prevent unnecessary interruptions due to vegetation in the distribution system serving Brgy. Banilad & Talamban by facilitating trimming of tree branches and leaves",
+    "areas_raw": "Portion of Banilad & Talamban, Cebu City, along portions of Banilad Road, Gov. M. Cuenco Ave, Nashville Road, Nasipit Road, & Rosillos Road",
+    "areas_key": "portion of banilad talamban cebu city along portions of banilad road gov m cuenco ave nashville road nasipit road rosillos road",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 2,
+    "heading_text": "November 10, 2026 (Tuesday)",
+    "start_at": "2026-11-10T08:30:00+08:00",
+    "end_at": "2026-11-10T14:30:00+08:00",
+    "duration_label": "6hrs",
+    "status": "scheduled",
+    "purpose": "To prevent unnecessary interruptions due to obstruction of pole in the distribution system serving Brgy. Tugbungan by facilitating relocation of secondary pole as per customer request",
+    "areas_raw": "Portion of Tugbungan, Consolacion, along portions of Tugbungan Baranggay road and Tomas P. Go Road",
+    "areas_key": "portion of tugbungan consolacion along portions of tugbungan baranggay road and tomas p go road",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 3,
+    "heading_text": "November 10, 2026 (Tuesday)",
+    "start_at": "2026-11-10T09:00:00+08:00",
+    "end_at": "2026-11-10T14:00:00+08:00",
+    "duration_label": "5hrs",
+    "status": "scheduled",
+    "purpose": "To increase the capacity of the distribution system serving Brgy. Centro by facilitating upgrading of distribution transformer",
+    "areas_raw": "Portion of Centro, Mandaue City, along portions of S.B. Cabahug St., U.M. Seno St.",
+    "areas_key": "portion of centro mandaue city along portions of s b cabahug st u m seno st",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 4,
+    "heading_text": "November 10, 2026 (Tuesday)",
+    "start_at": "2026-11-10T08:00:00+08:00",
+    "end_at": "2026-11-10T14:00:00+08:00",
+    "duration_label": "6hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Biasong & Pooc by facilitating installation of secondary lines",
+    "areas_raw": "Portion of Biasong & Pooc, Talisay City, along portions of C. Bacaltos Street & Sitio Cainta Road.",
+    "areas_key": "portion of biasong pooc talisay city along portions of c bacaltos street sitio cainta road",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 5,
+    "heading_text": "November 10, 2026 (Tuesday)",
+    "start_at": "2026-11-10T09:00:00+08:00",
+    "end_at": "2026-11-10T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "cancelled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Lahug by facilitating replacement of primary pole",
+    "areas_raw": "Portion of Lahug, Cebu City, along portions of Salinas Drive Ext.",
+    "areas_key": "portion of lahug cebu city along portions of salinas drive ext",
+    "map_image_url": null,
+    "warnings": []
+  }
+]

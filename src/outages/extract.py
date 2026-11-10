@@ -28,9 +28,13 @@ class ExtractError(Exception):
 
 @dataclass(frozen=True)
 class Line:
+    """One leaf block. `cell` is the index of the enclosing table cell (None outside tables):
+    lines sharing a cell are one value, e.g. a structured areas block (spec 5.4)."""
+
     text: str
     struck: bool
     img_urls: tuple[str, ...]
+    cell: int | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,15 @@ def _img_urls(node: LexborNode) -> tuple[str, ...]:
     return tuple(urls)
 
 
+def _cell(node: LexborNode, content: LexborNode, cells: dict[int, int]) -> int | None:
+    n: LexborNode | None = node
+    while n is not None and n.mem_id != content.mem_id:
+        if n.tag == "td":
+            return cells[n.mem_id]
+        n = n.parent
+    return None
+
+
 def _hash(lines: tuple[Line, ...]) -> str:
     """SHA-256 of the lines from the first date heading on.
 
@@ -94,6 +107,7 @@ def extract_post(html: str) -> ExtractedPost:
     content_html = content.html or ""
     for br in content.css("br"):
         br.replace_with(" ")
+    cells = {td.mem_id: i for i, td in enumerate(content.css("td"))}
     lines = []
     for node in content.css(_BLOCKS):
         if len(node.css(_BLOCKS)) > 1:  # lexbor's node.css() includes the node itself
@@ -101,7 +115,7 @@ def extract_post(html: str) -> ExtractedPost:
         text = normalize_line(node.text(separator=""))
         imgs = _img_urls(node)
         if text or imgs:
-            lines.append(Line(text, _struck(node), imgs))
+            lines.append(Line(text, _struck(node), imgs, _cell(node, content, cells)))
     title_node = tree.css_first('h1[data-hook="post-title"]')
     title = normalize_line(title_node.text()) if title_node else None
     lines_t = tuple(lines)

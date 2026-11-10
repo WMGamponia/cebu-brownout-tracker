@@ -10,7 +10,7 @@ Base URL: `https://www.visayanelectric.com/post/<slug>`.
 | slug | fetched (UTC) | covers |
 |---|---|---|
 | `service-interruption-january-23-2024` | 2026-11-10T15:40:23Z | 2024 one-day post; city-first layout `Portion of Cebu City (Tisa)`; `Time :` / `Purpose :` with a space; no Map field |
-| `service-interruption-february-29-march-01-2024` | 2026-11-10T15:40:29Z | overnight with explicit dates `10:00 PM of February 29 to 6:00 AM of March 1`; heading `February  29, 2024 - March 01, 2024  (Thursday-Friday)`; two-town line; areas wrapped in literal quotes |
+| `service-interruption-february-29-march-01-2024` | 2026-11-10T15:40:29Z | overnight with explicit dates `10:00 PM of February 29 to 6:00 AM of March 1`; heading `February  29, 2024 - March 01, 2024  (Thursday-Friday)`; two-town line |
 | `service-interruption-january-24-2024-1` | 2026-11-10T15:40:36Z | `-1` follow-up slug |
 | `service-interruption-january-18-24-2025` | 2026-11-10T15:40:41Z | weekly, city-first; `( Saturday)`; U+2011 in `Kinasang‑an Pardo`; `San Fernando & City of Naga (Pitalo & Langtad)`; overnight under `January 22-23, 2025` |
 | `service-interruption-november-30-december-6-2025` | 2026-11-10T15:40:46Z | barangay-first layout; cross-month week; `- ADDITIONAL` (3); `12:00 AM to 6:00 AM` |
