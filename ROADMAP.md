@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 0 — Setup (in progress).
+**Current phase:** Phase 1 — Ingest, parse, store, backfill (in progress, branch `phase1-ingest-parser`; code done, backfill next).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -29,6 +29,12 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - Planning caught one inconsistent slug: `interruption-june-22-28-2025` has no `service-` prefix, so discovery matches slugs containing `interruption` (151 posts).
   - The text hash skips everything before the first date heading, because `5 days ago` / `Updated: 6 hours ago` sit inside the post and would make every fetch look like an edit.
 
+- **2026-11-11** — **Phase 1 Tasks 1–9 done** (scaffold → CLI), 153 tests + 1 live test passing, ruff clean.
+  - **Fixtures turned up a third areas layout** (stopped and asked, owner decided 2026-11-11): mid-June → early August 2025 posts list `Barangays:` / `Streets:` / `Sitios:` / … one per line inside the areas cell, after a repeated `Areas Affected:`. One normal post also wraps its areas over two lines. Rule: `areas_raw` = every line of the Areas cell, joined with `\n`. Spec §3.3 and §5.4 amended. 12 fixtures instead of 10.
+  - **Recon was wrong about maps:** `…september-27-october-3-2026` has a Wix thumbnail in all 30 `Map:` cells. Stored as the original `static.wixstatic.com/media/<id>` URL so resize parameters aren't edits.
+  - Also seen and handled: status in Unicode bold `𝐂𝐀𝐍𝐂𝐄𝐋𝐋𝐄𝐃` with no dash (NFKC), `(2.5hrs)` / `(8 hrs)`, `:30` times, a `copy-of-` slug that is the only post for its week.
+  - Each post is one DB transaction, so an interrupted backfill resumes cleanly; `reparse` logs changes only for a version newer than the outages' source, so a parser fix is never reported as a VECO edit.
+
 ### Known issues
 _None yet._
 
@@ -38,14 +44,14 @@ _None yet._
 ## Phase 0 — Setup
 - [x] Recon, brainstorm, ROADMAP, Phase 1 spec.
 - [x] Phase 1 plan and hand-off prompt.
-- [ ] Git repo (private, `WMGamponia`), `pyproject.toml`, ruff + pytest, `.github/` (copilot instructions, PR template, prompts), CI on Ubuntu + Windows.
+- [ ] Git repo (private, `WMGamponia`), `pyproject.toml`, ruff + pytest, `.github/` (copilot instructions, PR template, prompts), CI on Ubuntu + Windows. → all done locally except the GitHub repo (waits for the owner's OK).
 
 ## Phase 1 — Ingest, parse, store, backfill
-- [ ] Saved real posts as fixtures covering every recon variation.
-- [ ] Text normalizer and rule-based parser (date headings, times incl. overnight and explicit-date form, status, purpose, raw areas, optional map image).
-- [ ] SQLite schema with numbered migrations: `posts`, `post_versions`, `outages`, `outage_changes`.
-- [ ] Re-parse upsert with matching passes and a change log.
-- [ ] Sitemap discovery + polite fetcher; `backfill`, `check`, `reparse`, `serve` (scheduler only).
+- [x] Saved real posts as fixtures covering every recon variation. → 12 posts + sitemap in `tests/fixtures/`, README lists what each covers.
+- [x] Text normalizer and rule-based parser (date headings, times incl. overnight and explicit-date form, status, purpose, raw areas, optional map image). → `normalize`, `timeparse`, `extract`, `parse`; 12 golden files (3 by hand).
+- [x] SQLite schema with numbered migrations: `posts`, `post_versions`, `outages`, `outage_changes`. → `migrations/001_init.sql` + `meta`.
+- [x] Re-parse upsert with matching passes and a change log. → `upsert.match` + `db.apply_changes`.
+- [x] Sitemap discovery + polite fetcher; `backfill`, `check`, `reparse`, `serve` (scheduler only). → plus `report`.
 - [ ] Backfill all posts; report per-post outage counts, warnings, failures.
 
 ## Phase 2 — Areas and evals
