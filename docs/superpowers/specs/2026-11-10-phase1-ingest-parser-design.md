@@ -112,7 +112,14 @@ NFKC; ` ` and other spaces → space; `‑`, `–`, `—` → `-`; collapse whi
   - `H:MM AM to H:MM PM (Nhrs)`: start on the heading's first date; if end ≤ start, end is the next day.
   - `H:MM PM of <Month D> to H:MM AM of <Month D> (Nhrs)`: dates explicit, year from the heading (December → January rolls the year).
   - `12:00 AM` is midnight at the start of the day; `12:00 PM` is noon.
-- Warnings (not failures): weekday doesn't match the date; the `(Nhrs)` label doesn't match the computed duration; an explicit date outside the heading's range.
+- Warnings (not failures): weekday doesn't match the date; the `(Nhrs)` label doesn't match the computed duration; an explicit date outside the heading's range (an end on the day after the heading is overnight work and doesn't warn).
+- **Variants from the 2026-11-11 backfill (owner, 2026-11-11)**, each with a test from the real line:
+  - Headings: year without a comma (`April 18-19 2026`), `July 8- July 9 , 2026`, two full dates each with a weekday (`June 16, 2026 (Tuesday) - June 17, 2026 (Wednesday)`), a missing closing `)`, and a `- CANCELLED` suffix that cancels every outage under the heading.
+  - Times, repaired before matching: unclosed `(8hrs` and doubled `(4hrs))`, `A.M.`/`P.M.`, `5:0 0 PM`, `12:00 NN` (noon; NN on another hour fails), `Time:` repeated inside the value, `(1hr 30mins)`.
+  - Status: `CANCELLEDD`, `(ADDITIONAL)`, `ADDITIONAL OUTAGE`; `ADDITIONAL-CANCELLED` → cancelled with a warning; `REVISED` → scheduled with a warning (a re-parse logs the actual change).
+  - Two ranges on one line (`8:00 AM to 9:00 AM (1hr); 4:00 PM to 5:00 PM (1hr)`) → two outages with the same purpose and areas, each with a warning.
+- **Heading dates vs the post's week (owner, 2026-11-11).** The slug gives the week (`…-december-7-11-2024`; a one-date slug gives none, since 2024 one-date slugs are publish dates). A heading date more than 2 days outside it is a VECO typo (seen: 7–30 days off; slugs are sometimes a day short). It is replaced by the one day of the week its weekday names, with a warning; if the weekday names no day or two, the post fails. A date inside the week with a mismatched weekday stays a warning: there is no telling which half is wrong.
+- **AM/PM slips fail the post (owner, 2026-11-11).** A `(Nhrs)` label exactly 12 h off the times means one AM/PM is wrong; flipping either one gives the same span, so the label can't say which.
 
 ### 5.4 `parse.py`
 A state machine over the lines: `HEADING → (TIME → PURPOSE → AREAS → MAP?)+`. Label and value may share a line or sit on consecutive lines. Lines before the first heading (title, "x days ago", "Updated: …") and after the last block (related-posts list) are ignored. Status comes from a suffix after the time (`CANCELLED`, `ADDITIONAL`, loose on dashes/spaces); strikethrough in a block adds a warning but does not change status.
@@ -123,7 +130,9 @@ A state machine over the lines: `HEADING → (TIME → PURPOSE → AREAS → MAP
 
 `areas_key`: `areas_raw` lowercased, punctuation removed, whitespace collapsed.
 
-**Hard failure** (whole post): no heading found; a time line that matches no form; a block missing Time or Areas; zero outages. The result carries `error` and no outages.
+A time value with no `Time:` label right after a heading or a block, and the label typo `ime:`, are read as `Time:` with a post warning.
+
+**Hard failure** (whole post): no heading found; a line that looks like a date heading (month, day, then a year-ish number or `(weekday`) but matches no form; a time line that matches no form; an AM/PM slip; a heading outside the post's week that its weekday can't pin; a block missing Time or Areas; zero outages. The result carries `error` and no outages.
 
 ## 6. Storage
 
