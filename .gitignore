@@ -1,0 +1,21 @@
+# Local data: DB, raw HTML, logs, reports
+data/
+
+# Secrets
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.vs/
