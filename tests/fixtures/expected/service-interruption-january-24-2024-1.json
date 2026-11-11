@@ -1,0 +1,54 @@
+[
+  {
+    "seq": 0,
+    "heading_text": "January 24, 2024 (Wednesday)",
+    "start_at": "2024-01-24T09:00:00+08:00",
+    "end_at": "2024-01-24T13:00:00+08:00",
+    "duration_label": "4hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Mambaling by facilitating tapping of service entrance wire.",
+    "areas_raw": "Portion of Cebu City (Mambaling) along Larima Street.",
+    "areas_key": "portion of cebu city mambaling along larima street",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 1,
+    "heading_text": "January 24, 2024 (Wednesday)",
+    "start_at": "2024-01-24T09:00:00+08:00",
+    "end_at": "2024-01-24T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. North Poblacion & Tangke by facilitating installation of primary pole.",
+    "areas_raw": "Portion of City of Naga (North Poblacion & Tangke) along Mendoza St. & Bonifacio St. including City of Naga Division Office, Naga City Water System Inc. and Freewill Baptist Church.",
+    "areas_key": "portion of city of naga north poblacion tangke along mendoza st bonifacio st including city of naga division office naga city water system inc and freewill baptist church",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 2,
+    "heading_text": "January 24, 2024 (Wednesday)",
+    "start_at": "2024-01-24T09:00:00+08:00",
+    "end_at": "2024-01-24T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Busay & Malubog by facilitating installation of primary pole.",
+    "areas_raw": "Portion of Cebu City (Busay & Malubog) along Cebu Tops Road including Sitio Tops, Emro Holdings Inc., and Fifth Avenue Property Development Corp.",
+    "areas_key": "portion of cebu city busay malubog along cebu tops road including sitio tops emro holdings inc and fifth avenue property development corp",
+    "map_image_url": null,
+    "warnings": []
+  },
+  {
+    "seq": 3,
+    "heading_text": "January 24, 2024 (Wednesday)",
+    "start_at": "2024-01-24T09:00:00+08:00",
+    "end_at": "2024-01-24T17:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Labogon by facilitating installation of primary pole.",
+    "areas_raw": "Portion of Mandaue City (Labogon) along Labogon Circumferential Road.",
+    "areas_key": "portion of mandaue city labogon along labogon circumferential road",
+    "map_image_url": null,
+    "warnings": []
+  }
+]

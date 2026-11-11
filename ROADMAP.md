@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 0 — Setup (in progress).
+**Current phase:** Phase 1 — Ingest, parse, store, backfill (branch `phase1-ingest-parser`; done, waiting on the GitHub repo and PR).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -29,24 +29,47 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - Planning caught one inconsistent slug: `interruption-june-22-28-2025` has no `service-` prefix, so discovery matches slugs containing `interruption` (151 posts).
   - The text hash skips everything before the first date heading, because `5 days ago` / `Updated: 6 hours ago` sit inside the post and would make every fetch look like an edit.
 
+- **2026-11-11** — **Phase 1 Tasks 1–9 done** (scaffold → CLI), 153 tests + 1 live test passing, ruff clean.
+  - **Fixtures turned up a third areas layout** (stopped and asked, owner decided 2026-11-11): mid-June → early August 2025 posts list `Barangays:` / `Streets:` / `Sitios:` / … one per line inside the areas cell, after a repeated `Areas Affected:`. One normal post also wraps its areas over two lines. Rule: `areas_raw` = every line of the Areas cell, joined with `\n`. Spec §3.3 and §5.4 amended. 12 fixtures instead of 10.
+  - **Recon was wrong about maps:** `…september-27-october-3-2026` has a Wix thumbnail in all 30 `Map:` cells. Stored as the original `static.wixstatic.com/media/<id>` URL so resize parameters aren't edits.
+  - Also seen and handled: status in Unicode bold `𝐂𝐀𝐍𝐂𝐄𝐋𝐋𝐄𝐃` with no dash (NFKC), `(2.5hrs)` / `(8 hrs)`, `:30` times, a `copy-of-` slug that is the only post for its week.
+  - Each post is one DB transaction, so an interrupted backfill resumes cleanly; `reparse` logs changes only for a version newer than the outages' source, so a parser fix is never reported as a VECO edit.
+
+- **2026-11-11** — **Live backfill: 151 posts fetched, 113 parsed (2,112 outages: 127 cancelled, 29 additional), 38 failed, 45 warnings, 0 fetch errors** (~19 min, one DNS error recovered by the retry). Stopped for the owner: the failures are formats the spec doesn't list.
+- **2026-11-11** — **Parser fixes from the backfill (owner approved all): 145 of 151 posts parse, 2,939 outages (206 cancelled, 51 additional), 6 failures left, 0 changes logged by the reparse.** Spec §5.3/§5.4 amended. 214 tests.
+  - Accepted with a test each: heading forms (no comma, two full dates, missing `)`), `- CANCELLED` on a heading (cancels its outages), two ranges on one line (two outages), unclosed/doubled label parens, `A.M.`, `12:00 NN`, `5:0 0`, repeated `Time:`, `ime:`, an unlabelled time line, `CANCELLEDD`, `(ADDITIONAL)`, `ADDITIONAL OUTAGE`, `ADDITIONAL-CANCELLED` (cancelled), `REVISED` (scheduled + warning), `(1hr 30mins)`.
+  - **Wrong heading dates corrected from the post's week** (slug) when the weekday pins one day: 19 outages in 5 posts (e.g. `November 7, 2024 (Saturday)` → Dec 7). The old copies stay as 17 `removed` rows; no change was logged.
+  - A heading with a bad year (`November 20, 024`) was being **silently skipped**, which would have filed its outages under the day before. Such lines now fail the post.
+  - `check` run twice: sitemap + the current week's post only, unchanged, nothing logged.
+- **2026-11-11** — **Last 5 failures settled (owner picks): 150 of 151 posts parse, 3,008 outages (213 cancelled, 51 additional), 0 changes logged.** 222 tests.
+  - AM/PM slip: the reading that stays on one day wins (`9:00 PM to 5:00 PM (8hrs)` → 9 AM to 5 PM, May 11–16 and May 18–23 2024), because VECO always writes overnight work with explicit dates.
+  - `Updated Schedule: … Original Schedule: … - CANCELLED` → two outages: the updated one as posted, the original cancelled.
+  - `November 20, 024` → 2024, only because the post's week confirms it.
+  - Two weekday matches in an 8-day week → the one with the same day of the month (`November 14` → Dec 14).
+
 ### Known issues
-_None yet._
+- **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
+- **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
+- A heading date within 2 days of the slug's week is never questioned, and one-date 2024 slugs give no week at all.
 
 ### Lessons for later phases
-_None yet._
+- **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
+- **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
+- **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Phase 3 must not alert from a post whose latest parse failed.
+- **Check a rule against the data before agreeing to it.** "Fix the AM/PM flip that matches the label" sounded right and can never pick one.
 
 ## Phase 0 — Setup
 - [x] Recon, brainstorm, ROADMAP, Phase 1 spec.
 - [x] Phase 1 plan and hand-off prompt.
-- [ ] Git repo (private, `WMGamponia`), `pyproject.toml`, ruff + pytest, `.github/` (copilot instructions, PR template, prompts), CI on Ubuntu + Windows.
+- [ ] Git repo (private, `WMGamponia`), `pyproject.toml`, ruff + pytest, `.github/` (copilot instructions, PR template, prompts), CI on Ubuntu + Windows. → all done locally except the GitHub repo (waits for the owner's OK).
 
 ## Phase 1 — Ingest, parse, store, backfill
-- [ ] Saved real posts as fixtures covering every recon variation.
-- [ ] Text normalizer and rule-based parser (date headings, times incl. overnight and explicit-date form, status, purpose, raw areas, optional map image).
-- [ ] SQLite schema with numbered migrations: `posts`, `post_versions`, `outages`, `outage_changes`.
-- [ ] Re-parse upsert with matching passes and a change log.
-- [ ] Sitemap discovery + polite fetcher; `backfill`, `check`, `reparse`, `serve` (scheduler only).
-- [ ] Backfill all posts; report per-post outage counts, warnings, failures.
+- [x] Saved real posts as fixtures covering every recon variation. → 12 posts + sitemap in `tests/fixtures/`, README lists what each covers.
+- [x] Text normalizer and rule-based parser (date headings, times incl. overnight and explicit-date form, status, purpose, raw areas, optional map image). → `normalize`, `timeparse`, `extract`, `parse`; 12 golden files (3 by hand).
+- [x] SQLite schema with numbered migrations: `posts`, `post_versions`, `outages`, `outage_changes`. → `migrations/001_init.sql` + `meta`.
+- [x] Re-parse upsert with matching passes and a change log. → `upsert.match` + `db.apply_changes`.
+- [x] Sitemap discovery + polite fetcher; `backfill`, `check`, `reparse`, `serve` (scheduler only). → plus `report`.
+- [x] Backfill all posts; report per-post outage counts, warnings, failures. → 151 posts, 150 parsed, 3,008 outages; 1 ambiguous post fails on purpose (Known issues).
 
 ## Phase 2 — Areas and evals
 - [ ] Rule-based barangay/city extraction for both layouts and two-town lines.

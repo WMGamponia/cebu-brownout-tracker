@@ -1,0 +1,35 @@
+"""Checks at 07:00 and 17:00 Asia/Manila for `serve` (spec 7). Only module importing APScheduler."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timedelta
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+from outages.config import CATCH_UP_AFTER_H, CHECK_TIMES
+from outages.timeparse import MANILA
+
+
+def build(run_check: Callable[[], None]) -> BlockingScheduler:
+    """A scheduler with one cron job per CHECK_TIMES entry, in Manila time."""
+    sched = BlockingScheduler(timezone=MANILA)
+    for hm in CHECK_TIMES:
+        h, m = hm.split(":")
+        sched.add_job(
+            run_check,
+            CronTrigger(hour=int(h), minute=int(m), timezone=MANILA),
+            id=f"check-{hm}",
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
+    return sched
+
+
+def needs_catch_up(last_check_at: str | None, now: datetime) -> bool:
+    """True when there was no check yet or the last one is older than CATCH_UP_AFTER_H."""
+    if last_check_at is None:
+        return True
+    return now - datetime.fromisoformat(last_check_at) > timedelta(hours=CATCH_UP_AFTER_H)

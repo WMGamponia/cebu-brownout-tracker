@@ -1,0 +1,15 @@
+[
+  {
+    "seq": 0,
+    "heading_text": "February 29, 2024 - March 01, 2024 (Thursday-Friday)",
+    "start_at": "2024-02-29T22:00:00+08:00",
+    "end_at": "2024-03-01T06:00:00+08:00",
+    "duration_label": "8hrs",
+    "status": "scheduled",
+    "purpose": "To improve the reliability of the distribution system serving Brgy. Lamac & Yati by facilitating installation of primary lines",
+    "areas_raw": "Portion of Consolacion & Liloan (Lamac & Yati) along Cebu North Rd. including portion of Purok's 1, 2, 3, Cebucao, Francisco, Gemilina, Tambis, Tree, Water Lily, Sitio's Ayala, Kalubihan, Lamac, Molave, Pilapilan, San Francisco I, San Roque, Sto Nino, Tabok Lamac, Aboitiz Compound, Apas Compound, Centuryvine Residence, Cleofeville Subd., Consolacion Valley Home, D'Pearl Residences , David Heights Subdivision, Dream Heights 2, Eastland State Subdivion, El Monte Verde Subd., James Ville Heights Subdivision, Joanna Legacy Homes, Jorgiane Subdivision, Molave Highlands Subd., Nashville Cor Monterey, Primavera Hills Sub., Serenis North Subd., Vertacci Subd., Villa Elena Subd., Villa Melissa, Aboitizland Inc., Alhensen Development Inc., Asa Building Corporation, Eastland Property Ventures Inc., Edotco Towers, Inc., Nexus Real Estate Corp., Pacific Catv. Inc., Rizwoods Colleges Inc., Sta Cruz Chapel,& Sta Lucia Realty And Dev. Inc.",
+    "areas_key": "portion of consolacion liloan lamac yati along cebu north rd including portion of purok s 1 2 3 cebucao francisco gemilina tambis tree water lily sitio s ayala kalubihan lamac molave pilapilan san francisco i san roque sto nino tabok lamac aboitiz compound apas compound centuryvine residence cleofeville subd consolacion valley home d pearl residences david heights subdivision dream heights 2 eastland state subdivion el monte verde subd james ville heights subdivision joanna legacy homes jorgiane subdivision molave highlands subd nashville cor monterey primavera hills sub serenis north subd vertacci subd villa elena subd villa melissa aboitizland inc alhensen development inc asa building corporation eastland property ventures inc edotco towers inc nexus real estate corp pacific catv inc rizwoods colleges inc sta cruz chapel sta lucia realty and dev inc",
+    "map_image_url": null,
+    "warnings": []
+  }
+]
