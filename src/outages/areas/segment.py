@@ -98,12 +98,13 @@ _LABEL_RE = re.compile(rf"(?<![^\s.A-Za-z])({_LABEL_BODY})\s*:")
 # Any other `Words:` at the start of a line is an unknown sub-label (kept, with a warning).
 _UNKNOWN_RE = re.compile(r"(?m)^[ \t]*([A-Z][^:\n]{0,40}?)\s*:")
 
-_PREFIX_RE = re.compile(r"^(?:a\s+)?portions?\s+of\s+", re.IGNORECASE)
+_PREFIX_RE = re.compile(r"^(?:a\s+)?portions?\s+of\s+(?:the\s+)?", re.IGNORECASE)
 _CUE_RE = re.compile(r"\b(?:along|including|portions?\s+(?:of|along))\b", re.IGNORECASE)
 _SPLIT_RE = re.compile(r"\s*(?:,|&|\band\b)\s*", re.IGNORECASE)
 
 _TOWN_FORMS = {
     "cebu city": "Cebu City",
+    "cebu": "Cebu City",  # `Cebu & Mandaue City`
     "city of cebu": "Cebu City",
     "mandaue city": "Mandaue City",
     "mandaue": "Mandaue City",
@@ -125,7 +126,8 @@ _TOWN_ALT = "|".join(
     sorted((re.escape(f).replace(r"\ ", r"\s+") for f in _TOWN_FORMS), key=len, reverse=True)
 )
 _TOWN_SEARCH_RE = re.compile(rf"\b({_TOWN_ALT})\b", re.IGNORECASE)
-_GLUED_TOWN_RE = re.compile(rf"\s({_TOWN_ALT})$", re.IGNORECASE)
+# A bare `Cebu` counts only as a whole token: names end in it (`Caveman's Kitchen Cebu`).
+_GLUED_TOWN_RE = re.compile(rf"\s((?!cebu$)(?:{_TOWN_ALT}))$", re.IGNORECASE)
 _ZERO_WIDTH_RE = re.compile("[​‌‍⁠﻿]")
 
 

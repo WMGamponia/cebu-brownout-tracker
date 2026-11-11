@@ -167,6 +167,24 @@ def test_city_first_comma_after_paren_dropped():
     assert s.segments == [Segment(None, "along Cebu South Road")]
 
 
+def test_bare_cebu_is_a_town_in_the_town_position():
+    s = segment("Portion of Talamban & Canduman, Cebu & Mandaue City, along Highway 77.")
+    assert (s.towns, s.barangay_tokens) == (["Cebu City", "Mandaue City"], ["Talamban", "Canduman"])
+
+
+def test_bare_cebu_never_unglued_from_a_name():
+    s = segment(
+        "Portion of Guadalupe, Cebu City, across Arbee's Bakeshop, Caveman's Kitchen Cebu, "
+        "Protocal Solutions."
+    )
+    assert (s.towns, s.barangay_tokens) == (["Cebu City"], ["Guadalupe"])
+
+
+def test_portion_of_the():
+    s = segment("Portion of the City of Naga\nBarangay: South Poblacion\nStreets/Roads: Rizal St.")
+    assert (s.towns, s.barangay_tokens) == (["City of Naga"], ["South Poblacion"])
+
+
 def test_inline_label_on_first_line():
     s = segment("Portion of Cebu City Barangays: Tejero")
     assert (s.layout, s.towns, s.barangay_tokens, s.segments) == (
