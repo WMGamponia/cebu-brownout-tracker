@@ -14,6 +14,7 @@ from outages.areas import store as areas_store
 from outages.areas.entities import Extractor
 from outages.areas.entities_rules import RulesExtractor
 from outages.areas.gazetteer import load as load_gazetteer
+from outages.areas.llm import LLMUnavailable, OllamaExtractor
 from outages.config import BACKFILL_DELAY_S, ENTITY_EXTRACTOR, Paths
 from outages.fetch import Fetcher
 
@@ -35,16 +36,23 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def extractor_from_config() -> Extractor:
-    """The default entity extractor, set by the eval decision rule (spec 4.5)."""
+def extractor_from_config(conn) -> Extractor:
+    """The default entity extractor, set by the eval decision rule (spec 4.5).
+
+    `conn` holds the LLM cache, so it must be writable for `qwen`."""
     if ENTITY_EXTRACTOR == "rules":
         return RulesExtractor()
+    if ENTITY_EXTRACTOR == "qwen":
+        return OllamaExtractor(conn)
     raise SystemExit(f"error: unknown ENTITY_EXTRACTOR {ENTITY_EXTRACTOR!r}")
 
 
 def _areas(paths: Paths, args: argparse.Namespace) -> int:
     gaz = load_gazetteer()
     conn = db.connect_ro(paths.db) if args.dry_run else db.connect(paths.db)
+    # A dry run writes no area rows, but an LLM's answers still go to llm_cache (a separate
+    # writable connection), so a slow full-corpus dry run is not paid for twice.
+    cache = db.connect(paths.db) if args.dry_run and ENTITY_EXTRACTOR != "rules" else conn
     try:
         if args.review:
             items = areas_store.review_queue(conn, gaz, dry_run=args.dry_run)
@@ -55,17 +63,23 @@ def _areas(paths: Paths, args: argparse.Namespace) -> int:
             print(text, end="")
             print(f"written: {out}")
             return 0
-        s = areas_store.run_areas(
-            conn,
-            extractor_from_config(),
-            gaz,
-            utcnow(),
-            dry_run=args.dry_run,
-            rebuild=args.rebuild,
-        )
+        try:
+            s = areas_store.run_areas(
+                conn,
+                extractor_from_config(cache),
+                gaz,
+                utcnow(),
+                dry_run=args.dry_run,
+                rebuild=args.rebuild,
+            )
+        except LLMUnavailable as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         print(areas_store.format_summary(s, args.dry_run), end="")
         return 0
     finally:
+        if cache is not conn:
+            cache.close()
         conn.close()
 
 
@@ -150,7 +164,7 @@ def _run_check(paths: Paths) -> None:
     conn = db.connect(paths.db)
     fetcher = make_fetcher()
     try:
-        _summary("check", pipeline.check(conn, fetcher, utcnow(), extractor_from_config()))
+        _summary("check", pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn)))
     except Exception:
         log.exception("check failed")
     finally:
@@ -183,7 +197,9 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         if command == "report":
             return _report(paths, conn)
         if command == "reparse":
-            return _summary("reparse", pipeline.reparse(conn, utcnow(), extractor_from_config()))
+            return _summary(
+                "reparse", pipeline.reparse(conn, utcnow(), extractor_from_config(conn))
+            )
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
             conn.close()
@@ -198,7 +214,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
             if command == "backfill":
                 return _summary(command, pipeline.backfill(conn, fetcher, utcnow()))
             return _summary(
-                command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config())
+                command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
             )
         finally:
             fetcher.close()
