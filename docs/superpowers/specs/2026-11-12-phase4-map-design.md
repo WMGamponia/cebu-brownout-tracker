@@ -105,7 +105,7 @@ tests/
                      "veco_name": "Tayud", "ambiguous_with": ["Consolacion"]}],
       "entities": {"street": [], "sitio_purok": [], "subdivision": [],
                    "establishment": [], "other": []},
-      "unplaced": [{"name": "Poblacion", "town": "Minglanilla", "why": "other_town"}]
+      "unplaced": [{"name": "Poblacion", "towns": ["Minglanilla"], "why": "other_town"}]
     }},
   "meta": {
     "generated_at": "…+08:00", "last_check_at": "…+08:00",   // null if never checked
@@ -120,7 +120,7 @@ tests/
 
 Rules:
 - **Shaded rows:** `area_barangays` with `match ∈ (exact, alias, ambiguous)` for the outage's `areas_hash`. The outage's id goes on each such barangay's feature (deduplicated, sorted). `name` is the gazetteer's display name; `veco_name` is `name_raw`; `ambiguous_with` lists the other towns (by name) of the same `name_raw` rows in that parse, `[]` unless `ambiguous`.
-- **Unplaced rows:** `other_town` → `{name: name_raw, town: <the town VECO listed>, why: "other_town"}`; `unmatched` → `why: "unmatched"`; an outage whose `areas_hash` is NULL or has no `area_parses` row → one item `{name: null, town: null, why: "not_parsed"}`. VECO's listed town for an `other_town` row comes from re-segmenting `areas_raw` (pure, as Phase 3 does), because the stored `town_psgc` is the town of the matched code, not the one VECO listed (checked: `Poblacion` rows carry Liloan's and Talisay's town codes); if it can't be recovered, `town: null`. Several `other_town` rows with the same `name_raw` give one unplaced item.
+- **Unplaced rows:** `other_town` → `{name: name_raw, towns: <VECO's listed towns>, why: "other_town"}`; `unmatched` → `why: "unmatched"`; an outage whose `areas_hash` is NULL or has no `area_parses` row → one item `{name: null, towns: [], why: "not_parsed"}`. VECO's listed towns come from `area_parses.towns_json` (as Phase 3's admin notes do), not from the row's `town_psgc`, which is the town of the matched code (checked: `Poblacion` rows carry Liloan's and Talisay's town codes). `towns_json` can be `[]` (barangay-first lines); the page then omits the town. Rows with the same (`name_raw`, `match`) give one unplaced item.
 - **Entities:** `area_entities` grouped by kind, in `seq` order, all of them (the page truncates).
 - **Stale:** the outage's post has `parse_status = 'failed'` (the same signal Phase 3 alerts use). `stale_posts` lists those posts that have outages in the window.
 - **Removed:** counted in `removed_count`, not in `outages`.
@@ -143,7 +143,7 @@ Rules:
 
 ### 4.5 `server.py`
 - `run(app, host, port)`: `uvicorn.Server(Config(app, host, port, log_config=None))`, using the project's logging.
-- `start_thread(app, host, port) -> Thread`: the same server on a daemon thread. Signal handlers stay with the main thread (uvicorn only installs them on the main thread). Startup failure (port in use, bad boundaries) is caught, logged at ERROR, sent once to the admin chat when Telegram is configured, and the thread ends. The scheduler is unaffected.
+- `start_thread(app, host, port) -> Thread`: the same server on a daemon thread. Signal handlers stay with the main thread (uvicorn only installs them on the main thread). Startup failure (port in use, bad boundaries) is caught (uvicorn calls `sys.exit(1)` when it can't bind, so the wrapper catches `SystemExit` too and checks `server.started`), logged at ERROR, sent once to the admin chat when Telegram is configured, and the thread ends. The scheduler is unaffected.
 - Defaults in `config.py`: `MAP_HOST = "127.0.0.1"`, `MAP_PORT = 8765`.
 
 ### 4.6 The page
@@ -172,7 +172,7 @@ Legend: "Shaded: parts of these barangays may be affected."
 
 **Popup (click a barangay):** name and town; every outage there on the selected day, active ones first and highlighted. Each: the time range (dates when it crosses midnight), an Additional/Cancelled badge, purpose, up to 8 streets/sitios then "+N more" (expands), "VECO wrote: …" when `veco_name` differs from the name, "VECO lists Tayud under Consolacion and Liloan." when ambiguous, the stale caveat when `stale`, and a "VECO post" link.
 
-**Side panel:** "Not on the map (N)" for the selected day: time, VECO's text, the reason in words (`other_town`: "VECO listed Poblacion under Minglanilla; no Minglanilla barangay has that name"; `unmatched`: "We couldn't match Lipata to a barangay"; `not_parsed`: "Areas not processed yet"), and the post link. Then "N outages no longer in VECO's post", the legend, and attribution.
+**Side panel:** "Not on the map (N)" for the selected day: time, VECO's text, the reason in words (`other_town`: "VECO listed Poblacion under Minglanilla; no Minglanilla barangay has that name", or "VECO's town for Poblacion has no barangay of that name" when `towns` is empty; `unmatched`: "We couldn't match Lipata to a barangay"; `not_parsed`: "Areas not processed yet"), and the post link. Then "N outages no longer in VECO's post", the legend, and attribution.
 
 **Safety and behaviour:** VECO text goes in with `textContent`; links with `setAttribute('href', …)` after checking the URL starts with `https://www.visayanelectric.com/`. No `innerHTML` with data. A failed fetch shows a banner with Retry. The data is refetched when the tab becomes visible after more than 30 minutes. Tiles: `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, attribution "© OpenStreetMap contributors", `maxZoom: 19`, no prefetch or bulk loading. The initial view fits the covered barangays.
 
