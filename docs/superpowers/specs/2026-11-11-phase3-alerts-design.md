@@ -149,10 +149,10 @@ The `getUpdates` offset is kept in `meta` (`telegram_update_offset`). Times: UTC
 `due_items(now, subscriptions, outages, barangays, changes, sent) -> list[AlertItem]`: pure, no DB. Holds §4.1 and §4.2: due times, the started/ended cut-off, dropping `day_before`, the match policy, `areas_changed` old/new, the subscription `created_at` cut-off. A thin `load(conn, now)` reads the rows it needs (outages with start or end ≥ now − 1 day).
 
 ### 5.5 `alerts/render.py`
-`render(items, now) -> str` (HTML), per §4.4. Golden files under `tests/golden/alerts/`.
+`render(items, snap, gaz, now) -> list[str]` (HTML), per §4.4; split at outage lines so each part is ≤ 4,096 characters (Telegram's limit), and the items are recorded only when every part is sent. Golden files under `tests/golden/alerts/`.
 
 ### 5.6 `alerts/run.py`
-`alert_run(conn, notifier, now, admin_chat_id, check_ok) -> RunSummary(sent, items, failed, notes)`. Per active subscriber: select → render → send → record in one transaction after the send. A `blocked` error sets `active = 0`. Then admin notes (each key once):
+`alert_run(conn, notifier, now, gaz, admin_chat_id, check_ok) -> RunSummary(subscribers, sent, items, failed, notes)`. Per active subscriber: select → render → send → record in one transaction after the send. A `blocked` error sets `active = 0`. Then admin notes (each key once):
 - a post with outages in the next 2 days whose latest parse failed;
 - upcoming outages with no `area_parses` row;
 - `other_town` / `unmatched` rows in upcoming outages (with the alias fix);

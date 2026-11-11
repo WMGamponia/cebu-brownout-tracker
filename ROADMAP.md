@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 2 — Areas and evals, **built** on branch `phase2-areas` (final review and PR next). Phase 3 starts with `prompts/phase3.md`. Phase 1 merged to `main` (PR #1).
+**Current phase:** Phase 3 — Telegram alerts, **spec and plan approved** on branch `phase3-alerts`; build with `prompts/phase3-build.md`. Phases 1 and 2 merged to `main` (PRs #1, #2).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -74,6 +74,16 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
     Barangays (rules): P/R/F1 100.0 (73 rows), match rate 98.6 %, a coverage number since aliases came from the whole corpus. **Decision: rules** — Qwen's street F1 is 0.5 points above rules, not 5. Qwen is clearly better at *typing* (typed +4.1; `other` 90.9 vs 32.3, establishments 99.8 vs 95.5), but the rule was written for streets and is applied as written.
   - **Incident (my error):** while writing the failing test for `eval run`, the CLI sent the not-yet-handled command down the `check` path and fetched the VECO sitemap and 15 posts (~16 requests, 7–10 s apart, ~2 min) into a pytest temp database before I stopped it. The real DB was untouched. Fixed at the root: `_run` dispatches explicitly and refuses unknown commands, and the CLI tests fail if an offline command builds the fetcher.
 
+- **2026-11-11** — **Phase 2 merged** (PR #2).
+- **2026-11-11** — **Phase 3 brainstorm done; spec and plan approved.** Spec: `docs/superpowers/specs/2026-11-11-phase3-alerts-design.md`; plan: `docs/superpowers/plans/2026-11-11-phase3-alerts.md` (10 tasks, native execution). Decisions (owner, 2026-11-11):
+  - **Two runs a day, 06:00 and 20:00 Manila**, each a full `check` then an alert run; they replace the 07:00/17:00 checks. The old "≤ ~4 requests" line counted a check as one request; a check is the sitemap + 1–2 current posts, so the old schedule plus alert fetches was 6–10 a day. Now ~4–6. Accepted cost: a change VECO makes between runs reaches you at the next run.
+  - **Allowlisted bot** (`/start`, `/add`, `/list`, `/remove`), long polling inside `serve`; tables multi-user for Phase 5. **Bot API over httpx**, not `python-telegram-bot` (no new dependency; its asyncio loop doesn't fit the synchronous scheduler).
+  - **Which rows alert:** `exact`, `alias`, `ambiguous` (with a note). `other_town` never alerts (`Poblacion` under Minglanilla resolves to Liloan's and Talisay's); it goes to an admin note with the alias fix. Lipata and Sto. Niño added from a committed `barangays_extra.csv` with PSA codes.
+  - **Failed parse:** alerts still go out with a caveat and the post link, plus an admin note; silence would be worse. Unparsed areas warn, never block a run. An admin chat (`TELEGRAM_ADMIN_CHAT_ID`) gets operational notes only.
+  - **Alert model:** `day_before` due 20:00 the day before, `day_of` due 06:00 (none for starts before 06:00: 53 outages start at 05:00), `change` items from `outage_changes`; nothing for an outage that has started; an `alerts_sent` ledger written only after Telegram accepts the message (a crash can duplicate, never drop). Catch-up is the same rule; misfire grace 6 h.
+  - **Discord:** not now. Commands need a WebSocket gateway (new dependency) or a public HTTPS endpoint; sending sits behind a `Notifier` so an alert-only webhook can be added later.
+  - Found while designing: httpx logs request URLs at INFO and a Bot API URL contains the token (redacted, tested); the areas step deletes old `area_parses`, so `areas_changed` resolves the old text's barangays on the fly; `outage_changes` is empty (backfill never logs), so VECO's edit rate is unknown.
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
@@ -88,7 +98,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 ### Lessons for later phases
 - **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
 - **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
-- **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Phase 3 must not alert from a post whose latest parse failed.
+- **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Never present stale data as current: Phase 3 alerts from such a post carry a caveat and the post link (owner, 2026-11-11; holding them back would mean silence).
 - **Check a rule against the data before agreeing to it.** "Fix the AM/PM flip that matches the label" sounded right and can never pick one.
 - **Measure before assuming hardware limits.** "CPU-only Qwen" would have ruled out a full-corpus LLM pass; a 20-second probe showed the model in VRAM at ~54 tok/s.
 - **Fix the decision rule before the results.** Labels before rules, a frozen test split, and a margin written down in advance keep an eval from confirming whatever was built.
@@ -146,6 +156,6 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 | Storage | SQLite via stdlib `sqlite3`, numbered migrations |
 | Scheduling | APScheduler in the `serve` process |
 | Areas | Rules + PSGC gazetteer; streets by rules or local Qwen (Ollama), whichever the eval picks; Claude Haiku optional in the eval |
-| Alerts | python-telegram-bot |
+| Alerts | Telegram Bot API over httpx (long polling) |
 | Map | FastAPI, Leaflet + OSM tiles, vanilla JS |
 | Quality | pytest, ruff, GitHub Actions |
