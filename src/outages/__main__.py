@@ -8,6 +8,7 @@ import logging
 import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from outages import db, evaluate, gazetteer_build, pipeline, report, scheduler
 from outages.areas import store as areas_store
@@ -51,8 +52,11 @@ def _areas(paths: Paths, args: argparse.Namespace) -> int:
     gaz = load_gazetteer()
     conn = db.connect_ro(paths.db) if args.dry_run else db.connect(paths.db)
     # A dry run writes no area rows, but an LLM's answers still go to llm_cache (a separate
-    # writable connection), so a slow full-corpus dry run is not paid for twice.
-    cache = db.connect(paths.db) if args.dry_run and ENTITY_EXTRACTOR != "rules" else conn
+    # writable connection), so a slow full-corpus dry run is not paid for twice. On a DB that
+    # isn't migrated yet the cache is in memory: a dry run never migrates.
+    cache = conn
+    if args.dry_run and ENTITY_EXTRACTOR != "rules":
+        cache = db.connect(paths.db if db.is_current(conn) else Path(":memory:"))
     try:
         if args.review:
             items = areas_store.review_queue(conn, gaz, dry_run=args.dry_run)

@@ -286,3 +286,18 @@ def test_report_has_areas_line(conn, gaz):
 
 def test_entity_type_is_shared():
     assert Entity("street", "x") == Entity("street", "x")
+
+
+@pytest.mark.parametrize("arm", ["rules", "qwen"])
+def test_cli_areas_dry_run_leaves_phase1_db_unmigrated(home, monkeypatch, capsys, arm):
+    from test_db import _phase1_db
+
+    home.db.parent.mkdir(parents=True)
+    _phase1_db(home.db)
+    monkeypatch.setattr(cli, "ENTITY_EXTRACTOR", arm)
+    monkeypatch.setattr(cli, "extractor_from_config", lambda conn: RulesExtractor())
+    assert cli.main(["areas", "--dry-run"]) == 0
+    assert "dry run" in capsys.readouterr().out
+    c = db.connect_ro(home.db)
+    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 1
+    c.close()

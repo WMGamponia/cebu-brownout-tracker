@@ -115,3 +115,11 @@ def test_only_check_and_backfill_fetch(monkeypatch, tmp_path):
     args.action = "frobnicate"
     with pytest.raises(SystemExit):
         cli._run(args, cli.Paths.default())
+
+
+def test_suite_blocks_real_network():
+    """conftest's autouse guard: no real HTTP from tests (localhost and `live` tests excepted)."""
+    import httpx
+
+    with pytest.raises(RuntimeError, match="network blocked in tests"):
+        httpx.get("http://veco-guard-check.invalid/", timeout=2)

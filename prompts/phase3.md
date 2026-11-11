@@ -26,7 +26,8 @@ The Phase 3 goal (ROADMAP): a bot that alerts a subscriber about outages in thei
 2. **"Portion of" is everywhere.** Almost every line affects a *portion* of a barangay; street/sitio entities say which portion. Wording should say "may affect you" and show the streets.
 3. **A failed parse keeps old outages** (Phase 1 lesson). Don't alert from a post whose latest parse failed; say what happens instead.
 4. **Changes come from `outage_changes`**, written by `check`. Alerts on changes must be idempotent: one alert per change per subscriber, even across restarts.
-5. **Network budget:** at most ~4 requests a day to visayanelectric.com; the alert runs' "fresh fetch" counts. The Phase 2 build accidentally sent ~16 requests through a CLI fall-through; keep every new command offline unless it is meant to fetch, and test that.
+5. **A failed areas step is silent.** `pipeline.areas_step` logs and swallows errors so `check` keeps its fetched outages; with `qwen` as the extractor and Ollama down, new texts stay unparsed and only `outages.log` says so. Alerts read `area_barangays`, so an unparsed outage alerts nobody: count unparsed hashes in `report` and decide whether an alert run refuses or warns.
+6. **Network budget:** at most ~4 requests a day to visayanelectric.com; the alert runs' "fresh fetch" counts. The Phase 2 build accidentally sent ~16 requests through a CLI fall-through; keep every new command offline unless it is meant to fetch, and test that.
 
 ## Questions the brainstorm must settle
 - Subscriptions: one user (the owner) now, multi-user in Phase 5. Data model (`subscribers`, `subscriptions(psgc_code)`), how a user picks a barangay (bot command with search over `barangays.csv`?).
