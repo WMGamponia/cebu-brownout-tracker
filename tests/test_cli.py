@@ -26,6 +26,18 @@ def test_gazetteer_command_prints_counts(capsys, monkeypatch, tmp_path):
     assert "Cebu City 80" in out and "total 94" in out
 
 
+def test_eval_sample_refuses_when_frozen(capsys, monkeypatch, tmp_path):
+    from outages import db
+
+    monkeypatch.chdir(tmp_path)
+    db.connect(tmp_path / "data" / "outages.db").close()
+    frozen = tmp_path / "evals" / "areas" / "FROZEN"
+    frozen.parent.mkdir(parents=True)
+    frozen.write_text("x\n", encoding="utf-8")
+    assert main(["eval", "sample", "--seed", "20261111"]) == 1
+    assert "frozen" in capsys.readouterr().err
+
+
 def test_unknown_command_exits_2(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["frobnicate"])

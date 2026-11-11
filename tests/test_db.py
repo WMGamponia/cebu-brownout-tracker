@@ -72,6 +72,18 @@ def test_migration_002_on_phase1_db(tmp_path):
     c.close()
 
 
+def test_connect_ro_never_migrates_or_writes(tmp_path):
+    p = tmp_path / "o.db"
+    _phase1_db(p)
+    c = db.connect_ro(p)
+    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 1
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        c.execute("DELETE FROM outages")
+    c.close()
+    with pytest.raises(sqlite3.OperationalError):
+        db.connect_ro(tmp_path / "missing.db")
+
+
 def test_area_rows_cascade(conn):
     conn.execute(
         "INSERT INTO area_parses (areas_hash, layout, towns_json, extractor, parsed_at)"

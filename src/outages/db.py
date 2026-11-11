@@ -90,6 +90,13 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def connect_ro(path: Path) -> sqlite3.Connection:
+    """Open an existing DB read-only: no migrations, no writes (dry runs and the eval sampler)."""
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def upsert_post(conn: sqlite3.Connection, url: str, slug: str, lastmod: date | None) -> int:
     """Insert the post if new (first_seen_at = now, UTC), refresh its lastmod; return its id."""
     lm = lastmod.isoformat() if lastmod else None

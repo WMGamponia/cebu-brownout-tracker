@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
-from outages import db, gazetteer_build, pipeline, report, scheduler
+from outages import db, evaluate, gazetteer_build, pipeline, report, scheduler
 from outages.config import BACKFILL_DELAY_S, Paths
 from outages.fetch import Fetcher
 
@@ -20,6 +20,7 @@ COMMANDS = {
     "report": "print per-post outage counts, warnings, failures and duplicates",
     "serve": "run checks at 07:00 and 17:00 Asia/Manila (catch-up on start)",
     "gazetteer": "download the pinned PSGC gazetteer and write barangays.csv (GitHub only)",
+    "eval": "area eval: `sample` the label set, or `run` the arms on a split",
 }
 
 log = logging.getLogger("outages")
@@ -46,6 +47,27 @@ def _parser() -> argparse.ArgumentParser:
 
 def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     """Per-command options (Phase 2)."""
+    e = parsers["eval"]
+    e.add_argument("action", choices=("sample", "run"))
+    e.add_argument("--seed", type=int, default=20261111)
+    e.add_argument("--split", choices=("dev", "test"), default="dev")
+    e.add_argument("--arms", default="rules")
+
+
+def _eval_sample(paths: Paths, seed: int) -> int:
+    conn = db.connect_ro(paths.db)
+    try:
+        rows = evaluate.corpus_rows(conn)
+    finally:
+        conn.close()
+    dev, test = evaluate.sample(rows, seed=seed)
+    try:
+        evaluate.write_sample(evaluate.EVAL_DIR, dev, test)
+    except evaluate.EvalError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(evaluate.format_counts(dev, test), end="")
+    return 0
 
 
 def _gazetteer(paths: Paths) -> int:
@@ -103,9 +125,12 @@ def _report(paths: Paths, conn) -> int:
     return 0
 
 
-def _run(command: str, paths: Paths) -> int:
+def _run(args: argparse.Namespace, paths: Paths) -> int:
+    command = args.command
     if command == "gazetteer":
         return _gazetteer(paths)
+    if command == "eval" and args.action == "sample":
+        return _eval_sample(paths, args.seed)
     conn = db.connect(paths.db)
     try:
         if command == "report":
@@ -140,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     paths = Paths.default()
     handlers = _setup_logging(paths)
     try:
-        return _run(args.command, paths)
+        return _run(args, paths)
     except KeyboardInterrupt:
         print("error: interrupted; rerun the same command to resume", file=sys.stderr)
         return 1
