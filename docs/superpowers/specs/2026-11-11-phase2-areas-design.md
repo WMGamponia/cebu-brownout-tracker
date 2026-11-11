@@ -62,6 +62,7 @@ src/outages/
     __init__.py
     segment.py          areas_raw -> Segmented(layout, towns, barangay_tokens, segments, warnings)   [pure]
     gazetteer.py        load barangays.csv + aliases.csv; resolve(tokens, towns) -> list[BarangayMatch]  [pure]
+    entities.py         Entity, KINDS, Extractor protocol, normalize_entity, entity_key            [pure]
     entities_rules.py   RulesExtractor                                                                [pure]
     llm.py              OllamaExtractor, AnthropicExtractor, schema check, cache
     store.py            write/read area_parses, area_barangays, area_entities; areas_hash upkeep
@@ -76,7 +77,7 @@ evals/areas/
 
 ### 4.1 Gazetteer (`gazetteer_build.py`, `gazetteer.py`)
 - `python -m outages gazetteer` downloads `geojson-medres.zip` from the v1.1.1 release into `data/gazetteer/` (gitignored) and checks it against `GAZETTEER_SHA256` in `config.py`. The release's own `SHA256SUMS` comes from the same place as the zip, so it can't catch a swapped file; the pinned hash can. A mismatch fails loudly and writes nothing.
-- From the 8 VECO towns' barangay files it writes `src/outages/areas/barangays.csv`: `psgc_code, name, town, town_psgc`, sorted, UTF-8, `\n` (~252 rows). It is committed so tests and CI never need the network. Phase 4 reuses the zip for shapes.
+- From the 8 VECO towns' barangay files it writes `src/outages/areas/barangays.csv`: `psgc_code, name, town, town_psgc`, sorted, UTF-8, `\n` (232 rows per the Phase 1 recon counts). It is committed so tests and CI never need the network. Phase 4 reuses the zip for shapes.
 - `aliases.csv`: `town, alias, target, note`. `target` is a PSGC code (`Duljo Fatima` → Duljo, `Quiot` → Quiot Pardo, `Tugbungan` → Tugbongan, `Kinasang-an` → Kinasang-an Pardo, `Pung-ol` → Pung-ol Sibugay, `Poblacion Orriental` → Poblacion Oriental) or `not_barangay` (`Greenhills`, `Cebu Business Park`, `Cebu I.T. Park`, `North Reclamation Area`, `South Reclamation Area`). A `not_barangay` name becomes an entity of kind `other`. `town` may be `*`. Every row needs a `note`. The exact alias targets are confirmed against `barangays.csv` when it is built, not assumed.
 - **Name normalization** for matching only (the stored `name_raw` keeps the text as posted): NFKC, casefold, `-` and spaces equal, collapsed whitespace, trailing `.` dropped, `Sto.` = `Santo`, `Sta.` = `Santa`, `Pob.` = `Poblacion`. Roman numerals stay as written (`Lawaan I` ≠ `Lawaan 1` unless an alias says so).
 - **Town names:** `Cebu City`; `Mandaue City`/`Mandaue`; `Talisay City`/`Talisay`; `City of Naga`/`Naga City`/`Naga`; `Minglanilla`; `Consolacion`; `Liloan`; `San Fernando`.

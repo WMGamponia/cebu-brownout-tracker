@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 1 — Ingest, parse, store, backfill (branch `phase1-ingest-parser`; done, waiting on the GitHub repo and PR).
+**Current phase:** Phase 2 — Areas and evals (branch `phase2-areas`; spec and plan written, build next with `prompts/phase2-build.md`). Phase 1 merged to `main` (PR #1).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -47,6 +47,18 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - `November 20, 024` → 2024, only because the post's week confirms it.
   - Two weekday matches in an 8-day week → the one with the same day of the month (`November 14` → Dec 14).
 
+- **2026-11-11** — **Phase 1 merged** (PR #1; CI green on Lint, Ubuntu 3.12, Windows 3.14).
+- **2026-11-11** — **Phase 2 brainstorm done; spec approved.** Spec: `docs/superpowers/specs/2026-11-11-phase2-areas-design.md`; plan: `docs/superpowers/plans/2026-11-11-phase2-areas.md` (10 tasks). Decisions (owner, 2026-11-11):
+  - **Eval split:** ~60 strings drawn by a seeded stratified sample *before any rule or prompt exists*; 20 dev (tuning), 40 test (frozen by hash, never opened during the build, failures reported not fixed). Claude labels from the post text; the owner reviews a sample. Reason: the same session writes labels and rules, so a single visible set would favour rules by construction.
+  - **Entities are typed** (`street`, `sitio_purok`, `subdivision`, `establishment`, `other`); street F1 is the headline, since Phase 5 needs streets.
+  - **Pre-registered decision rule:** Qwen becomes the default only if its test street F1 ≥ rules + 5 points and its typed F1 ≥ rules; ties go to rules. Haiku is reported, never the default.
+  - **Storage:** derived tables keyed by `sha256(areas_raw)` (`area_parses`, `area_barangays`, `area_entities`, `llm_cache`), rebuilt by `python -m outages areas`; Phase 1 upsert untouched. No-separator structured fields split in the areas segmenter, not in `extract` (keeps `text_hash` stable, so no false `areas_changed`).
+  - **Gazetteer:** `faeldon/philippines-json-maps` v1.1.1 `geojson-medres.zip`, SHA-256 pinned in `config.py` (the release's `SHA256SUMS` can't catch a swapped file); derived `barangays.csv` and hand-kept `aliases.csv` committed. Exact → alias → unmatched; no fuzzy auto-match. A name in two listed towns (`Tayud`) gives both (`ambiguous`): a missed alert is worse than two.
+  - **No new dependencies:** Ollama and Anthropic over httpx; hand-written schema check.
+  - **Corpus:** 1,429 city-first, 1,344 barangay-first, 227 structured, 8 other (2 are literally `testing`); 139 two-town lines; ~40 sub-label spellings.
+  - **Qwen probe:** `qwen3:14b` runs fully in VRAM at ~54 tok/s (~10 s for the longest kind of string), not CPU-only as assumed: a full-corpus pass is ~2–4 h once, cached. It truncated `Cebu South Road Properties` and was inconsistent on `Puroks`/`Zone 3,4,5`, so the labelling guide fixes naming conventions.
+  - **Barangay P/R is coverage, not a comparison:** aliases come from the whole corpus's review queue.
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
@@ -57,6 +69,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
 - **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Phase 3 must not alert from a post whose latest parse failed.
 - **Check a rule against the data before agreeing to it.** "Fix the AM/PM flip that matches the label" sounded right and can never pick one.
+- **Measure before assuming hardware limits.** "CPU-only Qwen" would have ruled out a full-corpus LLM pass; a 20-second probe showed the model in VRAM at ~54 tok/s.
+- **Fix the decision rule before the results.** Labels before rules, a frozen test split, and a margin written down in advance keep an eval from confirming whatever was built.
 
 ## Phase 0 — Setup
 - [x] Recon, brainstorm, ROADMAP, Phase 1 spec.
@@ -72,10 +86,10 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - [x] Backfill all posts; report per-post outage counts, warnings, failures. → 151 posts, 150 parsed, 3,008 outages; 1 ambiguous post fails on purpose (Known issues).
 
 ## Phase 2 — Areas and evals
-- [ ] Rule-based barangay/city extraction for both layouts and two-town lines.
+- [ ] Rule-based barangay/city extraction for all three layouts (city-first, barangay-first, structured) and two-town lines.
 - [ ] PSGC gazetteer from the pinned boundary release; alias table (e.g. Duljo Fatima → Duljo, Quiot → Quiot Pardo, Tugbungan → Tugbongan); unmatched → review queue, never dropped.
 - [ ] Street/sitio/landmark extraction behind one interface: rule-based splitter, local Qwen via Ollama (default LLM, JSON-schema output), Claude Haiku (optional, only with an API key).
-- [ ] Hand-label 30–50 historical "Areas Affected" strings; pytest eval reports barangay precision/recall and PSGC match rate (rules), and street precision/recall for rules vs Qwen (vs Haiku when a key is set). Pick the default from the results. Results in README.
+- [ ] Hand-label 60 historical "Areas Affected" strings (20 dev / 40 frozen test); eval reports barangay precision/recall and PSGC match rate (rules), and street and typed-entity P/R/F1 for rules vs Qwen (vs Haiku when a key is set). Default picked by the pre-registered rule. Results in README.
 
 ## Phase 3 — Telegram alerts (my barangay)
 - [ ] Bot, alert at ~20:00 the evening before and ~06:00 the morning of, and on cancelled / time changed / added / removed.
