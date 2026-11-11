@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 3 — Telegram alerts, **built** on branch `phase3-alerts` (Tasks 1–10 done; first real alert received 2026-11-11; PR pending). Next: Phase 4, `prompts/phase4.md`. Phases 1 and 2 merged to `main` (PRs #1, #2).
+**Current phase:** Phase 4 — Map, **spec and plan approved** on branch `phase4-map`; build next with `prompts/phase4-build.md`. Phases 1–3 merged to `main` (PRs #1, #2, #3).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -89,6 +89,16 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - **2026-11-11** — **Bot live-tested with the owner's OK** (`python -m outages bot`, Telegram only): a stranger chat got one "private bot" reply and its ID was logged; after the allowlist, `/start` and `/add` stored 1 subscriber with 2 subscriptions. No token in logs. One first long poll hung to the 60 s read timeout and the 5 s back-off recovered it; not seen again. Real-DB `alerts --dry-run`: nothing due now (DB hash unchanged); a read-only preview at Thu 12 Nov 20:00 gives 1 message with 1 item (a "Tomorrow" alert), and at Fri 06:00 the same outage as "Today". The first real send waits until it is due.
 - **2026-11-11** — **Task 10: docs, review, Phase 4 prompt.** `README.md` (setup, commands, creating the bot and `.env`); ROADMAP polling line, known issues and Phase 3 items updated; `prompts/phase4.md` written. One fresh whole-branch review: 0 critical, 3 important, all fixed test-first (568 tests): (1) a `removed` change never alerted, because `areas` deletes a removed outage's parse rows; it now uses the old text's barangays; (2) an `areas_changed` whose new text isn't parsed yet could say "dropped"; it now waits; (3) Sto. Niño showed as "Central"; `display_names.csv` fixes the shown name. 8 minors deferred (listed in the PR). Real-DB previews unchanged. **Left:** the first real alert (due Thu 12 Nov 20:00) and a second run that sends nothing, then the PR.
 - **2026-11-11** — **First real alert sent (owner's OK), Definition of Done met.** For a test the owner subscribed to a barangay with an outage on 12 Nov, so its evening-before alert was due under the real rules. `alerts --dry-run` showed 1 message with 1 item; `alerts --send` → sent 1 (1 `day_before` ledger row), received by the owner; a second `--send` → sent 0. No token in logs. The owner's own subscription's next alert is due Thu 12 Nov 20:00 with `serve` running. **Phase 3 build complete; PR to `main` waits for the owner's OK.**
+- **2026-11-11** — **Phase 3 merged** (PR #3).
+- **2026-11-12** — **Phase 4 brainstorm done; spec and plan approved.** Spec: `docs/superpowers/specs/2026-11-12-phase4-map-design.md`; plan: `docs/superpowers/plans/2026-11-12-phase4-map.md` (10 tasks, native execution). Decisions (owner, 2026-11-12):
+  - **New dependencies: FastAPI + uvicorn** (plain uvicorn); **Leaflet 1.9.4 vendored** (no CDN; only OSM tiles come from outside); **`node --test`** on a pure `timeline.js` in CI (Node is dev/CI only, no npm packages).
+  - **Runs inside `serve`** as a thread (`--no-map`), **and** as `python -m outages map`; a map that fails to start (port taken, bad boundaries) never stops the alert runs. **127.0.0.1 by default**, LAN opt-in with a warning; no auth until Phase 6.
+  - **One FeatureCollection per request:** a feature per barangay (VECO's 232 + Lapu-Lapu and Cordova greyed as MECO), with top-level `outages` and `meta`. It is also the Phase 6 snapshot's format. Geometry from a **committed `boundaries.geojson`** derived by `gazetteer` from the pinned zip.
+  - **Window by time, not by post:** today to the last stored end, capped at 7 days; `?from=&days=` (≤ 14) for Phase 5 history. Posts overlap (Nov 3–8 / Nov 8–14), so "the week's post" would cut days in half.
+  - **One "may be affected" style:** "portion of" is on 3,022 of 3,025 lines, so the ROADMAP's soft-vs-full split would never fire.
+  - **`other_town`, `unmatched` and unparsed areas are never shaded;** their outages go in a "Not on the map" side list, so no outage silently vanishes. Cancelled is greyed with a toggle; removed is counted only (no stored barangays).
+  - **Display names** (Santo Niño), with VECO's spelling in the popup when it differs.
+  - Found while designing: the medium-resolution polygons are 149 KB, ~9 vertices per barangay (no simplification needed, but coarse); an "old data" warning must use 15 h, not the 12 h catch-up threshold (runs are 14 h apart); an `other_town` row's `town_psgc` is the matched code's town, so VECO's listed town comes from `towns_json` (can be empty); uvicorn reacts to a taken port with `sys.exit(1)`, which a thread must catch.
 
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
@@ -138,7 +148,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Phase 4 — Map
 - [ ] FastAPI serves the week's outages as one GeoJSON; Leaflet + OSM tiles, vanilla JS.
-- [ ] Barangay shading (soft fill for "portion of"), day tabs, hourly slider, play button, defaults to now, cancelled greyed and toggleable, popup with time, purpose, streets, link to post.
+- [ ] Barangay shading (~~soft fill for "portion of"~~ → one "may be affected" style, spec §2), day tabs, hourly slider, play button, defaults to now, cancelled greyed and toggleable, popup with time, purpose, streets, link to post.
 
 ## Phase 5 — Streets, history, multi-user
 - [ ] Street highlighting via Overpass inside the barangay polygon, fallback to shading.
