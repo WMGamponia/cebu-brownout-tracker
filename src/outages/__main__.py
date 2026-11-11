@@ -6,11 +6,12 @@ import argparse
 import contextlib
 import logging
 import sys
+import threading
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from outages import db, evaluate, gazetteer_build, pipeline, report, scheduler
+from outages import bot, db, evaluate, gazetteer_build, pipeline, report, scheduler
 from outages.alerts import run as alerts_run
 from outages.areas import store as areas_store
 from outages.areas.entities import Extractor
@@ -32,6 +33,7 @@ COMMANDS = {
     "areas": "parse area texts into towns, barangays and entities (--dry-run, --review)",
     "eval": "area eval: `sample` the label set, or `run` the arms on a split",
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
+    "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
 }
 
 log = logging.getLogger("outages")
@@ -147,6 +149,22 @@ def _alerts(paths: Paths, args: argparse.Namespace) -> int:
         f"failed {s.failed}, admin notes {s.notes}"
     )
     return 1 if s.failed else 0
+
+
+def _bot(paths: Paths) -> int:
+    """Long-poll the bot in the foreground until Ctrl+C (Telegram only)."""
+    settings = _settings_or_exit()
+    if settings is None:
+        return 1
+    client = make_telegram(settings.token)
+    log.info("bot: polling for %d allowed chat(s); Ctrl+C to stop", len(settings.allowed))
+    try:
+        bot.poll_forever(client, paths.db, load_gazetteer(), settings.allowed, threading.Event())
+    except KeyboardInterrupt:
+        print("bot: stopped")
+    finally:
+        client.close()
+    return 0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -272,6 +290,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _areas(paths, args)
     if command == "alerts":
         return _alerts(paths, args)
+    if command == "bot":
+        return _bot(paths)
     if command == "eval":
         if args.action == "sample":
             return _eval_sample(paths, args.seed)

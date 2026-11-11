@@ -224,3 +224,48 @@ def test_report_offline_builds_no_telegram(capsys, monkeypatch, no_tg_env):
     assert "alerts: 0 subscribers, 0 sent; unparsed areas: 0 upcoming outages" in (
         capsys.readouterr().out
     )
+
+
+def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
+    import httpx
+
+    from outages import __main__ as cli
+    from outages.telegram import TelegramClient
+
+    no_network(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_IDS", "42")
+    polls = {"n": 0}
+
+    def handler(req):
+        method = req.url.path.rsplit("/", 1)[1]
+        if method == "getUpdates":
+            polls["n"] += 1
+            if polls["n"] > 1:
+                raise KeyboardInterrupt  # Ctrl+C during the second long poll
+            update = {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "chat": {"id": 7, "type": "private"},
+                    "from": {"id": 7},
+                    "text": "/start",
+                },
+            }
+            return httpx.Response(200, json={"ok": True, "result": [update]})
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    monkeypatch.setattr(
+        cli, "make_telegram", lambda t: TelegramClient(t, transport=httpx.MockTransport(handler))
+    )
+    assert main(["bot"]) == 0
+    out = capsys.readouterr()
+    assert "SECRET" not in out.out + out.err
+    log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
+    assert "bot: message from chat 7 (not allowed)" in log and "SECRET" not in log
+
+
+def test_bot_without_token_exits_1(capsys, monkeypatch, no_tg_env):
+    no_telegram(monkeypatch)
+    assert main(["bot"]) == 1
+    assert "TELEGRAM_BOT_TOKEN not set" in capsys.readouterr().err
