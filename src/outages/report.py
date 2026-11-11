@@ -73,7 +73,21 @@ def duplicates(conn: sqlite3.Connection) -> list[Duplicate]:
     ]
 
 
-def format_table(rows: list[ReportRow], dups: list[Duplicate]) -> str:
+def areas_line(conn: sqlite3.Connection) -> str:
+    """One line on Phase 2 areas: barangay rows by match kind and the review-queue size."""
+    counts = dict(
+        conn.execute("SELECT match, count(*) FROM area_barangays GROUP BY match").fetchall()
+    )
+    queue = conn.execute(
+        "SELECT count(*) FROM (SELECT DISTINCT name_raw, match FROM area_barangays"
+        " WHERE match IN ('unmatched', 'other_town', 'ambiguous'))"
+    ).fetchone()[0]
+    kinds = ("exact", "alias", "ambiguous", "other_town", "unmatched")
+    parts = ", ".join(f"{k} {counts.get(k, 0)}" for k in kinds)
+    return f"Areas: {sum(counts.values())} barangay rows ({parts}); review queue {queue} names"
+
+
+def format_table(rows: list[ReportRow], dups: list[Duplicate], areas: str | None = None) -> str:
     """Plain-text report: totals, the per-post table, failures, warnings, duplicates."""
     w = max([len(r.slug) for r in rows] + [4])
     out = [
@@ -83,6 +97,7 @@ def format_table(rows: list[ReportRow], dups: list[Duplicate]) -> str:
         f"Outages: {sum(r.outages for r in rows)}  cancelled: {sum(r.cancelled for r in rows)}  "
         f"additional: {sum(r.additional for r in rows)}  removed: {sum(r.removed for r in rows)}  "
         f"warnings: {sum(len(r.warnings) for r in rows)}",
+        *([areas] if areas else []),
         "",
         f"{'slug':<{w}}  {'from':10}  {'to':10}  {'out':>3}  {'can':>3}  {'add':>3}  {'warn':>4}  "
         "status",

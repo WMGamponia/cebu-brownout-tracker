@@ -10,7 +10,11 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
 from outages import db, evaluate, gazetteer_build, pipeline, report, scheduler
-from outages.config import BACKFILL_DELAY_S, Paths
+from outages.areas import store as areas_store
+from outages.areas.entities import Extractor
+from outages.areas.entities_rules import RulesExtractor
+from outages.areas.gazetteer import load as load_gazetteer
+from outages.config import BACKFILL_DELAY_S, ENTITY_EXTRACTOR, Paths
 from outages.fetch import Fetcher
 
 COMMANDS = {
@@ -20,6 +24,7 @@ COMMANDS = {
     "report": "print per-post outage counts, warnings, failures and duplicates",
     "serve": "run checks at 07:00 and 17:00 Asia/Manila (catch-up on start)",
     "gazetteer": "download the pinned PSGC gazetteer and write barangays.csv (GitHub only)",
+    "areas": "parse area texts into towns, barangays and entities (--dry-run, --review)",
     "eval": "area eval: `sample` the label set, or `run` the arms on a split",
 }
 
@@ -28,6 +33,40 @@ log = logging.getLogger("outages")
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def extractor_from_config() -> Extractor:
+    """The default entity extractor, set by the eval decision rule (spec 4.5)."""
+    if ENTITY_EXTRACTOR == "rules":
+        return RulesExtractor()
+    raise SystemExit(f"error: unknown ENTITY_EXTRACTOR {ENTITY_EXTRACTOR!r}")
+
+
+def _areas(paths: Paths, args: argparse.Namespace) -> int:
+    gaz = load_gazetteer()
+    conn = db.connect_ro(paths.db) if args.dry_run else db.connect(paths.db)
+    try:
+        if args.review:
+            items = areas_store.review_queue(conn, gaz, dry_run=args.dry_run)
+            text = areas_store.format_review(items)
+            paths.reports.mkdir(parents=True, exist_ok=True)
+            out = paths.reports / f"areas-review-{utcnow():%Y-%m-%d}.md"
+            out.write_text(text, encoding="utf-8", newline="\n")
+            print(text, end="")
+            print(f"written: {out}")
+            return 0
+        s = areas_store.run_areas(
+            conn,
+            extractor_from_config(),
+            gaz,
+            utcnow(),
+            dry_run=args.dry_run,
+            rebuild=args.rebuild,
+        )
+        print(areas_store.format_summary(s, args.dry_run), end="")
+        return 0
+    finally:
+        conn.close()
 
 
 def make_fetcher() -> Fetcher:
@@ -47,6 +86,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     """Per-command options (Phase 2)."""
+    a = parsers["areas"]
+    a.add_argument("--rebuild", action="store_true", help="re-parse every text")
+    a.add_argument("--dry-run", action="store_true", help="parse in memory, write nothing")
+    a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
     e.add_argument("action", choices=("sample", "run"))
     e.add_argument("--seed", type=int, default=20261111)
@@ -107,7 +150,7 @@ def _run_check(paths: Paths) -> None:
     conn = db.connect(paths.db)
     fetcher = make_fetcher()
     try:
-        _summary("check", pipeline.check(conn, fetcher, utcnow()))
+        _summary("check", pipeline.check(conn, fetcher, utcnow(), extractor_from_config()))
     except Exception:
         log.exception("check failed")
     finally:
@@ -116,7 +159,9 @@ def _run_check(paths: Paths) -> None:
 
 
 def _report(paths: Paths, conn) -> int:
-    text = report.format_table(report.build(conn), report.duplicates(conn))
+    text = report.format_table(
+        report.build(conn), report.duplicates(conn), areas=report.areas_line(conn)
+    )
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f"report-{utcnow():%Y-%m-%d}.txt"
     out.write_text(text, encoding="utf-8", newline="\n")
@@ -129,6 +174,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
     command = args.command
     if command == "gazetteer":
         return _gazetteer(paths)
+    if command == "areas":
+        return _areas(paths, args)
     if command == "eval" and args.action == "sample":
         return _eval_sample(paths, args.seed)
     conn = db.connect(paths.db)
@@ -136,7 +183,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         if command == "report":
             return _report(paths, conn)
         if command == "reparse":
-            return _summary("reparse", pipeline.reparse(conn, utcnow()))
+            return _summary("reparse", pipeline.reparse(conn, utcnow(), extractor_from_config()))
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
             conn.close()
@@ -148,8 +195,11 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
             return 0
         fetcher = make_fetcher()
         try:
-            run = pipeline.backfill if command == "backfill" else pipeline.check
-            return _summary(command, run(conn, fetcher, utcnow()))
+            if command == "backfill":
+                return _summary(command, pipeline.backfill(conn, fetcher, utcnow()))
+            return _summary(
+                command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config())
+            )
         finally:
             fetcher.close()
     finally:

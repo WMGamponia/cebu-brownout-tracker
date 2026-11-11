@@ -13,6 +13,10 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from outages import db
+from outages.areas import store as areas_store
+from outages.areas.entities import Extractor
+from outages.areas.entities_rules import RulesExtractor
+from outages.areas.gazetteer import load as load_gazetteer
 from outages.config import SITEMAP_URL
 from outages.discover import PostRef, parse_sitemap
 from outages.extract import ExtractedPost, ExtractError, extract_post
@@ -119,6 +123,16 @@ def _sitemap(fetcher: Fetcher) -> list[PostRef] | None:
     return parse_sitemap(xml)
 
 
+def areas_step(conn: sqlite3.Connection, now: datetime, extractor: Extractor | None) -> None:
+    """Parse new area texts after a check or reparse (spec 6). A failure here is logged and
+    never fails the check: the outages are already stored."""
+    try:
+        s = areas_store.run_areas(conn, extractor or RulesExtractor(), load_gazetteer(), now)
+        log.info("areas: parsed %d new texts, deleted %d orphans", s.parsed, s.deleted)
+    except Exception:
+        log.exception("areas step failed; rerun `python -m outages areas`")
+
+
 def backfill(conn: sqlite3.Connection, fetcher: Fetcher, now: datetime) -> CheckSummary:
     """Fetch every interruption post in the sitemap that has no stored version (resumable)."""
     refs = _sitemap(fetcher)
@@ -136,7 +150,12 @@ def backfill(conn: sqlite3.Connection, fetcher: Fetcher, now: datetime) -> Check
     return _fetch_and_process(conn, fetcher, todo, now)
 
 
-def check(conn: sqlite3.Connection, fetcher: Fetcher, now: datetime) -> CheckSummary:
+def check(
+    conn: sqlite3.Connection,
+    fetcher: Fetcher,
+    now: datetime,
+    extractor: Extractor | None = None,
+) -> CheckSummary:
     """Fetch posts that are new, have a newer lastmod, or have outages ending today or later."""
     refs = _sitemap(fetcher)
     if refs is None:
@@ -168,6 +187,7 @@ def check(conn: sqlite3.Connection, fetcher: Fetcher, now: datetime) -> CheckSum
     summary = _fetch_and_process(conn, fetcher, todo, now)
     with conn:
         db.set_meta(conn, "last_check_at", _utc(now))
+    areas_step(conn, now, extractor)
     return summary
 
 
@@ -177,7 +197,9 @@ def _page(title: str | None, content_html: str) -> str:
     return f"<html><body><article>{t}{content_html}</article></body></html>"
 
 
-def reparse(conn: sqlite3.Connection, now: datetime) -> CheckSummary:
+def reparse(
+    conn: sqlite3.Connection, now: datetime, extractor: Extractor | None = None
+) -> CheckSummary:
     """Re-run parse + upsert on each post's latest stored version.
 
     Changes are logged only when that version is newer than the one the outages came from (a
@@ -208,4 +230,5 @@ def reparse(conn: sqlite3.Connection, now: datetime) -> CheckSummary:
             summary.failed + (not ok),
         )
         log.info("reparse %s: %s", row["slug"], "ok" if ok else "failed")
+    areas_step(conn, now, extractor)
     return summary
