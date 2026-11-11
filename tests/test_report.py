@@ -131,3 +131,23 @@ def test_needs_catch_up():
     assert scheduler.needs_catch_up(None, now)
     assert scheduler.needs_catch_up((now - timedelta(hours=12, minutes=1)).isoformat(), now)
     assert not scheduler.needs_catch_up((now - timedelta(hours=11)).isoformat(), now)
+
+
+def test_report_alerts_line(home):
+    from outages.alerts import store
+
+    conn = db.connect(home.db)
+    s = store.upsert_subscriber(conn, 42, None, datetime(2026, 11, 1, tzinfo=UTC))
+    store.subscribe(conn, s.id, "730600041", datetime(2026, 11, 1, tzinfo=UTC))
+    conn.commit()
+    _store(home, NOV)
+    conn.execute("UPDATE outages SET areas_hash = NULL")
+    conn.commit()
+    now = datetime(2026, 11, 7, tzinfo=UTC)
+    upcoming = conn.execute(
+        "SELECT count(*) FROM outages WHERE status IN ('scheduled', 'additional')"
+    ).fetchone()[0]
+    assert report.alerts_line(conn, now) == (
+        f"alerts: 1 subscribers, 0 sent; unparsed areas: {upcoming} upcoming outages"
+    )
+    conn.close()

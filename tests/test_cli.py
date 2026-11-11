@@ -123,3 +123,104 @@ def test_suite_blocks_real_network():
 
     with pytest.raises(RuntimeError, match="network blocked in tests"):
         httpx.get("http://veco-guard-check.invalid/", timeout=2)
+
+
+def no_telegram(monkeypatch):
+    """Fail if a command that must not talk to Telegram builds the client."""
+    from outages import __main__ as cli
+
+    def boom(token):
+        raise AssertionError("this command must not build a Telegram client")
+
+    monkeypatch.setattr(cli, "make_telegram", boom)
+
+
+TOKEN = "123456:SECRET-abcdefghijklmnop"
+
+
+@pytest.fixture
+def no_tg_env(monkeypatch, tmp_path):
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_CHAT_IDS", "TELEGRAM_ADMIN_CHAT_ID"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+
+def test_alerts_dry_run_offline(capsys, monkeypatch, tmp_path, no_tg_env):
+    import hashlib
+
+    from outages import db
+
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    path = tmp_path / "data" / "outages.db"
+    db.connect(path).close()
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert main(["alerts", "--dry-run"]) == 0
+    assert "would send 0 message(s)" in capsys.readouterr().out
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+def test_alerts_dry_run_without_db(capsys, monkeypatch, no_tg_env):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    assert main(["alerts", "--dry-run"]) == 1
+    assert "no database" in capsys.readouterr().err
+
+
+def test_alerts_needs_a_mode(capsys, no_tg_env):
+    with pytest.raises(SystemExit) as exc:
+        main(["alerts"])
+    assert exc.value.code == 2
+
+
+def test_alerts_send_without_token_exits_1(capsys, monkeypatch, no_tg_env):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    assert main(["alerts", "--send"]) == 1
+    out = capsys.readouterr()
+    assert "error: TELEGRAM_BOT_TOKEN not set" in out.err
+    assert "SECRET" not in out.out + out.err
+
+
+def test_alerts_send_bad_chat_id_exits_1(capsys, monkeypatch, no_tg_env):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "me")
+    assert main(["alerts", "--send"]) == 1
+    out = capsys.readouterr()
+    assert "TELEGRAM_ADMIN_CHAT_ID" in out.err and "SECRET" not in out.out + out.err
+
+
+def test_alerts_send_runs_offline_toward_veco(capsys, monkeypatch, tmp_path, no_tg_env):
+    import httpx
+
+    from outages import __main__ as cli
+    from outages.telegram import TelegramClient
+
+    no_network(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    calls = []
+
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    monkeypatch.setattr(
+        cli, "make_telegram", lambda t: TelegramClient(t, transport=httpx.MockTransport(handler))
+    )
+    assert main(["alerts", "--send"]) == 0
+    out = capsys.readouterr()
+    assert "alerts: 0 subscribers, sent 0" in out.out
+    assert calls == [] and "SECRET" not in out.out + out.err
+    log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
+    assert "SECRET" not in log
+
+
+def test_report_offline_builds_no_telegram(capsys, monkeypatch, no_tg_env):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    assert main(["report"]) == 0
+    assert "alerts: 0 subscribers, 0 sent; unparsed areas: 0 upcoming outages" in (
+        capsys.readouterr().out
+    )

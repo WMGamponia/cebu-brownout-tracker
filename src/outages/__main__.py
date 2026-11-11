@@ -11,13 +11,16 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from outages import db, evaluate, gazetteer_build, pipeline, report, scheduler
+from outages.alerts import run as alerts_run
 from outages.areas import store as areas_store
 from outages.areas.entities import Extractor
 from outages.areas.entities_rules import RulesExtractor
 from outages.areas.gazetteer import load as load_gazetteer
 from outages.areas.llm import LLMUnavailable, OllamaExtractor
-from outages.config import BACKFILL_DELAY_S, ENTITY_EXTRACTOR, Paths
+from outages.config import BACKFILL_DELAY_S, ENTITY_EXTRACTOR, Paths, telegram_settings
 from outages.fetch import Fetcher
+from outages.notify import TelegramNotifier
+from outages.telegram import TelegramClient, install_redaction
 
 COMMANDS = {
     "backfill": "fetch and store every interruption post not stored yet (resumable)",
@@ -28,6 +31,7 @@ COMMANDS = {
     "gazetteer": "download the pinned PSGC gazetteer and write barangays.csv (GitHub only)",
     "areas": "parse area texts into towns, barangays and entities (--dry-run, --review)",
     "eval": "area eval: `sample` the label set, or `run` the arms on a split",
+    "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
 }
 
 log = logging.getLogger("outages")
@@ -91,6 +95,60 @@ def make_fetcher() -> Fetcher:
     return Fetcher(delay_s=BACKFILL_DELAY_S)
 
 
+def make_telegram(token: str) -> TelegramClient:
+    return TelegramClient(token)
+
+
+def _settings_or_exit():
+    """Telegram settings, or None after printing why (never the token)."""
+    try:
+        settings = telegram_settings()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return None
+    if settings is None:
+        print("error: TELEGRAM_BOT_TOKEN not set (environment or .env)", file=sys.stderr)
+        return None
+    install_redaction(settings.token)
+    return settings
+
+
+def _alerts(paths: Paths, args: argparse.Namespace) -> int:
+    """`alerts --dry-run` (read-only, no network) or `alerts --send` (Telegram only)."""
+    if args.dry_run:
+        if not paths.db.is_file():
+            print(f"error: no database at {paths.db}", file=sys.stderr)
+            return 1
+        conn = db.connect_ro(paths.db)
+        try:
+            print(alerts_run.dry_run(conn, utcnow(), load_gazetteer()), end="")
+        finally:
+            conn.close()
+        return 0
+    settings = _settings_or_exit()
+    if settings is None:
+        return 1
+    client = make_telegram(settings.token)
+    conn = db.connect(paths.db)
+    try:
+        s = alerts_run.alert_run(
+            conn,
+            TelegramNotifier(client),
+            utcnow(),
+            load_gazetteer(),
+            settings.admin_chat_id,
+            check_ok=True,
+        )
+    finally:
+        conn.close()
+        client.close()
+    print(
+        f"alerts: {s.subscribers} subscribers, sent {s.sent} (items {s.items}), "
+        f"failed {s.failed}, admin notes {s.notes}"
+    )
+    return 1 if s.failed else 0
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="outages", description="Cebu Brownout Tracker")
     sub = p.add_subparsers(dest="command", required=True, metavar="command")
@@ -113,6 +171,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     e.add_argument("--seed", type=int, default=20261111)
     e.add_argument("--split", choices=("dev", "test"), default="dev")
     e.add_argument("--arms", default="rules")
+    al = parsers["alerts"].add_mutually_exclusive_group(required=True)
+    al.add_argument("--dry-run", action="store_true", help="print what would be sent; no writes")
+    al.add_argument("--send", action="store_true", help="send through Telegram and record")
 
 
 def _eval_sample(paths: Paths, seed: int) -> int:
@@ -193,9 +254,8 @@ def _run_check(paths: Paths) -> None:
 
 
 def _report(paths: Paths, conn) -> int:
-    text = report.format_table(
-        report.build(conn), report.duplicates(conn), areas=report.areas_line(conn)
-    )
+    lines = "\n".join((report.areas_line(conn), report.alerts_line(conn, utcnow())))
+    text = report.format_table(report.build(conn), report.duplicates(conn), areas=lines)
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f"report-{utcnow():%Y-%m-%d}.txt"
     out.write_text(text, encoding="utf-8", newline="\n")
@@ -210,6 +270,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _gazetteer(paths)
     if command == "areas":
         return _areas(paths, args)
+    if command == "alerts":
+        return _alerts(paths, args)
     if command == "eval":
         if args.action == "sample":
             return _eval_sample(paths, args.seed)
