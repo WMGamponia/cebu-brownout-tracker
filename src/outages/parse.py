@@ -26,6 +26,9 @@ from outages.timeparse import (
 
 # `ime:` is a real typo for `Time:` (2026-11-11 backfill).
 _LABEL = re.compile(r"^(t?ime|purpose|areas affected|map):\s*(.*)$", re.IGNORECASE)
+# `Updated Schedule: <range> Original Schedule: <range> - CANCELLED` (March 8-13 2026): the
+# updated range is stored as posted, the original as cancelled (owner, 2026-11-11).
+_RESCHEDULE = re.compile(r"^updated schedule:\s*(.+?)\s*original schedule:\s*(.+)$", re.IGNORECASE)
 # A time value with no `Time:` label before it.
 _BARE_TIME = re.compile(r"^\d{1,2}:\s?\d")
 # A line that starts like a date and then holds a year-ish number or a `(weekday` but isn't a
@@ -153,16 +156,26 @@ def _finish(b: _Block, seq: int) -> list[ParsedOutage]:
     if not b.areas:
         raise _Fail(f"block at {b.time[0].text!r} under {b.heading_text!r} has no areas")
     time_text = " ".join(ln.text for ln in b.time)
-    parts = [p.strip() for p in time_text.split(";") if p.strip()]
+    # (time text, forced status, warning) per outage.
+    resched = _RESCHEDULE.match(time_text)
+    if resched:
+        parts = [
+            (resched[1], None, "updated schedule; the original is stored as cancelled"),
+            (resched[2], "cancelled", "original schedule, replaced by the updated one"),
+        ]
+    else:
+        split = [p.strip() for p in time_text.split(";") if p.strip()]
+        note = f"one of {len(split)} time ranges on one line" if len(split) > 1 else None
+        parts = [(p, None, note) for p in split]
     ranges = []
-    for part in parts:
+    for part, forced, note in parts:
         try:
             tr = parse_time(part, b.heading)
         except AmPmSlip as e:
             raise _Fail(f"{e} under {b.heading_text!r}") from None
         if tr is None:
             raise _Fail(f"unknown time format {time_text!r} under {b.heading_text!r}")
-        ranges.append(tr)
+        ranges.append((tr, forced, note))
 
     common = [*b.heading_fix, *heading_warnings(b.heading)]
     if not b.purpose:
@@ -173,8 +186,6 @@ def _finish(b: _Block, seq: int) -> list[ParsedOutage]:
     imgs = [u for ln in (b.map or []) for u in ln.img_urls]
     if len(imgs) > 1:
         common.append(f"{len(imgs)} map images; kept the first")
-    if len(ranges) > 1:
-        common.append(f"one of {len(ranges)} time ranges on one line")
     if b.heading.status == "cancelled":
         common.append("cancelled by its date heading")
     area_lines = [ln.text for ln in b.areas]
@@ -187,14 +198,14 @@ def _finish(b: _Block, seq: int) -> list[ParsedOutage]:
             start_at=tr.start,
             end_at=tr.end,
             duration_label=tr.duration_label,
-            status=b.heading.status or tr.status,
+            status=b.heading.status or forced or tr.status,
             purpose=" ".join(ln.text for ln in b.purpose or []),
             areas_raw=areas_raw,
             areas_key=areas_key(areas_raw),
             map_image_url=imgs[0] if imgs else None,
-            warnings=(*common, *tr.warnings),
+            warnings=(*common, *([note] if note else []), *tr.warnings),
         )
-        for k, tr in enumerate(ranges)
+        for k, (tr, forced, note) in enumerate(ranges)
     ]
 
 

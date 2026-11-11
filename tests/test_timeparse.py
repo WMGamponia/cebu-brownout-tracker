@@ -291,13 +291,23 @@ def test_overnight_end_the_day_after_heading_does_not_warn():
     assert t.warnings == ()
 
 
+def test_am_pm_slip_read_as_the_reading_that_stays_on_one_day():
+    """Flipping either AM/PM gives the label's span; VECO always writes overnight work with
+    explicit dates, so the reading that doesn't cross midnight wins (owner, 2026-11-11)."""
+    t = parse_time("9:00 PM to 5:00 PM (8hrs)", NOV9)  # real: May 11-16 and May 18-23 2024
+    assert (t.start, t.end) == (dt(2026, 11, 9, 9), dt(2026, 11, 9, 17))
+    assert any("AM/PM" in w for w in t.warnings)
+    assert not any("duration" in w for w in t.warnings)
+
+
 @pytest.mark.parametrize(
     "line",
-    ["9:00 PM to 5:00 PM (8hrs)", "8:00 AM to 9:00 PM (1hr)"],
+    [
+        "8:00 AM to 9:00 PM (1hr)",  # real, Dec 14-20 2025: 8-9 AM and 8-9 PM both fit
+        "10:00 PM of November 9 to 6:00 PM of November 10 (8hrs)",  # explicit dates: no rule
+    ],
 )
-def test_am_pm_slip_is_an_error(line):
-    """Flipping either AM/PM shifts the span by the same 12 h, so the label can't say which
-    one is wrong: the post fails rather than storing a guess (owner, 2026-11-11)."""
+def test_am_pm_slip_without_one_answer_is_an_error(line):
     with pytest.raises(AmPmSlip, match="AM/PM"):
         parse_time(line, NOV9)
 
@@ -382,6 +392,37 @@ def test_fix_heading_wrong_range_end_pinned_by_weekday():
     h = parse_heading("January 15-26, 2026 (Thursday-Friday)")
     fixed, _ = fix_heading(h, (date(2026, 1, 11), date(2026, 1, 16)))
     assert (fixed.start, fixed.end) == (date(2026, 1, 15), date(2026, 1, 16))
+
+
+def test_fix_heading_two_weekday_matches_broken_by_day_of_month():
+    """Real: `November 14, 2024 (Saturday)` in the 8-day Dec 14-21 post. A month typo keeps
+    the day, so Dec 14 wins over Dec 21 (owner, 2026-11-11)."""
+    h = parse_heading("November 14, 2024 (Saturday)")
+    fixed, warnings = fix_heading(h, (date(2024, 12, 14), date(2024, 12, 21)))
+    assert fixed.start == date(2024, 12, 14)
+    assert any("corrected" in w for w in warnings)
+
+
+def test_fix_heading_two_weekday_matches_no_day_match_raises():
+    h = parse_heading("November 10, 2024 (Saturday)")
+    with pytest.raises(HeadingOutsideWeek):
+        fix_heading(h, (date(2024, 12, 14), date(2024, 12, 21)))
+
+
+def test_three_digit_year_read_when_the_week_confirms():
+    """Real: `November 20, 024 (Wednesday)` in the Nov 16-22 2024 post."""
+    h = parse_heading("November 20, 024 (Wednesday)")
+    assert h.start == date(2024, 11, 20)
+    fixed, warnings = fix_heading(h, (date(2024, 11, 16), date(2024, 11, 22)))
+    assert fixed.start == date(2024, 11, 20)
+    assert any("024" in w for w in warnings)
+
+
+@pytest.mark.parametrize("week", [None, (date(2025, 11, 16), date(2025, 11, 22))])
+def test_three_digit_year_without_confirmation_raises(week):
+    h = parse_heading("November 20, 024 (Wednesday)")
+    with pytest.raises(HeadingOutsideWeek, match="024"):
+        fix_heading(h, week)
 
 
 def test_fix_heading_unresolvable_raises():

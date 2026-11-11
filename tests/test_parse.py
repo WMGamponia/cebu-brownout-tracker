@@ -281,10 +281,46 @@ def test_heading_outside_week_unresolvable_fails():
     assert "outside" in r.error
 
 
-def test_am_pm_slip_fails_the_post():
-    r = parse_post(_post("May 13, 2024 (Monday)", "Time:", "9:00 PM to 5:00 PM (8hrs)", *BLOCK[2:]))
+def test_am_pm_slip_without_one_answer_fails_the_post():
+    r = parse_post(
+        _post("December 14, 2025 (Sunday)", "Time:", "8:00 AM to 9:00 PM (1hr)", *BLOCK[2:])
+    )
     assert r.outages == ()
     assert "AM/PM" in r.error
+
+
+def test_updated_and_original_schedule():
+    """Real, March 8-13 2026: one Time cell holds both schedules (owner, 2026-11-11)."""
+    r = parse_post(
+        _post(
+            "March 12, 2026 (Thursday)",
+            Line("Time:", False, (), 0),
+            Line("Updated Schedule: 5:00 AM to 6:00 AM (1hr)", False, (), 1),
+            Line("Original Schedule: 10:00 PM to 11:00 PM (1hr) - CANCELLED", False, (), 1),
+            *BLOCK[2:],
+        )
+    )
+    assert r.error is None
+    new, old = r.outages
+    assert (new.start_at.hour, new.end_at.hour, new.status) == (5, 6, "scheduled")
+    assert (old.start_at.hour, old.end_at.hour, old.status) == (22, 23, "cancelled")
+    assert new.start_at.date() == old.start_at.date()
+    assert (new.areas_raw, old.purpose) == ("Lahug", "X")
+    assert any("updated schedule" in w for w in new.warnings)
+    assert any("original schedule" in w for w in old.warnings)
+
+
+def test_original_schedule_is_cancelled_even_without_suffix():
+    r = parse_post(
+        _post(
+            "March 12, 2026 (Thursday)",
+            "Time:",
+            "Updated Schedule: 5:00 AM to 6:00 AM (1hr) "
+            "Original Schedule: 10:00 PM to 11:00 PM (1hr)",
+            *BLOCK[2:],
+        )
+    )
+    assert [o.status for o in r.outages] == ["scheduled", "cancelled"]
 
 
 def test_areas_key():

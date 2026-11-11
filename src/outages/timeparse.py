@@ -38,7 +38,7 @@ _HEADING_STATUS = r"(?:\s*-\s*(?P<status>cancelled))?$"
 _HEADING = re.compile(
     rf"^(?P<m1>{_MONTH})\s+(?P<d1>\d{{1,2}})(?:\s*,\s*(?P<y1>\d{{4}}))?"
     rf"(?:\s*-\s*(?:(?P<m2>{_MONTH})\s+)?(?P<d2>\d{{1,2}}))?"
-    rf"(?:\s*,\s*|\s+)(?P<y2>\d{{4}})"
+    rf"(?:\s*,\s*|\s+)(?P<y2>\d{{4}}|0\d{{2}})"  # `024`: a dropped digit, checked by fix_heading
     r"(?:\s*\((?P<wd>[^)]*)\)?)?" + _HEADING_STATUS,
     re.IGNORECASE,
 )
@@ -86,6 +86,7 @@ class DateRange:
     end: date
     weekday_text: str | None
     status: Literal["cancelled"] | None = None
+    year_typo: str | None = None  # `024` read as 2024; fix_heading needs the week to agree
 
 
 @dataclass(frozen=True)
@@ -107,8 +108,11 @@ def _date(y: int, m: str, d: str) -> date | None:
 def parse_heading(line: str) -> DateRange | None:
     """`November 11-12, 2026 (Wednesday-Thursday)` and the other spec 5.3 forms, else None."""
     m = _HEADING.match(line)
+    year_typo = None
     if m:
         y2 = int(m["y2"])
+        if len(m["y2"]) == 3:
+            year_typo, y2 = m["y2"], 2000 + y2
         if m["d2"] is None:
             start = _date(y2, m["m1"], m["d1"])
             end = start
@@ -128,7 +132,7 @@ def parse_heading(line: str) -> DateRange | None:
         wd = "-".join(w.strip() for w in (m["wd1"], m["wd2"]) if w and w.strip())
     if start is None or end is None or end < start:
         return None
-    return DateRange(start, end, wd or None, "cancelled" if m["status"] else None)
+    return DateRange(start, end, wd or None, "cancelled" if m["status"] else None, year_typo)
 
 
 _SLUG = re.compile(
@@ -175,12 +179,26 @@ def fix_heading(h: DateRange, week: tuple[date, date] | None) -> tuple[DateRange
     `april-6-2024` post also lists April 7), and overnight work ends the day after. The typos
     seen are 7 to 30 days off. Further out, the weekday must name exactly one day of the week;
     that day replaces the date, with a warning. Otherwise HeadingOutsideWeek: the post fails
-    rather than storing a guess.
+    rather than storing a guess. When the weekday names two days (an 8-day week), the one with
+    the heading's day of the month wins: a month typo keeps the day.
+
+    A three-digit year (`024`) is kept only when the dates fall within the week.
     """
     if week is None:
+        if h.year_typo:
+            raise HeadingOutsideWeek(
+                f"year {h.year_typo!r} in a heading and no post week to check it"
+            )
         return h, ()
     ws, we = week
     lo, hi = ws - SLUG_SLACK, we + SLUG_SLACK
+    if h.year_typo:
+        if not (lo <= h.start and h.end <= hi):
+            raise HeadingOutsideWeek(
+                f"year {h.year_typo!r} read as {h.start.year} puts the heading outside "
+                f"the post's week {ws}..{we}"
+            )
+        return h, (f"year {h.year_typo!r} read as {h.start.year} (post week {ws}..{we})",)
     names = [w.strip().lower() for w in (h.weekday_text or "").split("-")]
     days = [ws + timedelta(days=i) for i in range((we - ws).days + 1)]
     warnings: list[str] = []
@@ -189,6 +207,8 @@ def fix_heading(h: DateRange, week: tuple[date, date] | None) -> tuple[DateRange
         if lo <= d <= hi:
             return d
         hits = [x for x in days if WEEKDAYS[x.weekday()] == name]
+        if len(hits) > 1:
+            hits = [x for x in hits if x.day == d.day] or hits
         if len(hits) != 1:
             raise HeadingOutsideWeek(
                 f"heading date {d} is outside the post's week {ws}..{we} and its weekday "
@@ -246,10 +266,30 @@ def _explicit(m: str, d: str, h: DateRange) -> date | None:
     return _date(year, m, d)
 
 
+def _am_pm_fix(m: re.Match, day: date, hours: float) -> tuple[datetime, datetime, str] | None:
+    """The one AM/PM flip whose span matches the label and stays on one day, else None.
+
+    Flipping either side moves a plain span by the same 12 h, so both flips match the label.
+    VECO always writes overnight work with explicit dates (`10:00 PM of April 12 to …`; none
+    without in the 2026-11-11 corpus), so a reading that crosses midnight is dropped
+    (owner, 2026-11-11). `8:00 AM to 9:00 PM (1hr)` keeps two readings and stays an error.
+    """
+    found = []
+    for a, b in ((_flip(m["t1"]), m["t2"]), (m["t1"], _flip(m["t2"]))):
+        ta, tb = _clock(a), _clock(b)
+        if ta is None or tb is None or tb <= ta:
+            continue
+        s, e = datetime.combine(day, ta, MANILA), datetime.combine(day, tb, MANILA)
+        if abs((e - s).total_seconds() / 3600 - hours) < 0.01:
+            found.append((s, e, f"{a} to {b}"))
+    return found[0] if len(found) == 1 else None
+
+
 def parse_time(line: str, heading: DateRange) -> TimeRange | None:
     """A time line under `heading`; None when it matches no known form (a hard failure).
 
-    Raises AmPmSlip when the duration label is exactly 12 h off the times.
+    Raises AmPmSlip when the duration label is exactly 12 h off the times and _am_pm_fix
+    finds no single reading.
     """
     m = _TIME.match(_repair(line))
     if not m:
@@ -290,13 +330,15 @@ def parse_time(line: str, heading: DateRange) -> TimeRange | None:
         labelled = float(m["hours"]) + int(m["mins"] or 0) / 60
         off = abs(computed - labelled)
         if abs(off - 12) < 0.01:
-            # Flipping either AM/PM moves the span by the same 12 h, so the label can't say
-            # which one is wrong (owner, 2026-11-11: fail rather than guess).
-            raise AmPmSlip(
-                f"AM/PM slip in {line!r}: label {m['label']!r} but times span {computed:g}h; "
-                f"could be {_flip(m['t1'])!r} or {_flip(m['t2'])!r}"
-            )
-        if off > 0.01:
+            fixed = _am_pm_fix(m, d1, labelled) if not (m["m1"] or m["m2"]) else None
+            if fixed is None:
+                raise AmPmSlip(
+                    f"AM/PM slip in {line!r}: label {m['label']!r} but times span "
+                    f"{computed:g}h; could be {_flip(m['t1'])!r} or {_flip(m['t2'])!r}"
+                )
+            start, end, reading = fixed
+            warnings.append(f"AM/PM slip: {line!r} read as {reading!r} to match the label")
+        elif off > 0.01:
             warnings.append(f"duration label {m['label']!r} but times span {computed:g}h")
 
     word = (m["status"] or "").lower()
