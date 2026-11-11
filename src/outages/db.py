@@ -75,6 +75,11 @@ def _version(conn: sqlite3.Connection) -> int:
     return row[0] or 0
 
 
+def is_current(conn: sqlite3.Connection) -> bool:
+    """True when every migration is applied (works on a read-only connection)."""
+    return _version(conn) >= max(n for n, _ in _migrations())
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open (creating dirs), enable foreign keys, apply pending migrations, each atomically."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,6 +92,13 @@ def connect(path: Path) -> sqlite3.Connection:
             conn.executescript(
                 f"BEGIN;\n{sql}\nINSERT INTO schema_version (version) VALUES ({n});\nCOMMIT;"
             )
+    return conn
+
+
+def connect_ro(path: Path) -> sqlite3.Connection:
+    """Open an existing DB read-only: no migrations, no writes (dry runs and the eval sampler)."""
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
     return conn
 
 

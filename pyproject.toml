@@ -26,12 +26,15 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-outages = ["migrations/*.sql"]
+outages = ["migrations/*.sql", "areas/*.csv"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: hits visayanelectric.com; run with -m live"]
-addopts = "-m 'not live'"
+markers = [
+    "live: hits visayanelectric.com; run with -m live",
+    "llm: calls Ollama or Anthropic; run with -m llm",
+]
+addopts = "-m 'not live and not llm'"
 
 [tool.ruff]
 line-length = 100

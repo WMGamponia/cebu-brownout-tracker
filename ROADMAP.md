@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 1 — Ingest, parse, store, backfill (branch `phase1-ingest-parser`; done, waiting on the GitHub repo and PR).
+**Current phase:** Phase 2 — Areas and evals, **built** on branch `phase2-areas` (final review and PR next). Phase 3 starts with `prompts/phase3.md`. Phase 1 merged to `main` (PR #1).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -47,16 +47,53 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - `November 20, 024` → 2024, only because the post's week confirms it.
   - Two weekday matches in an 8-day week → the one with the same day of the month (`November 14` → Dec 14).
 
+- **2026-11-11** — **Phase 1 merged** (PR #1; CI green on Lint, Ubuntu 3.12, Windows 3.14).
+- **2026-11-11** — **Phase 2 brainstorm done; spec approved.** Spec: `docs/superpowers/specs/2026-11-11-phase2-areas-design.md`; plan: `docs/superpowers/plans/2026-11-11-phase2-areas.md` (10 tasks). Decisions (owner, 2026-11-11):
+  - **Eval split:** ~60 strings drawn by a seeded stratified sample *before any rule or prompt exists*; 20 dev (tuning), 40 test (frozen by hash, never opened during the build, failures reported not fixed). Claude labels from the post text; the owner reviews a sample. Reason: the same session writes labels and rules, so a single visible set would favour rules by construction.
+  - **Entities are typed** (`street`, `sitio_purok`, `subdivision`, `establishment`, `other`); street F1 is the headline, since Phase 5 needs streets.
+  - **Pre-registered decision rule:** Qwen becomes the default only if its test street F1 ≥ rules + 5 points and its typed F1 ≥ rules; ties go to rules. Haiku is reported, never the default.
+  - **Storage:** derived tables keyed by `sha256(areas_raw)` (`area_parses`, `area_barangays`, `area_entities`, `llm_cache`), rebuilt by `python -m outages areas`; Phase 1 upsert untouched. No-separator structured fields split in the areas segmenter, not in `extract` (keeps `text_hash` stable, so no false `areas_changed`).
+  - **Gazetteer:** `faeldon/philippines-json-maps` v1.1.1 `geojson-medres.zip`, SHA-256 pinned in `config.py` (the release's `SHA256SUMS` can't catch a swapped file); derived `barangays.csv` and hand-kept `aliases.csv` committed. Exact → alias → unmatched; no fuzzy auto-match. A name in two listed towns (`Tayud`) gives both (`ambiguous`): a missed alert is worse than two.
+  - **No new dependencies:** Ollama and Anthropic over httpx; hand-written schema check.
+  - **Corpus:** 1,429 city-first, 1,344 barangay-first, 227 structured, 8 other (2 are literally `testing`); 139 two-town lines; ~40 sub-label spellings.
+  - **Qwen probe:** `qwen3:14b` runs fully in VRAM at ~54 tok/s (~10 s for the longest kind of string), not CPU-only as assumed: a full-corpus pass is ~2–4 h once, cached. It truncated `Cebu South Road Properties` and was inconsistent on `Puroks`/`Zone 3,4,5`, so the labelling guide fixes naming conventions.
+  - **Barangay P/R is coverage, not a comparison:** aliases come from the whole corpus's review queue.
+- **2026-11-11** — **Phase 2 build: Tasks 1–3 up to the label review (stop for the owner).** Migration 002 and config; `gazetteer` writes `barangays.csv` from the pinned zip (hash matches the release's `SHA256SUMS`); per-town counts match the recon exactly (Cebu City 80, Mandaue 27, Talisay 22, Naga 28, Minglanilla 19, Consolacion 21, Liloan 14, San Fernando 21 = 232). `eval sample --seed 20261111` drew 60 distinct strings (2,848 candidates): city-first 21, barangay-first 20, structured 18, other 1; Cebu 16, Mandaue 14, south 13, north 16, multi 1. `GUIDE.md` written; all 60 rows labelled from the text (717 entities, 118 barangay rows). Gazetteer surprises: Cebu City's `Santo Niño` is not in the release (labelled `null`); `Greenhills` is a real San Fernando barangay, so the spec's `Greenhills → not_barangay` alias must be Cebu City-only; PSGC spells `Lorega` and `Pung-ol-Sibugay`.
+- **2026-11-11** — **Labels approved as-is by the owner and frozen** (`e92e470`). **Tasks 4–7 code done; stop before the first real write.** Segmenter, resolver, rules extractor (dev typed F1 0.969, street F1 1.000; tuned on dev only), `areas` / `--dry-run` / `--review`, `check`/`reparse` hooks, report line. VECO uses ~130 sub-label spellings (not ~40), so labels are matched by word. Full-corpus `areas --dry-run` (read-only; DB hash unchanged): 2,848 distinct texts → city-first 1,358, barangay-first 1,259, structured 229, other 2 (`testing`, `Mandaue City DCA Brokerage…`). Barangay rows before aliases: exact 4,407, alias 66, ambiguous 112, other_town 15, unmatched 263; after 20 aliases from the review queue: exact 4,408, alias 305, ambiguous 112, other_town 13, unmatched 23. **Match rate 99.4 %** of barangay mentions (5,161 / 5,192).
+- **2026-11-11** — **Phase 2 build done (Tasks 7–10). Default entity extractor: rules, by the pre-registered rule.** 411 tests, ruff clean.
+  - **Full-corpus `areas` written** (owner OK; backup taken first): 2,848 texts parsed in ~19 s, numbers identical to the dry run; a second run parses 0. Review queue: 19 items (see Known issues).
+  - **Qwen and Haiku extractors** (`areas/llm.py`): Ollama `/api/chat` with the JSON schema in `format`, `think: false`, temperature 0; Haiku via a forced tool call. Every valid answer cached in `llm_cache` by `sha256(model + PROMPT_VERSION + input)`; two invalid answers → rules fallback, tagged `rules_fallback`; Ollama down → the run stops with an error. Prompt tuned on dev only, two versions: v1 dev typed 98.3 / street 97.4, v2 (street-suffix rule, "don't skip names") 99.1 / 100.0. Frozen at v2 before any test number was seen.
+  - **Test split, run once (40 strings, `evals/areas/results/2026-11-11-test.md`):**
+
+    | arm | Street F1 | Typed F1 | Untyped F1 | schema failures | mean s | p95 s |
+    |---|---|---|---|---|---|---|
+    | rules | 98.9 | 95.3 | 98.6 | 0 | 0.00 | 0.00 |
+    | qwen (`qwen3:14b`, prompt v2) | 99.4 | 99.4 | 99.7 | 0 | 4.69 | 17.06 |
+    | haiku | skipped (no `ANTHROPIC_API_KEY`) | | | | | |
+
+    Barangays (rules): P/R/F1 100.0 (73 rows), match rate 98.6 %, a coverage number since aliases came from the whole corpus. **Decision: rules** — Qwen's street F1 is 0.5 points above rules, not 5. Qwen is clearly better at *typing* (typed +4.1; `other` 90.9 vs 32.3, establishments 99.8 vs 95.5), but the rule was written for streets and is applied as written.
+  - **Incident (my error):** while writing the failing test for `eval run`, the CLI sent the not-yet-handled command down the `check` path and fetched the VECO sitemap and 15 posts (~16 requests, 7–10 s apart, ~2 min) into a pytest temp database before I stopped it. The real DB was untouched. Fixed at the root: `_run` dispatches explicitly and refuses unknown commands, and the CLI tests fail if an offline command builds the fetcher.
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
 - A heading date within 2 days of the slug's week is never questioned, and one-date 2024 slugs give no week at all.
+- **Areas review queue after Phase 2 (19 items), each explained:**
+  - **Not in the gazetteer:** `Lipata` (Minglanilla, 11 outages) and `Sto. Niño` (Cebu City, 10) are real barangays missing from `philippines-json-maps` v1.1.1; stored `unmatched` with no code. A user in either can't be alerted by barangay until a later release or a hand-added code.
+  - **VECO typos, one outage each:** `City Tuyan of`, `City of East Poblacion`, `San Roque T. Padilla`; left unmatched rather than guessed.
+  - **`other_town` (13 rows):** VECO names a barangay under the wrong town (`Jagobiao` under Consolacion; `Poblacion`, `Sta. Cruz`, `Cadulawan` under Minglanilla). These rows carry **another town's** PSGC code. **Phase 3 must not alert from `other_town` rows.**
+  - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.
+  - `testing` (2) and `Mandaue City DCA Brokerage…` (1): no barangay at all.
 
 ### Lessons for later phases
 - **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
 - **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
 - **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Phase 3 must not alert from a post whose latest parse failed.
 - **Check a rule against the data before agreeing to it.** "Fix the AM/PM flip that matches the label" sounded right and can never pick one.
+- **Measure before assuming hardware limits.** "CPU-only Qwen" would have ruled out a full-corpus LLM pass; a 20-second probe showed the model in VRAM at ~54 tok/s.
+- **Fix the decision rule before the results.** Labels before rules, a frozen test split, and a margin written down in advance keep an eval from confirming whatever was built.
+- **…and check that the rule can be won.** A "+5 points" margin on a metric where the baseline already scores 98.9 can't be met; the rule decided the outcome before Qwen ran. Next time, set the margin after a dev baseline exists, or on the metric with headroom.
+- **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
 ## Phase 0 — Setup
 - [x] Recon, brainstorm, ROADMAP, Phase 1 spec.
@@ -72,10 +109,10 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - [x] Backfill all posts; report per-post outage counts, warnings, failures. → 151 posts, 150 parsed, 3,008 outages; 1 ambiguous post fails on purpose (Known issues).
 
 ## Phase 2 — Areas and evals
-- [ ] Rule-based barangay/city extraction for both layouts and two-town lines.
-- [ ] PSGC gazetteer from the pinned boundary release; alias table (e.g. Duljo Fatima → Duljo, Quiot → Quiot Pardo, Tugbungan → Tugbongan); unmatched → review queue, never dropped.
-- [ ] Street/sitio/landmark extraction behind one interface: rule-based splitter, local Qwen via Ollama (default LLM, JSON-schema output), Claude Haiku (optional, only with an API key).
-- [ ] Hand-label 30–50 historical "Areas Affected" strings; pytest eval reports barangay precision/recall and PSGC match rate (rules), and street precision/recall for rules vs Qwen (vs Haiku when a key is set). Pick the default from the results. Results in README.
+- [x] Rule-based barangay/city extraction for all three layouts (city-first, barangay-first, structured) and two-town lines. → `areas/segment.py`; 99.4 % of corpus barangay mentions resolved.
+- [x] PSGC gazetteer from the pinned boundary release; alias table (e.g. Duljo Fatima → Duljo, Quiot → Quiot Pardo, Tugbungan → Tugbongan); unmatched → review queue, never dropped. → `areas --review`; 19 items left, explained in Known issues.
+- [x] Street/sitio/landmark extraction behind one interface: rule-based splitter, local Qwen via Ollama (default LLM, JSON-schema output), Claude Haiku (optional, only with an API key). → `Extractor`; rules is the default by the eval.
+- [x] Hand-label 60 historical "Areas Affected" strings (20 dev / 40 frozen test); eval reports barangay precision/recall and PSGC match rate (rules), and street and typed-entity P/R/F1 for rules vs Qwen (vs Haiku when a key is set). Default picked by the pre-registered rule. → `evals/areas/results/`; results go into the README in Phase 6.
 
 ## Phase 3 — Telegram alerts (my barangay)
 - [ ] Bot, alert at ~20:00 the evening before and ~06:00 the morning of, and on cancelled / time changed / added / removed.
