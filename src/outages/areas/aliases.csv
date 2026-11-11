@@ -1,0 +1,12 @@
+town,alias,target,note
+Cebu City,Duljo Fatima,730600027,PSGC name is Duljo
+Cebu City,Quiot,730600063,PSGC name is Quiot Pardo
+Cebu City,Kinasang-an,730600038,PSGC name is Kinasang-an Pardo
+Cebu City,Pung-ol,730600060,PSGC name is Pung-ol-Sibugay
+Consolacion,Tugbungan,702219021,PSGC spells it Tugbongan
+Consolacion,Poblacion Orriental,702219014,posted typo of Poblacion Oriental
+Cebu City,Greenhills,not_barangay,area in Cebu City; Greenhills is a real barangay only in San Fernando
+*,Cebu Business Park,not_barangay,business district; not a barangay
+*,Cebu I.T. Park,not_barangay,business district in Apas/Lahug; not a barangay
+*,North Reclamation Area,not_barangay,reclaimed area; not a barangay
+*,South Reclamation Area,not_barangay,reclaimed area (SRP); not a barangay
