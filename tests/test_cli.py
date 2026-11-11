@@ -81,3 +81,37 @@ def test_areas_stops_when_ollama_unreachable(capsys, monkeypatch, tmp_path):
     )
     assert main(["areas"]) == 1
     assert "Ollama not reachable" in capsys.readouterr().err
+
+
+def no_network(monkeypatch):
+    """Fail if a command that must stay offline builds the VECO fetcher."""
+    from outages import __main__ as cli
+
+    def boom():
+        raise AssertionError("this command must not fetch from VECO")
+
+    monkeypatch.setattr(cli, "make_fetcher", boom)
+
+
+def test_eval_run_refuses_unfrozen_test(capsys, monkeypatch, tmp_path):
+    from outages import db
+
+    no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    db.connect(tmp_path / "data" / "outages.db").close()
+    d = tmp_path / "evals" / "areas"
+    d.mkdir(parents=True)
+    (d / "test.jsonl").write_text("{}\n", encoding="utf-8")
+    assert main(["eval", "run", "--split", "test", "--arms", "rules"]) == 1
+    assert "not frozen" in capsys.readouterr().err
+
+
+def test_only_check_and_backfill_fetch(monkeypatch, tmp_path):
+    from outages import __main__ as cli
+
+    no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    args = cli._parser().parse_args(["eval", "run"])
+    args.action = "frobnicate"
+    with pytest.raises(SystemExit):
+        cli._run(args, cli.Paths.default())

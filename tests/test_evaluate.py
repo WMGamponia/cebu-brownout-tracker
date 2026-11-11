@@ -185,3 +185,105 @@ def test_frozen_matches():
     """The committed test split is unchanged since the freeze (spec 7.2). Prints nothing."""
     root = Path(__file__).parent.parent / "evals" / "areas"
     ev.check_frozen(root / "test.jsonl", root / "FROZEN")
+
+
+# --- scoring, decision rule, report (spec 7.3, Task 9) ---
+
+from datetime import UTC, datetime  # noqa: E402
+
+from outages import db  # noqa: E402
+from outages.areas.entities import Entity as E  # noqa: E402
+
+
+def test_prf_counts():
+    gold = [[E("street", "A St."), E("street", "B Rd."), E("other", "X")]]
+    pred = [[E("street", "A St"), E("street", "C Ave."), E("other", "x")]]
+    s = ev.score_entities(gold, pred)
+    assert (s["typed"].tp, s["typed"].fp, s["typed"].fn) == (2, 1, 1)
+    assert s["typed"].p == pytest.approx(2 / 3) and s["typed"].r == pytest.approx(2 / 3)
+    assert s["typed"].f1 == pytest.approx(2 / 3)
+    assert (s["street"].tp, s["street"].fp, s["street"].fn) == (1, 1, 1)
+    assert s["street"].f1 == pytest.approx(0.5)
+    assert s["per_kind"]["other"].f1 == pytest.approx(1.0)
+
+
+def test_typed_vs_untyped():
+    s = ev.score_entities([[E("subdivision", "Villa Uno")]], [[E("other", "Villa Uno")]])
+    assert (s["untyped"].tp, s["untyped"].fp, s["untyped"].fn) == (1, 0, 0)
+    assert (s["typed"].tp, s["typed"].fp, s["typed"].fn) == (0, 1, 1)
+
+
+def test_duplicates_are_multiset():
+    s = ev.score_entities([[E("street", "A St."), E("street", "A St.")]], [[E("street", "A St.")]])
+    assert (s["typed"].tp, s["typed"].fp, s["typed"].fn) == (1, 0, 1)
+
+
+def test_score_barangays():
+    s = ev.score_barangays([["1", "2"], ["3"]], [["1", None], ["3", "4"]])
+    assert (s["prf"].tp, s["prf"].fp, s["prf"].fn) == (2, 1, 1)
+    assert s["match_rate"] == pytest.approx(3 / 4)
+
+
+def scores(street: float, typed: float) -> dict:
+    return {"street": ev.PRF(0, 0, street, 0, 0, 0), "typed": ev.PRF(0, 0, typed, 0, 0, 0)}
+
+
+def test_decide_qwen_wins_by_margin():
+    winner, why = ev.decide(scores(0.80, 0.70), scores(0.85, 0.70))
+    assert winner == "qwen" and why
+
+
+def test_decide_margin_not_met():
+    assert ev.decide(scores(0.80, 0.70), scores(0.849, 0.90))[0] == "rules"
+
+
+def test_decide_typed_lower():
+    assert ev.decide(scores(0.80, 0.70), scores(0.90, 0.699))[0] == "rules"
+
+
+def test_decide_no_qwen():
+    winner, why = ev.decide(scores(0.80, 0.70), None)
+    assert winner == "rules" and "qwen" in why
+
+
+ROW = {
+    "id": "dev-01",
+    "areas_hash": "h",
+    "slug": "s",
+    "areas_raw": "Portion of Cebu City (Lahug) along Gorordo Avenue.",
+    "towns": ["Cebu City"],
+    "barangays": [{"name": "Lahug", "psgc_code": None}],
+    "entities": [{"kind": "street", "name": "Gorordo Avenue"}],
+}
+NOW = datetime(2026, 11, 11, 12, tzinfo=UTC)
+
+
+def test_eval_run_refuses_unfrozen_test(tmp_path):
+    d = tmp_path / "areas"
+    d.mkdir()
+    ev.write_split(d / "test.jsonl", [ROW])
+    conn = db.connect(tmp_path / "t.db")
+    with pytest.raises(ev.EvalError, match="not frozen"):
+        ev.run_eval("test", ["rules"], conn, NOW, eval_dir=d)
+    ev.freeze(d / "test.jsonl", d / "FROZEN")
+    (d / "test.jsonl").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ev.EvalError, match="changed"):
+        ev.run_eval("test", ["rules"], conn, NOW, eval_dir=d)
+    conn.close()
+
+
+def test_report_lists_skipped_haiku(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    d = tmp_path / "areas"
+    d.mkdir()
+    ev.write_split(d / "dev.jsonl", [ROW])
+    conn = db.connect(tmp_path / "t.db")
+    out = ev.run_eval("dev", ["rules", "haiku"], conn, NOW, eval_dir=d)
+    conn.close()
+    assert out == d / "results" / "2026-11-11-dev.md"
+    text = out.read_text(encoding="utf-8")
+    assert "haiku: skipped (no ANTHROPIC_API_KEY)" in text
+    assert "rules" in text and "Street F1" in text
+    assert "+ 5 points" in text  # the pre-registered rule is stated
+    assert "coverage" in text  # the barangay caveat

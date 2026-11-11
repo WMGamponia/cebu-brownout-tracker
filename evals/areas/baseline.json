@@ -1,0 +1,17 @@
+{
+  "note": "2026-11-11: written once from the first rules run (Task 9, rules arm as of 56a33f9), truncated to 4 places; change only with a written reason in evals/areas/CHANGES.md.",
+  "dev": {
+    "street_f1": 1.0,
+    "typed_f1": 0.9686,
+    "untyped_f1": 0.9914,
+    "barangay_f1": 1.0,
+    "match_rate": 1.0
+  },
+  "test": {
+    "street_f1": 0.9887,
+    "typed_f1": 0.9529,
+    "untyped_f1": 0.9861,
+    "barangay_f1": 1.0,
+    "match_rate": 0.9864
+  }
+}

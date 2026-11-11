@@ -127,6 +127,22 @@ def _eval_sample(paths: Paths, seed: int) -> int:
     return 0
 
 
+def _eval_run(paths: Paths, args: argparse.Namespace) -> int:
+    """Score the arms on a split; the LLM cache lives in data/outages.db. No VECO requests."""
+    arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+    conn = db.connect(paths.db)
+    try:
+        out = evaluate.run_eval(args.split, arms, conn, utcnow())
+    except (evaluate.EvalError, LLMUnavailable) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    print(out.read_text(encoding="utf-8"), end="")
+    print(f"written: {out}")
+    return 0
+
+
 def _gazetteer(paths: Paths) -> int:
     counts = gazetteer_build.run(paths.gazetteer)
     for town, n in counts.items():
@@ -190,8 +206,14 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _gazetteer(paths)
     if command == "areas":
         return _areas(paths, args)
-    if command == "eval" and args.action == "sample":
-        return _eval_sample(paths, args.seed)
+    if command == "eval":
+        if args.action == "sample":
+            return _eval_sample(paths, args.seed)
+        if args.action == "run":
+            return _eval_run(paths, args)
+        raise SystemExit(f"error: unknown eval action {args.action!r}")
+    if command not in ("report", "reparse", "serve", "check", "backfill"):
+        raise SystemExit(f"error: unhandled command {command!r}")  # never fall through to fetch
     conn = db.connect(paths.db)
     try:
         if command == "report":
@@ -213,6 +235,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         try:
             if command == "backfill":
                 return _summary(command, pipeline.backfill(conn, fetcher, utcnow()))
+            assert command == "check"
             return _summary(
                 command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
             )
