@@ -8,14 +8,14 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from outages.config import CATCH_UP_AFTER_H, CHECK_TIMES
+from outages.config import CATCH_UP_AFTER_H, MISFIRE_GRACE_S, RUN_TIMES
 from outages.timeparse import MANILA
 
 
 def build(run_check: Callable[[], None]) -> BlockingScheduler:
-    """A scheduler with one cron job per CHECK_TIMES entry, in Manila time."""
+    """A scheduler with one cron job per RUN_TIMES entry, in Manila time."""
     sched = BlockingScheduler(timezone=MANILA)
-    for hm in CHECK_TIMES:
+    for hm in RUN_TIMES:
         h, m = hm.split(":")
         sched.add_job(
             run_check,
@@ -23,7 +23,7 @@ def build(run_check: Callable[[], None]) -> BlockingScheduler:
             id=f"check-{hm}",
             coalesce=True,
             max_instances=1,
-            misfire_grace_time=3600,
+            misfire_grace_time=MISFIRE_GRACE_S,
         )
     return sched
 

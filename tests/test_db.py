@@ -31,14 +31,14 @@ AREA_TABLES = {"area_parses", "area_barangays", "area_entities", "llm_cache"}
 def test_fresh_db_has_schema(conn):
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= TABLES | AREA_TABLES
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == [1, 2]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == [1, 2, 3]
 
 
 def test_connect_twice_does_not_reapply(tmp_path):
     p = tmp_path / "o.db"
     db.connect(p).close()
     c = db.connect(p)
-    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 2
+    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 3
     c.close()
 
 
@@ -67,7 +67,7 @@ def test_migration_002_on_phase1_db(tmp_path):
     c = db.connect(p)
     names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= AREA_TABLES
-    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
+    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
     assert c.execute("SELECT areas_hash, areas_raw FROM outages").fetchone()[0] is None
     c.close()
 
@@ -165,3 +165,48 @@ def test_parse_status_and_meta(conn):
 def test_active_outages_empty(conn):
     pid = db.upsert_post(conn, "https://x/post/a", "a", None)
     assert db.active_outages(conn, pid) == []
+
+
+ALERT_TABLES = {"subscribers", "subscriptions", "alerts_sent", "admin_notes_sent"}
+
+
+def test_migration_003_tables(conn):
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert names >= ALERT_TABLES
+    assert conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
+
+
+def _seed_alert_refs(conn):
+    conn.execute("INSERT INTO posts (id, url, slug, first_seen_at) VALUES (1, 'u', 's', 't')")
+    conn.execute(
+        "INSERT INTO post_versions (id, post_id, fetched_at, text_hash, content_gz)"
+        " VALUES (1, 1, 't', 'h', x'00')"
+    )
+    conn.execute(
+        "INSERT INTO outages (id, post_id, seq, heading_text, start_at, end_at, status, purpose,"
+        " areas_raw, areas_key, first_seen_version_id, last_seen_version_id)"
+        " VALUES (7, 1, 0, 'h', 's', 'e', 'scheduled', 'p', 'a', 'k', 1, 1)"
+    )
+    conn.execute(
+        "INSERT INTO outage_changes (id, outage_id, version_id, kind, detected_at)"
+        " VALUES (5, 7, 1, 'time_changed', 't')"
+    )
+    conn.execute("INSERT INTO subscribers (id, chat_id, created_at) VALUES (1, 42, 't')")
+
+
+def test_alerts_sent_unique_item(conn):
+    _seed_alert_refs(conn)
+    ins = (
+        "INSERT INTO alerts_sent (subscriber_id, outage_id, kind, change_id, sent_at)"
+        " VALUES (?, ?, ?, ?, 't')"
+    )
+    conn.execute(ins, (1, 7, "change", 5))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(ins, (1, 7, "change", 5))
+    conn.execute(ins, (1, 7, "day_of", None))
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(ins, (1, 7, "day_of", None))
+
+
+def test_connect_sets_busy_timeout(conn):
+    assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000

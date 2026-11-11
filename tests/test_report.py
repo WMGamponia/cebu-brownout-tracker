@@ -116,12 +116,12 @@ def test_serve_skips_catch_up_when_recent(home, monkeypatch):
     assert calls == ["start"]
 
 
-def test_scheduler_jobs_at_check_times():
+def test_scheduler_jobs_at_run_times():
     sched = scheduler.build(lambda: None)
     triggers = sorted(str(j.trigger) for j in sched.get_jobs())
     assert triggers == [
-        "cron[hour='17', minute='0']",
-        "cron[hour='7', minute='0']",
+        "cron[hour='20', minute='0']",
+        "cron[hour='6', minute='0']",
     ]
     assert all(str(j.trigger.timezone) == "Asia/Manila" for j in sched.get_jobs())
 
