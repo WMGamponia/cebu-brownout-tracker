@@ -1,4 +1,4 @@
-"""Command line: `python -m outages backfill|check|reparse|report|serve` (spec 7)."""
+"""Command line: `python -m outages <command>` (Phase 1 spec 7, Phase 2 spec 6)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
-from outages import db, pipeline, report, scheduler
+from outages import db, gazetteer_build, pipeline, report, scheduler
 from outages.config import BACKFILL_DELAY_S, Paths
 from outages.fetch import Fetcher
 
@@ -19,6 +19,7 @@ COMMANDS = {
     "reparse": "re-run parse + upsert over stored versions (no network)",
     "report": "print per-post outage counts, warnings, failures and duplicates",
     "serve": "run checks at 07:00 and 17:00 Asia/Manila (catch-up on start)",
+    "gazetteer": "download the pinned PSGC gazetteer and write barangays.csv (GitHub only)",
 }
 
 log = logging.getLogger("outages")
@@ -35,9 +36,24 @@ def make_fetcher() -> Fetcher:
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="outages", description="Cebu Brownout Tracker")
     sub = p.add_subparsers(dest="command", required=True, metavar="command")
-    for name, help_text in COMMANDS.items():
-        sub.add_parser(name, help=help_text, description=help_text)
+    parsers = {
+        name: sub.add_parser(name, help=help_text, description=help_text)
+        for name, help_text in COMMANDS.items()
+    }
+    _add_args(parsers)
     return p
+
+
+def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
+    """Per-command options (Phase 2)."""
+
+
+def _gazetteer(paths: Paths) -> int:
+    counts = gazetteer_build.run(paths.gazetteer)
+    for town, n in counts.items():
+        print(f"{town} {n}")
+    print(f"total {sum(counts.values())}; written: {gazetteer_build.CSV_PATH}")
+    return 0
 
 
 def _setup_logging(paths: Paths) -> list[logging.Handler]:
@@ -88,6 +104,8 @@ def _report(paths: Paths, conn) -> int:
 
 
 def _run(command: str, paths: Paths) -> int:
+    if command == "gazetteer":
+        return _gazetteer(paths)
     conn = db.connect(paths.db)
     try:
         if command == "report":
