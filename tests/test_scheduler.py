@@ -26,6 +26,9 @@ def home(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli, "utcnow", lambda: NOW)
+    # serve starts the map thread by default; never open a real port in these tests
+    monkeypatch.setattr(cli, "make_map_app", lambda paths: object())
+    monkeypatch.setattr(cli.map_server, "start_thread", lambda *a, **k: None)
     return Paths(tmp_path)
 
 
@@ -194,3 +197,105 @@ def test_serve_recent_check_still_runs_alerts(home, monkeypatch):
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
     assert cli.main(["serve"]) == 0
     assert calls == [False, "start"]
+
+
+# --- Phase 4: the map thread in serve ----------------------------------------------------------
+
+
+def _quiet_serve(monkeypatch) -> list:
+    calls: list = []
+    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True: calls.append("run"))
+    monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
+    monkeypatch.setattr(cli.bot, "poll_forever", lambda *a, **k: None)
+    return calls
+
+
+def test_serve_starts_map_thread(home, monkeypatch):
+    _last_check(home, 2)
+    _quiet_serve(monkeypatch)
+    started: list = []
+    monkeypatch.setattr(
+        cli.map_server,
+        "start_thread",
+        lambda app, host, port, on_error: started.append((host, port)),
+    )
+    assert cli.main(["serve", "--map-port", "9002"]) == 0
+    assert started == [("127.0.0.1", 9002)]
+
+
+def test_serve_no_map_starts_no_thread(home, monkeypatch):
+    _last_check(home, 2)
+    calls = _quiet_serve(monkeypatch)
+    monkeypatch.setattr(cli, "make_map_app", lambda paths: pytest.fail("built the map app"))
+    monkeypatch.setattr(
+        cli.map_server, "start_thread", lambda *a, **k: pytest.fail("started the map")
+    )
+    assert cli.main(["serve", "--no-map"]) == 0
+    assert calls == ["start"]
+
+
+def _recording_telegram(monkeypatch) -> list:
+    sent: list = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        sent.append(req)
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    monkeypatch.setattr(
+        cli, "make_telegram", lambda t: TelegramClient(t, transport=httpx.MockTransport(handler))
+    )
+    return sent
+
+
+def _failing_map(monkeypatch) -> None:
+    def start_thread(app, host, port, on_error):
+        on_error(f"map: could not listen on {host}:{port}")
+
+    monkeypatch.setattr(cli.map_server, "start_thread", start_thread)
+
+
+def test_map_thread_bind_failure_reports_and_scheduler_runs(home, monkeypatch, caplog):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "999")
+    _last_check(home, 2)
+    sent = _recording_telegram(monkeypatch)
+    calls = _quiet_serve(monkeypatch)
+    _failing_map(monkeypatch)
+    with caplog.at_level(logging.ERROR, logger="outages"):
+        assert cli.main(["serve"]) == 0
+    assert "start" in calls  # the 06:00/20:00 runs are still scheduled
+    assert "could not listen on 127.0.0.1:8765" in caplog.text
+    notes = [r for r in sent if r.url.path.endswith("/sendMessage")]
+    assert len(notes) == 1 and b"8765" in notes[0].content
+    conn = db.connect(home.db)
+    assert conn.execute("SELECT key FROM admin_notes_sent").fetchall()[0][0] == (
+        "map_failed:2026-11-12"
+    )
+    conn.close()
+    # a second failure the same Manila day sends nothing
+    assert cli.main(["serve"]) == 0
+    assert len([r for r in sent if r.url.path.endswith("/sendMessage")]) == 1
+
+
+def test_map_bad_boundaries_in_serve_keeps_alerts(home, monkeypatch, caplog):
+    from outages.map.build import BoundariesError
+
+    _last_check(home, 2)
+    calls = _quiet_serve(monkeypatch)
+
+    def bad(paths):
+        raise BoundariesError("boundaries missing")
+
+    monkeypatch.setattr(cli, "make_map_app", bad)
+    with caplog.at_level(logging.ERROR, logger="outages"):
+        assert cli.main(["serve"]) == 0
+    assert calls == ["start"]
+    assert "boundaries missing" in caplog.text
+
+
+def test_serve_map_host_non_loopback_warns(home, monkeypatch, caplog):
+    _last_check(home, 2)
+    _quiet_serve(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="outages"):
+        assert cli.main(["serve", "--map-host", "0.0.0.0"]) == 0
+    assert "map is reachable from your network; there is no login" in caplog.text

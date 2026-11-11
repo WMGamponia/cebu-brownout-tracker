@@ -269,3 +269,76 @@ def test_bot_without_token_exits_1(capsys, monkeypatch, no_tg_env):
     no_telegram(monkeypatch)
     assert main(["bot"]) == 1
     assert "TELEGRAM_BOT_TOKEN not set" in capsys.readouterr().err
+
+
+# --- Phase 4: the map ------------------------------------------------------------------------
+
+
+def _record_serving(monkeypatch, ok: bool = True) -> list:
+    from outages import __main__ as cli
+
+    seen: list = []
+
+    def fake(app, host, port):
+        seen.append((host, port))
+        return ok
+
+    monkeypatch.setattr(cli.map_server, "serve_forever", fake)
+    return seen
+
+
+def test_map_command_offline(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    seen = _record_serving(monkeypatch)
+    assert main(["map"]) == 0
+    assert seen == [("127.0.0.1", 8765)]
+    assert not (tmp_path / "data" / "outages.db").exists()  # map never creates the DB
+
+
+def test_map_command_host_port(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    seen = _record_serving(monkeypatch)
+    assert main(["map", "--port", "9001"]) == 0
+    assert seen == [("127.0.0.1", 9001)]
+
+
+def test_map_command_port_failure_exits_1(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    _record_serving(monkeypatch, ok=False)
+    assert main(["map"]) == 1
+    assert "8765" in capsys.readouterr().err
+
+
+def test_map_command_bad_boundaries_exits_1(monkeypatch, tmp_path, capsys):
+    from outages import __main__ as cli
+    from outages.map.build import BoundariesError
+
+    monkeypatch.chdir(tmp_path)
+    seen = _record_serving(monkeypatch)
+
+    def bad():
+        raise BoundariesError("boundaries.geojson is broken")
+
+    monkeypatch.setattr(cli, "load_boundaries", bad)
+    assert main(["map"]) == 1
+    assert "boundaries.geojson is broken" in capsys.readouterr().err
+    assert seen == []
+
+
+def test_non_loopback_warns(monkeypatch, tmp_path, caplog):
+    import logging
+
+    monkeypatch.chdir(tmp_path)
+    _record_serving(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="outages"):
+        assert main(["map", "--host", "0.0.0.0"]) == 0
+    assert "map is reachable from your network; there is no login" in caplog.text
+
+
+def test_loopback_does_not_warn(monkeypatch, tmp_path, caplog):
+    monkeypatch.chdir(tmp_path)
+    _record_serving(monkeypatch)
+    assert main(["map"]) == 0
+    assert "reachable from your network" not in caplog.text

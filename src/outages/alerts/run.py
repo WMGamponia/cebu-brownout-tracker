@@ -261,7 +261,7 @@ def alert_run(
                     "it was resent as plain text.",
                 )
             )
-    notes = _deliver_notes(
+    notes = deliver_notes(
         conn, notifier, admin_chat_id, run_notes + admin_notes(conn, snap, now, check_ok, gaz), now
     )
     subscribers = len({s.subscriber_id for s in snap.subs})
@@ -276,7 +276,7 @@ def alert_run(
     return RunSummary(subscribers, sent, recorded, failed, notes)
 
 
-def _deliver_notes(
+def deliver_notes(
     conn: sqlite3.Connection,
     notifier: Notifier,
     admin_chat_id: int | None,

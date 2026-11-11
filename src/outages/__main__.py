@@ -13,6 +13,7 @@ from pathlib import Path
 
 from outages import bot, db, evaluate, gazetteer_build, pipeline, report, scheduler
 from outages.alerts import run as alerts_run
+from outages.alerts import store as alerts_store
 from outages.areas import store as areas_store
 from outages.areas.entities import Extractor
 from outages.areas.entities_rules import RulesExtractor
@@ -21,14 +22,20 @@ from outages.areas.llm import LLMUnavailable, OllamaExtractor
 from outages.config import (
     BACKFILL_DELAY_S,
     ENTITY_EXTRACTOR,
+    MAP_HOST,
+    MAP_PORT,
     RUN_TIMES,
     Paths,
     TelegramSettings,
     telegram_settings,
 )
 from outages.fetch import Fetcher
+from outages.map import server as map_server
+from outages.map.app import create_app
+from outages.map.build import BoundariesError, load_boundaries
 from outages.notify import TelegramNotifier
 from outages.telegram import TelegramClient, install_redaction
+from outages.timeparse import MANILA
 
 COMMANDS = {
     "backfill": "fetch and store every interruption post not stored yet (resumable)",
@@ -41,7 +48,9 @@ COMMANDS = {
     "eval": "area eval: `sample` the label set, or `run` the arms on a split",
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
+    "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
 }
+LAN_WARNING = "map is reachable from your network; there is no login"
 
 log = logging.getLogger("outages")
 
@@ -199,6 +208,13 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     al = parsers["alerts"].add_mutually_exclusive_group(required=True)
     al.add_argument("--dry-run", action="store_true", help="print what would be sent; no writes")
     al.add_argument("--send", action="store_true", help="send through Telegram and record")
+    m = parsers["map"]
+    m.add_argument("--host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
+    m.add_argument("--port", type=int, default=MAP_PORT)
+    s = parsers["serve"]
+    s.add_argument("--no-map", action="store_true", help="don't serve the map")
+    s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
+    s.add_argument("--map-port", type=int, default=MAP_PORT)
 
 
 def _eval_sample(paths: Paths, seed: int) -> int:
@@ -308,8 +324,76 @@ def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bo
         conn.close()
 
 
-def _serve(paths: Paths, last_check_at: str | None) -> int:
-    """Catch-up, the bot thread, then runs at RUN_TIMES until Ctrl+C."""
+def make_map_app(paths: Paths):
+    """The map app over the real DB; raises `BoundariesError` if the boundaries won't load."""
+    return create_app(paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow())
+
+
+def _warn_if_lan(host: str) -> None:
+    if not map_server.is_loopback(host):
+        log.warning(LAN_WARNING)
+
+
+def _map(paths: Paths, args: argparse.Namespace) -> int:
+    """The map alone, in the foreground. Builds no fetcher and no Telegram client."""
+    _warn_if_lan(args.host)
+    try:
+        app = make_map_app(paths)
+    except BoundariesError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if not map_server.serve_forever(app, args.host, args.port):
+        print(
+            f"error: map could not listen on {args.host}:{args.port} (port in use?)",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _map_failed(paths: Paths, settings: TelegramSettings | None, message: str) -> None:
+    """Log a map start failure and tell the admin chat once per Manila day. Never raises."""
+    log.error(message)
+    if settings is None:
+        return
+    now = utcnow()
+    key = f"map_failed:{now.astimezone(MANILA):%Y-%m-%d}"
+    try:
+        conn = db.connect(paths.db)
+        try:
+            if alerts_store.note_sent(conn, key):
+                return
+            client = make_telegram(settings.token)
+            try:
+                note = alerts_run.Note((key,), f"{message}; alerts keep running.")
+                alerts_run.deliver_notes(
+                    conn, TelegramNotifier(client), settings.admin_chat_id, [note], now
+                )
+            finally:
+                client.close()
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("map: could not report the failure")
+
+
+def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSettings | None) -> None:
+    """The map thread inside `serve`; a failure is reported and never stops the alert runs."""
+    if args.no_map:
+        return
+    _warn_if_lan(args.map_host)
+    try:
+        app = make_map_app(paths)
+    except BoundariesError as e:
+        _map_failed(paths, settings, f"map: not started: {e}")
+        return
+    map_server.start_thread(
+        app, args.map_host, args.map_port, lambda msg: _map_failed(paths, settings, msg)
+    )
+
+
+def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) -> int:
+    """Catch-up, the bot and map threads, then runs at RUN_TIMES until Ctrl+C."""
     try:
         settings = telegram_settings()
     except ValueError as e:
@@ -332,6 +416,7 @@ def _serve(paths: Paths, last_check_at: str | None) -> int:
             name="telegram-bot",
             daemon=True,
         ).start()
+    _start_map(paths, args, settings)
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
     if catch_up or settings is not None:
@@ -365,6 +450,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _alerts(paths, args)
     if command == "bot":
         return _bot(paths)
+    if command == "map":
+        return _map(paths, args)
     if command == "eval":
         if args.action == "sample":
             return _eval_sample(paths, args.seed)
@@ -384,7 +471,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
             conn.close()
-            return _serve(paths, last)
+            return _serve(paths, last, args)
         fetcher = make_fetcher()
         try:
             if command == "backfill":
