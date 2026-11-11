@@ -33,6 +33,11 @@ def normalize_name(s: str) -> str:
     return " ".join(s.split()).rstrip(".").strip()
 
 
+def _fold(key: str) -> str:
+    """A normalized key without diacritics (`niño` -> `nino`); search only, never resolve."""
+    return "".join(c for c in unicodedata.normalize("NFKD", key) if not unicodedata.combining(c))
+
+
 @dataclass(frozen=True)
 class BarangayMatch:
     name_raw: str
@@ -47,6 +52,20 @@ class _Brgy:
     name: str
     town: str
     town_psgc: str
+
+
+@dataclass(frozen=True)
+class Place:
+    """A barangay as shown to a subscriber (Phase 3)."""
+
+    code: str
+    name: str
+    town: str
+    town_psgc: str
+
+
+def _place(b: _Brgy) -> Place:
+    return Place(b.code, b.name, b.town, b.town_psgc)
 
 
 class Gazetteer:
@@ -93,6 +112,24 @@ class Gazetteer:
             town = VECO_TOWNS[listed[0]] if len(listed) == 1 else None
             matches.append(BarangayMatch(raw, town, None, "unmatched"))
         return matches, not_brgy
+
+    def place(self, code: str) -> Place | None:
+        b = self._by_code.get(code)
+        return _place(b) if b else None
+
+    def search(self, query: str) -> list[Place]:
+        """Barangays a subscriber may mean by `query`: exact normalized names in any VECO town,
+        plus alias targets (any town); deduped, sorted by town then name. No fuzzy matching."""
+        key = _fold(normalize_name(query))  # a phone keyboard may type `Sto Nino`
+        if not key:
+            return []
+        found = {
+            b.code: b for name, bs in self._by_name.items() if _fold(name) == key for b in bs
+        }
+        for (_, alias), target in self._aliases.items():
+            if _fold(alias) == key and target in self._by_code:
+                found[target] = self._by_code[target]
+        return sorted((_place(b) for b in found.values()), key=lambda p: (p.town, p.name))
 
     def suggest(self, name: str, n: int = 3) -> list[str]:
         """Closest gazetteer names (`Name (Town)`), for the review queue only."""

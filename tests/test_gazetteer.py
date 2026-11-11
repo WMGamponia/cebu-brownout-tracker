@@ -152,3 +152,62 @@ def test_load_packaged():
     g = load()
     m, _ = g.resolve(_seg(["Cebu City"], ["Lahug"]))
     assert m[0].match == "exact" and m[0].psgc_code == "730600041"
+
+
+# Phase 3 (spec 5.8, owner ruling 2026-11-11): Lipata and Sto. Niño are other names for
+# PSA barangays already in the release, so they resolve through town-scoped aliases.
+def _one(text: str) -> BarangayMatch:
+    from outages.areas.segment import segment
+
+    matches, _ = load().resolve(segment(text))
+    assert len(matches) == 1, matches
+    return matches[0]
+
+
+def test_lipata_resolves_to_linao():
+    m = _one("Portion of Minglanilla (Lipata)")
+    assert (m.psgc_code, m.match) == ("702232007", "alias")
+
+
+@pytest.mark.parametrize("name", ["Sto. Niño", "Santo Niño", "STO. NIÑO"])
+def test_sto_nino_resolves_to_730600022(name):
+    m = _one(f"Portion of Cebu City ({name})")
+    assert (m.psgc_code, m.match) == ("730600022", "alias")
+
+
+def test_place():
+    from outages.areas.gazetteer import Place
+
+    assert load().place("730600027") == Place("730600027", "Duljo", "Cebu City", "730600000")
+    assert load().place("nope") is None
+
+
+def test_search_two_towns():
+    gaz = load()
+    roque = gaz.search("San Roque")
+    assert len({p.town for p in roque}) >= 2
+    assert [p.town for p in gaz.search("tayud")] == ["Consolacion", "Liloan"]
+
+
+def test_search_alias():
+    from outages.areas.gazetteer import Place
+
+    assert load().search("Duljo Fatima") == [
+        Place("730600027", "Duljo", "Cebu City", "730600000")
+    ]
+    assert [p.code for p in load().search("sto nino")] == ["730600022"]
+
+
+def test_search_exact_and_alias_deduped():
+    assert [p.code for p in load().search("Lipata")] == ["702232007"]
+    assert [p.code for p in load().search("  duljo ")] == ["730600027"]
+
+
+def test_search_unknown_empty():
+    assert load().search("Atlantis") == []
+    assert load().search("") == []
+
+
+def test_search_skips_not_barangay_alias():
+    # Cebu City's `Greenhills -> not_barangay` alias adds nothing; San Fernando's barangay stays.
+    assert [p.town for p in load().search("Greenhills")] == ["San Fernando"]
