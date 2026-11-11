@@ -32,11 +32,16 @@ def load_boundaries(path: Path = BOUNDARIES_PATH) -> dict:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         raise BoundariesError(f"can't read boundaries {path}: {e}") from None
-    feats = doc.get("features") if isinstance(doc, dict) else None
-    if doc.get("type") != "FeatureCollection" or not feats:
-        raise BoundariesError(f"{path} is not a FeatureCollection with features")
+    if not isinstance(doc, dict) or doc.get("type") != "FeatureCollection":
+        raise BoundariesError(f"{path} is not a FeatureCollection")
+    feats = doc.get("features")
+    if not isinstance(feats, list) or not feats:
+        raise BoundariesError(f"{path} has no features")
     if not all(
-        isinstance(f.get("properties"), dict) and f["properties"].get("psgc") for f in feats
+        isinstance(f, dict)
+        and isinstance(f.get("properties"), dict)
+        and f["properties"].get("psgc")
+        for f in feats
     ):
         raise BoundariesError(f"{path} has a feature without properties.psgc")
     return doc

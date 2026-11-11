@@ -342,7 +342,12 @@ def _map(paths: Paths, args: argparse.Namespace) -> int:
     except BoundariesError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
-    if not map_server.serve_forever(app, args.host, args.port):
+    try:
+        ok = map_server.serve_forever(app, args.host, args.port)
+    except KeyboardInterrupt:  # uvicorn re-raises Ctrl+C after its own clean shutdown
+        print("map: stopped")
+        return 0
+    if not ok:
         print(
             f"error: map could not listen on {args.host}:{args.port} (port in use?)",
             file=sys.stderr,
@@ -384,7 +389,7 @@ def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSetting
     _warn_if_lan(args.map_host)
     try:
         app = make_map_app(paths)
-    except BoundariesError as e:
+    except Exception as e:  # spec 6: nothing about the map may stop the alert runs
         _map_failed(paths, settings, f"map: not started: {e}")
         return
     map_server.start_thread(

@@ -7,12 +7,14 @@ import {
   STALE_AFTER_H,
   activeInHour,
   asOfLabel,
+  byStart,
   checkAgeHours,
   dayLabel,
   dayStartMs,
   defaultSelection,
   hourLabel,
   manila,
+  needsRefetch,
   onDay,
   parseIso,
   rangeLabel,
@@ -122,4 +124,24 @@ test("asOfLabel", () => {
   assert.equal(asOfLabel("2026-11-12T20:00:00+08:00"), "Thu 12 Nov, 20:00");
   assert.equal(asOfLabel("2026-11-12T16:05:00+00:00"), "Fri 13 Nov, 00:05");
   assert.equal(asOfLabel(null), null);
+});
+
+test("byStart orders by Manila start time, then id, not by object key order", () => {
+  // JS orders integer-like keys numerically, so {"12": …, "3": …} iterates 3 before 12
+  const outages = {
+    3: o("2026-11-12T13:00:00+08:00", "2026-11-12T17:00:00+08:00"),
+    12: o("2026-11-12T08:00:00+08:00", "2026-11-12T10:00:00+08:00"),
+    5: o("2026-11-12T13:00:00+08:00", "2026-11-12T14:00:00+08:00"),
+  };
+  assert.deepEqual(
+    byStart(Object.entries(outages)).map(([id]) => id),
+    ["12", "3", "5"],
+  );
+});
+
+test("needsRefetch after 30 minutes, also on a tab that stays visible", () => {
+  const t0 = parseIso("2026-11-12T08:00:00+08:00");
+  assert.equal(needsRefetch(t0, t0 + 29 * 60 * 1000), false);
+  assert.equal(needsRefetch(t0, t0 + 31 * 60 * 1000), true);
+  assert.equal(needsRefetch(0, t0), true);
 });

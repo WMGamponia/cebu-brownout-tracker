@@ -82,6 +82,20 @@ export function rangeLabel(start, end) {
   return `${dateLabel(s.date)} ${clock(s)} – ${dateLabel(e.date)} ${clock(e)}`;
 }
 
+/** `[id, outage]` pairs by start time, then id. Object key order is numeric, not the server's. */
+export function byStart(entries) {
+  return [...entries].sort(
+    ([a, oa], [b, ob]) => parseIso(oa.start) - parseIso(ob.start) || Number(a) - Number(b),
+  );
+}
+
+export const REFETCH_AFTER_MS = 30 * 60 * 1000;
+
+/** True when data fetched at `fetchedAtMs` is due for a refetch. */
+export function needsRefetch(fetchedAtMs, nowMs) {
+  return nowMs - fetchedAtMs > REFETCH_AFTER_MS;
+}
+
 /** "Thu 12 Nov, 20:00" in Manila for any offset; null stays null. */
 export function asOfLabel(iso) {
   if (!iso) return null;

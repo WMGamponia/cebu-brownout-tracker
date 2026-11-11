@@ -188,3 +188,16 @@ def test_build_is_read_only(tmp_path):
     build(ro, gazetteer(), boundaries(), default_window(ro, NOW), NOW)
     ro.close()
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+def test_load_boundaries_rejects_wrong_json_types(tmp_path):
+    p = tmp_path / "b.geojson"
+    for bad in (
+        "[]",
+        '"x"',
+        '{"type":"FeatureCollection","features":["x"]}',
+        '{"type":"FeatureCollection","features":{}}',
+    ):
+        p.write_text(bad, encoding="utf-8")
+        with pytest.raises(BoundariesError):
+            load_boundaries(p)

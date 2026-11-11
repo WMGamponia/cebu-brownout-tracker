@@ -14,6 +14,7 @@ a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6  leaflet.css
 574c3a5cca85f4114085b6841596d62f00d7c892c7b03f28cbfa301deb1dc437  images/marker-icon.png
 264f5c640339f042dd729062cfc04c17f8ea0f29882b538e3848ed8f10edb4da  images/marker-shadow.png
 
-LICENSE: the release zip has no license file. LICENSE here is Leaflet's BSD 2-Clause text,
-written from the copyright line in leaflet.js's header ((c) 2010-2023 Vladimir Agafonkin,
-(c) 2010-2011 CloudMade); replace it with the repository's LICENSE at tag v1.9.4 to be exact.
+LICENSE: the release zip has no license file. LICENSE here is the BSD 2-Clause text with the
+holders of leaflet.js's header ((c) 2010-2023 Vladimir Agafonkin, (c) 2010-2011 CloudMade),
+using the spelling "Volodymyr" from Leaflet's repository LICENSE as remembered, not fetched.
+Replace it with the repository's LICENSE at tag v1.9.4 to be exact.

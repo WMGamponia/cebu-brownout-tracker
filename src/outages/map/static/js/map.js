@@ -6,11 +6,13 @@ import {
   STALE_AFTER_H,
   activeInHour,
   asOfLabel,
+  byStart,
   checkAgeHours,
   dayLabel,
   defaultSelection,
   hourLabel,
   manila,
+  needsRefetch,
   onDay,
   rangeLabel,
   safePostUrl,
@@ -25,7 +27,6 @@ const DATA_URL = (() => {
   for (const k of ["from", "days"]) if (page.has(k)) q.set(k, page.get(k));
   return q.toString() ? `outages.geojson?${q}` : "outages.geojson";
 })();
-const REFETCH_AFTER_MS = 30 * 60 * 1000;
 const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
 
@@ -94,7 +95,7 @@ function visibleOutages(ids) {
     if (o.status === "cancelled" && !state.showCancelled) continue;
     out.push([String(id), o]);
   }
-  return out;
+  return byStart(out);
 }
 
 function featureState(props) {
@@ -255,7 +256,8 @@ function renderHour() {
 }
 
 function renderUnplaced() {
-  const items = Object.values(state.doc.outages)
+  const items = byStart(Object.entries(state.doc.outages))
+    .map(([, o]) => o)
     .filter((o) => o.unplaced.length && onDay(o, state.day))
     .filter((o) => o.status !== "cancelled" || state.showCancelled);
   $("unplaced-title").textContent = `Not on the map (${items.length})`;
@@ -377,9 +379,13 @@ $("days").addEventListener("keydown", (e) => {
   $("days").children[i].focus();
 });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && Date.now() - state.fetchedAt > REFETCH_AFTER_MS) {
-    load();
-  }
+  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, Date.now())) load();
 });
+// A tab left open (a wall display) never changes visibility: refetch it too, and let the
+// old-data warning appear when runs are missed.
+setInterval(() => {
+  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, Date.now())) load();
+  else if (state.doc) renderTopbar();
+}, 5 * 60 * 1000);
 
 load();

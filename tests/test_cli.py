@@ -342,3 +342,18 @@ def test_loopback_does_not_warn(monkeypatch, tmp_path, caplog):
     _record_serving(monkeypatch)
     assert main(["map"]) == 0
     assert "reachable from your network" not in caplog.text
+
+
+def test_map_command_ctrl_c_is_a_clean_stop(monkeypatch, tmp_path, capsys):
+    """uvicorn re-raises SIGINT after its own clean shutdown; Ctrl+C is how `map` stops."""
+    from outages import __main__ as cli
+
+    monkeypatch.chdir(tmp_path)
+
+    def interrupted(app, host, port):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.map_server, "serve_forever", interrupted)
+    assert main(["map"]) == 0
+    err = capsys.readouterr().err
+    assert "resume" not in err and "error" not in err

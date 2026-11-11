@@ -299,3 +299,18 @@ def test_serve_map_host_non_loopback_warns(home, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="outages"):
         assert cli.main(["serve", "--map-host", "0.0.0.0"]) == 0
     assert "map is reachable from your network; there is no login" in caplog.text
+
+
+def test_map_unexpected_startup_error_keeps_alerts(home, monkeypatch, caplog):
+    """Spec 6: whatever stops the map from starting, serve keeps the alert runs."""
+    _last_check(home, 2)
+    calls = _quiet_serve(monkeypatch)
+
+    def broken(paths):
+        raise AttributeError("'list' object has no attribute 'get'")
+
+    monkeypatch.setattr(cli, "make_map_app", broken)
+    with caplog.at_level(logging.ERROR, logger="outages"):
+        assert cli.main(["serve"]) == 0
+    assert calls == ["start"]
+    assert "has no attribute" in caplog.text
