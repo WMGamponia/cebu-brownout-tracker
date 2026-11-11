@@ -311,3 +311,25 @@ def test_load_empty_without_migration(tmp_path):
     s = load(conn, NOW, load_gazetteer())
     assert s.subs == [] and s.outages == {} and s.changes == []
     conn.close()
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+
+def test_removed_change_alerts_via_old_codes():
+    """`areas` deletes a removed outage's parse rows, so `removed` uses the old text's codes."""
+    o = outage(m(14, 9), status="removed")
+    ch = _change("removed", m(12, 3), old_codes={LAHUG})
+    items = due_items(snap([o], rows=[], changes=[ch]), m(12, 6))
+    assert [(i.kind, i.change_kind) for i in items] == [("change", "removed")]
+    other = _change("removed", m(12, 3), old_codes={"730600001"})
+    assert due_items(snap([o], rows=[], changes=[other]), m(12, 6)) == []
+
+
+def test_areas_changed_waits_for_unparsed_new_text():
+    """A failed areas step must not tell a subscriber their barangay was dropped."""
+    o = outage(m(14, 9))
+    ch = _change("areas_changed", m(12, 3), old_codes={LAHUG})
+    s = snap([o], rows=[], changes=[ch])
+    s = Snapshot(s.subs, s.outages, {}, {}, s.changes, s.sent, unparsed=frozenset({"h1"}))
+    assert due_items(s, m(12, 6)) == []

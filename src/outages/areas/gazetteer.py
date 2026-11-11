@@ -64,23 +64,31 @@ class Place:
     town_psgc: str
 
 
-def _place(b: _Brgy) -> Place:
-    return Place(b.code, b.name, b.town, b.town_psgc)
-
-
 class Gazetteer:
-    def __init__(self, barangays: list[_Brgy], aliases: dict[tuple[str, str], str]):
+    def __init__(
+        self,
+        barangays: list[_Brgy],
+        aliases: dict[tuple[str, str], str],
+        display: dict[str, str] | None = None,
+    ):
         self._by_code = {b.code: b for b in barangays}
         self._by_name: dict[str, list[_Brgy]] = {}
         for b in barangays:
             self._by_name.setdefault(normalize_name(b.name), []).append(b)
         self._aliases = aliases  # (town or "*", normalized alias) -> code or NOT_BARANGAY
+        self._display = display or {}  # code -> name shown to people (never used to match)
 
     @classmethod
-    def from_rows(cls, barangays: list[dict], aliases: list[dict]) -> Gazetteer:
+    def from_rows(
+        cls, barangays: list[dict], aliases: list[dict], display: list[dict] | None = None
+    ) -> Gazetteer:
         brgys = [_Brgy(r["psgc_code"], r["name"], r["town"], r["town_psgc"]) for r in barangays]
         al = {(r["town"], normalize_name(r["alias"])): r["target"] for r in aliases}
-        return cls(brgys, al)
+        names = {r["psgc_code"]: r["name"] for r in display or []}
+        return cls(brgys, al, names)
+
+    def _place(self, b: _Brgy) -> Place:
+        return Place(b.code, self._display.get(b.code, b.name), b.town, b.town_psgc)
 
     def resolve(self, seg: Segmented) -> tuple[list[BarangayMatch], list[str]]:
         """Matches for every barangay token, in order, and the `not_barangay` names."""
@@ -115,7 +123,7 @@ class Gazetteer:
 
     def place(self, code: str) -> Place | None:
         b = self._by_code.get(code)
-        return _place(b) if b else None
+        return self._place(b) if b else None
 
     def search(self, query: str) -> list[Place]:
         """Barangays a subscriber may mean by `query`: exact normalized names in any VECO town,
@@ -127,7 +135,7 @@ class Gazetteer:
         for (_, alias), target in self._aliases.items():
             if _fold(alias) == key and target in self._by_code:
                 found[target] = self._by_code[target]
-        return sorted((_place(b) for b in found.values()), key=lambda p: (p.town, p.name))
+        return sorted((self._place(b) for b in found.values()), key=lambda p: (p.town, p.name))
 
     def suggest(self, name: str, n: int = 3) -> list[str]:
         """Closest gazetteer names (`Name (Town)`), for the review queue only."""
@@ -141,5 +149,7 @@ def _read(name: str) -> list[dict]:
 
 
 def load() -> Gazetteer:
-    """The packaged `barangays.csv` and `aliases.csv`."""
-    return Gazetteer.from_rows(_read("barangays.csv"), _read("aliases.csv"))
+    """The packaged `barangays.csv`, `aliases.csv` and `display_names.csv`."""
+    return Gazetteer.from_rows(
+        _read("barangays.csv"), _read("aliases.csv"), _read("display_names.csv")
+    )

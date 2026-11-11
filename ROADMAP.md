@@ -93,7 +93,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
 - A heading date within 2 days of the slug's week is never questioned, and one-date 2024 slugs give no week at all.
 - **Areas review queue after Phase 2 (19 items), each explained:**
-  - ~~**Not in the gazetteer:** `Lipata` and `Sto. Niño`~~ → **resolved in Phase 3:** neither is missing. PSA lists Minglanilla's `Linao (Linao-Lipata)`, and Cebu City's Santo Niño (Poblacion) is the release's `730600022 Central`; two town-scoped aliases (unmatched 23 → 3). The bot still shows that code as "Central (Cebu City)".
+  - ~~**Not in the gazetteer:** `Lipata` and `Sto. Niño`~~ → **resolved in Phase 3:** neither is missing. PSA lists Minglanilla's `Linao (Linao-Lipata)`, and Cebu City's Santo Niño (Poblacion) is the release's `730600022 Central`; two town-scoped aliases (unmatched 23 → 3). Shown to subscribers as "Santo Niño" (`display_names.csv`); matching still knows `Central`.
   - **VECO typos, one outage each:** `City Tuyan of`, `City of East Poblacion`, `San Roque T. Padilla`; left unmatched rather than guessed.
   - **`other_town` (13 rows):** VECO names a barangay under the wrong town (`Jagobiao` under Consolacion; `Poblacion`, `Sta. Cruz`, `Cadulawan` under Minglanilla). These rows carry **another town's** PSGC code. **Phase 3 never alerts from them:** an upcoming outage with such a row sends the admin chat a note with the fix (a town-scoped alias).
   - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.

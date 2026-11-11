@@ -259,3 +259,32 @@ def test_dry_run_on_unmigrated_db(tmp_path):
     assert dry_run(ro, NOW, GAZ) == "no subscribers (migration 003 not applied)\n"
     ro.close()
     assert path.read_bytes() == before
+
+
+def test_removed_outage_alerts_after_parse_rows_deleted(conn):
+    """End to end: `removed` change, its parse rows gone (as `areas` leaves them)."""
+    import json
+
+    subscribe(conn)
+    oid = add_outage(conn, m(14, 9))
+    raw, start = conn.execute(
+        "SELECT areas_raw, start_at FROM outages WHERE id = ?", (oid,)
+    ).fetchone()
+    conn.execute("UPDATE outages SET status = 'removed' WHERE id = ?", (oid,))
+    conn.execute(
+        "INSERT INTO outage_changes (outage_id, version_id, kind, old_json, new_json, detected_at)"
+        " VALUES (?, 1, 'removed', ?, NULL, '2026-11-12T03:00:00+00:00')",
+        (oid, json.dumps({"areas_raw": raw, "start_at": start, "end_at": start})),
+    )
+    areas_store.delete_orphans(conn)
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM area_barangays").fetchone()[0] == 0
+    n = RecordingNotifier()
+    assert run(conn, n).items == 1
+    assert "no longer listed in VECO's post" in n.to(42)[0]
+
+
+def test_unparsed_outage_listed_in_snapshot(conn):
+    oid = add_outage(conn, m(14, 9), parse=False)
+    h = conn.execute("SELECT areas_hash FROM outages WHERE id = ?", (oid,)).fetchone()[0]
+    assert load(conn, NOW, GAZ).unparsed == frozenset({h})

@@ -71,6 +71,7 @@ class Snapshot:
     entities: dict[str, list[str]] = field(default_factory=dict)
     changes: list[Change] = field(default_factory=list)
     sent: frozenset[tuple[int, int, str, int]] = frozenset()
+    unparsed: frozenset[str] = frozenset()  # loaded outages' hashes with no `area_parses` row
 
 
 @dataclass(frozen=True)
@@ -143,8 +144,15 @@ def _change_item(snap: Snapshot, sub: Sub, c: Change, now: datetime) -> AlertIte
         return None
     now_in = concerns(snap, o, sub.psgc_code)
     direction: Literal["in", "out"] | None = None
-    if c.kind == "areas_changed":
-        was_in = sub.psgc_code in c.old_codes
+    was_in = sub.psgc_code in c.old_codes
+    if c.kind == "removed":
+        # `areas` deletes a removed outage's parse rows: the old text's codes decide.
+        if not (now_in or was_in):
+            return None
+    elif c.kind == "areas_changed":
+        if o.areas_hash is None or o.areas_hash in snap.unparsed:
+            return None  # new text not parsed yet: "dropped" would be a guess; wait
+
         if not (now_in or was_in):
             return None
         if now_in != was_in:
@@ -271,10 +279,23 @@ def load(conn: sqlite3.Connection, now: datetime, gaz: Gazetteer) -> Snapshot:
         ):
             old = json.loads(r[3]) if r[3] else None
             new = json.loads(r[4]) if r[4] else None
-            codes = _old_codes(gaz, old) if r[2] == "areas_changed" else frozenset()
+            needs_old = r[2] in ("areas_changed", "removed")
+            codes = _old_codes(gaz, old) if needs_old else frozenset()
             changes.append(Change(r[0], r[1], r[2], old, new, datetime.fromisoformat(r[5]), codes))
     sent = frozenset(
         (r[0], r[1], r[2], r[3] or 0)
         for r in conn.execute("SELECT subscriber_id, outage_id, kind, change_id FROM alerts_sent")
     )
-    return Snapshot(subs, outages, rows, entities, changes, sent)
+    hashes = sorted({o.areas_hash for o in outages.values() if o.areas_hash})
+    parsed: set[str] = set()
+    for i in range(0, len(hashes), 500):
+        chunk = hashes[i : i + 500]
+        parsed |= {
+            r[0]
+            for r in conn.execute(
+                f"SELECT areas_hash FROM area_parses WHERE areas_hash IN ({_in(len(chunk))})",
+                chunk,
+            )
+        }
+    unparsed = frozenset(set(hashes) - parsed)
+    return Snapshot(subs, outages, rows, entities, changes, sent, unparsed)

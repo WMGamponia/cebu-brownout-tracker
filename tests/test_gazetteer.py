@@ -209,3 +209,11 @@ def test_search_unknown_empty():
 def test_search_skips_not_barangay_alias():
     # Cebu City's `Greenhills -> not_barangay` alias adds nothing; San Fernando's barangay stays.
     assert [p.town for p in load().search("Greenhills")] == ["San Fernando"]
+
+
+def test_display_name_override_for_sto_nino():
+    """The release names 730600022 `Central`; PSA (and VECO) call it Santo Niño."""
+    gaz = load()
+    assert gaz.place("730600022").name == "Santo Niño"
+    assert [p.name for p in gaz.search("Sto. Niño")] == ["Santo Niño"]
+    assert [p.code for p in gaz.search("Central")] == ["730600022"]  # old name still found
