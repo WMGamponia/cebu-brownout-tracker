@@ -192,9 +192,7 @@ def test_search_two_towns():
 def test_search_alias():
     from outages.areas.gazetteer import Place
 
-    assert load().search("Duljo Fatima") == [
-        Place("730600027", "Duljo", "Cebu City", "730600000")
-    ]
+    assert load().search("Duljo Fatima") == [Place("730600027", "Duljo", "Cebu City", "730600000")]
     assert [p.code for p in load().search("sto nino")] == ["730600022"]
 
 

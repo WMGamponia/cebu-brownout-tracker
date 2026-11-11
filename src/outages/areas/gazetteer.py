@@ -123,9 +123,7 @@ class Gazetteer:
         key = _fold(normalize_name(query))  # a phone keyboard may type `Sto Nino`
         if not key:
             return []
-        found = {
-            b.code: b for name, bs in self._by_name.items() if _fold(name) == key for b in bs
-        }
+        found = {b.code: b for name, bs in self._by_name.items() if _fold(name) == key for b in bs}
         for (_, alias), target in self._aliases.items():
             if _fold(alias) == key and target in self._by_code:
                 found[target] = self._by_code[target]
