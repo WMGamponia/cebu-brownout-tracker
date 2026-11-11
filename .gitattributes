@@ -2,3 +2,5 @@
 *.png binary
 *.jpg binary
 *.gif binary
+# Vendored files stay byte-identical to their release (hashes in SOURCE.txt)
+src/outages/map/static/vendor/** -text

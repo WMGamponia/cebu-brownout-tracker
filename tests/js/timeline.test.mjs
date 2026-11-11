@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   STALE_AFTER_H,
   activeInHour,
+  asOfLabel,
   checkAgeHours,
   dayLabel,
   dayStartMs,
@@ -115,4 +116,10 @@ test("safePostUrl keeps only VECO https links", () => {
   ]) {
     assert.equal(safePostUrl(bad), null, String(bad));
   }
+});
+
+test("asOfLabel", () => {
+  assert.equal(asOfLabel("2026-11-12T20:00:00+08:00"), "Thu 12 Nov, 20:00");
+  assert.equal(asOfLabel("2026-11-12T16:05:00+00:00"), "Fri 13 Nov, 00:05");
+  assert.equal(asOfLabel(null), null);
 });

@@ -131,3 +131,37 @@ def test_unexpected_error_500_generic(db_path, monkeypatch, caplog):
 def test_body_is_utf8_json(db_path):
     doc = json.loads(_client(db_path).get("/outages.geojson").content.decode("utf-8"))
     assert any(f["properties"]["name"] == "Santo Niño" for f in doc["features"])
+
+
+def test_page_assets_served(db_path):
+    c = _client(db_path)
+    for path in (
+        "/static/js/map.js",
+        "/static/js/timeline.js",
+        "/static/js/text.js",
+        "/static/vendor/leaflet-1.9.4/leaflet.js",
+        "/static/vendor/leaflet-1.9.4/leaflet.css",
+    ):
+        assert c.get(path).status_code == 200, path
+    page = c.get("/").text
+    assert 'src="static/js/map.js"' in page  # relative, so a static snapshot works too
+    assert "http://" not in page and "https://" not in page  # nothing loaded from outside
+
+
+def test_page_js_has_no_html_sinks():
+    """Spec 4.6: data reaches the DOM only via textContent; no browser-zone time reads."""
+    import re
+
+    for js in (map_app.STATIC / "js").glob("*.js"):
+        text = js.read_text(encoding="utf-8")
+        for bad in (
+            "innerHTML",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "document.write",
+            "getHours",
+            "toLocale",
+            "eval(",
+        ):
+            assert bad not in text, f"{js.name}: {bad}"
+        assert not re.search(r"\.href\s*=", text), f"{js.name}: assigns href directly"

@@ -1,6 +1,6 @@
 // Manila time for the map page (Phase 4 spec 4.6). Pure: no DOM, no browser zone.
 // Manila wall time = epoch + 8 h read with UTC getters. The Philippines has no DST, so a fixed
-// offset is exact. Never use getHours() or toLocale*() without a timeZone here.
+// offset is exact. Never read local-zone getters or locale formatting here.
 
 export const STALE_AFTER_H = 15;
 
@@ -80,6 +80,13 @@ export function rangeLabel(start, end) {
     return `${dateLabel(s.date)} ${clock(s)}–24:00`;
   }
   return `${dateLabel(s.date)} ${clock(s)} – ${dateLabel(e.date)} ${clock(e)}`;
+}
+
+/** "Thu 12 Nov, 20:00" in Manila for any offset; null stays null. */
+export function asOfLabel(iso) {
+  if (!iso) return null;
+  const m = manila(parseIso(iso));
+  return `${dateLabel(m.date)}, ${clock(m)}`;
 }
 
 /** Today's tab at the current Manila hour; the first day at 00:00 if today isn't shown. */
