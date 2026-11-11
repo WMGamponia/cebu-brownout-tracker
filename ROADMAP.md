@@ -3,13 +3,13 @@
 Turns Visayan Electric (VECO) scheduled power interruption advisories into per-barangay Telegram alerts, an interactive map of the VECO franchise area with a time slider, and historical stats.
 Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later FastAPI, Leaflet and a Telegram bot. The LLM part is small, deliberate and measured with evals.
 
-> Be gentle with visayanelectric.com: discover posts from the sitemap, one request at a time, a named User-Agent, at most ~4 requests a day once backfilled.
+> Be gentle with visayanelectric.com: discover posts from the sitemap, one request at a time, a named User-Agent, ~4–6 requests a day once backfilled (two runs a day, each a check).
 
 ---
 
 ## Status
 
-**Current phase:** Phase 2 — Areas and evals, **built** on branch `phase2-areas` (final review and PR next). Phase 3 starts with `prompts/phase3.md`. Phase 1 merged to `main` (PR #1).
+**Current phase:** Phase 3 — Telegram alerts, **built** on branch `phase3-alerts` (Tasks 1–10 done; first real alert received 2026-11-11; PR pending). Next: Phase 4, `prompts/phase4.md`. Phases 1 and 2 merged to `main` (PRs #1, #2).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -18,7 +18,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - **Boundaries:** `faeldon/philippines-json-maps` (PSGC 3Q 2026, MIT), pinned release. All 8 VECO towns are complete (Cebu City 80, Mandaue 27, Talisay 22, Naga 28, Minglanilla 19, Consolacion 21, Liloan 14, San Fernando 21). HDX COD-AB rejected: 2018 boundaries, 1 GB.
   - **Barangays and cities by rules, LLM only for streets/sitios/landmarks** (owner, 2026-11-10). The eval compares rules and LLM on the same labelled set.
   - **Runs on my PC** (owner, 2026-11-10): one `serve` process, catch-up on start. Oracle Always Free rejected (idle-reclaim rule would hit a mostly idle app). A static demo snapshot on GitHub Pages comes in Phase 6.
-  - **Polling:** checks at 07:00 and 17:00 Manila, plus one fetch of the current week's post right before each alert run (Phase 3), so ≤ ~4 requests a day (owner, 2026-11-10). Sitemap `lastmod` is date-only, so it can't catch a second same-day edit.
+  - **Polling:** ~~checks at 07:00 and 17:00 Manila, plus one fetch of the current week's post before each alert run, ≤ ~4 requests a day~~ → since Phase 3: **two runs a day, 06:00 and 20:00 Manila, each a full check then an alert run; ~4–6 requests a day** (owner, 2026-11-11). Sitemap `lastmod` is date-only, so it can't catch a second same-day edit.
   - **Identity on re-parse:** matching passes (exact → same areas, new time → same time, new areas → removed/added) instead of date+time+areas, so a time change is a change, not delete+add.
   - **Map scope:** VECO's 8 towns only; Lapu-Lapu and Cordova (MECO) shown as not covered.
   - **GitHub repo private for now** (owner, 2026-11-10).
@@ -74,25 +74,42 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
     Barangays (rules): P/R/F1 100.0 (73 rows), match rate 98.6 %, a coverage number since aliases came from the whole corpus. **Decision: rules** — Qwen's street F1 is 0.5 points above rules, not 5. Qwen is clearly better at *typing* (typed +4.1; `other` 90.9 vs 32.3, establishments 99.8 vs 95.5), but the rule was written for streets and is applied as written.
   - **Incident (my error):** while writing the failing test for `eval run`, the CLI sent the not-yet-handled command down the `check` path and fetched the VECO sitemap and 15 posts (~16 requests, 7–10 s apart, ~2 min) into a pytest temp database before I stopped it. The real DB was untouched. Fixed at the root: `_run` dispatches explicitly and refuses unknown commands, and the CLI tests fail if an offline command builds the fetcher.
 
+- **2026-11-11** — **Phase 2 merged** (PR #2).
+- **2026-11-11** — **Phase 3 brainstorm done; spec and plan approved.** Spec: `docs/superpowers/specs/2026-11-11-phase3-alerts-design.md`; plan: `docs/superpowers/plans/2026-11-11-phase3-alerts.md` (10 tasks, native execution). Decisions (owner, 2026-11-11):
+  - **Two runs a day, 06:00 and 20:00 Manila**, each a full `check` then an alert run; they replace the 07:00/17:00 checks. The old "≤ ~4 requests" line counted a check as one request; a check is the sitemap + 1–2 current posts, so the old schedule plus alert fetches was 6–10 a day. Now ~4–6. Accepted cost: a change VECO makes between runs reaches you at the next run.
+  - **Allowlisted bot** (`/start`, `/add`, `/list`, `/remove`), long polling inside `serve`; tables multi-user for Phase 5. **Bot API over httpx**, not `python-telegram-bot` (no new dependency; its asyncio loop doesn't fit the synchronous scheduler).
+  - **Which rows alert:** `exact`, `alias`, `ambiguous` (with a note). `other_town` never alerts (`Poblacion` under Minglanilla resolves to Liloan's and Talisay's); it goes to an admin note with the alias fix. Lipata and Sto. Niño added from a committed `barangays_extra.csv` with PSA codes.
+  - **Failed parse:** alerts still go out with a caveat and the post link, plus an admin note; silence would be worse. Unparsed areas warn, never block a run. An admin chat (`TELEGRAM_ADMIN_CHAT_ID`) gets operational notes only.
+  - **Alert model:** `day_before` due 20:00 the day before, `day_of` due 06:00 (none for starts before 06:00: 53 outages start at 05:00), `change` items from `outage_changes`; nothing for an outage that has started; an `alerts_sent` ledger written only after Telegram accepts the message (a crash can duplicate, never drop). Catch-up is the same rule; misfire grace 6 h.
+  - **Discord:** not now. Commands need a WebSocket gateway (new dependency) or a public HTTPS endpoint; sending sits behind a `Notifier` so an alert-only webhook can be added later.
+  - Found while designing: httpx logs request URLs at INFO and a Bot API URL contains the token (redacted, tested); the areas step deletes old `area_parses`, so `areas_changed` resolves the old text's barangays on the fly; `outage_changes` is empty (backfill never logs), so VECO's edit rate is unknown.
+- **2026-11-11** — **Phase 3 build: Task 1 done** (migration 003, `busy_timeout`, `RUN_TIMES`, `dotenv_get`, Telegram settings, subscriber store; 430 tests). **Stop at Task 2 Step 1 (PSA codes):** neither name is a missing barangay. PSA lists Minglanilla's `Linao (Linao-Lipata)` (072232007 → release `702232007`), so Lipata is part of Linao; Cebu City's `Santo Niño (Poblacion)` is PSA 072217022, which the release has as `730600022 Central`. psa.gov.ph refused automated reads (403); codes from PSA-sourced tables on Wikipedia. Proposed: two town-scoped aliases instead of `barangays_extra.csv`.
+- **2026-11-11** — **Aliases approved by the owner and added** (`2e00b6b`); `Gazetteer.place` / `search` added (search folds diacritics). Test-split barangay F1 baseline 1.0 → 0.9931: the frozen `test-17` label says Sto. Niño is `null`; labels unchanged, reason in `evals/areas/CHANGES.md`. **Stop at Task 2 Step 6:** full-corpus `areas --dry-run --rebuild` (read-only, DB hash unchanged): exact 4,408, alias 325 (+20), ambiguous 112, other_town 13, unmatched 3 (−20); nothing else moved. Waiting on the owner before backup + `areas --rebuild`.
+- **2026-11-11** — **Rebuild done with the owner's OK** (backup `data/outages.db.bak-2026-11-11`; DB now schema 3): alias 325, unmatched 3, as the dry run said. **Tasks 3–8 done:** `alerts/select`, `alerts/render` (golden HTML, 4,096-char split), `telegram` + `notify` (MockTransport; token redacted from logs and errors), `alerts/run` + admin notes + `alerts --dry-run/--send`, `bot` + `bot` command, `serve` wiring (06:00/20:00, grace 6 h, catch-up, bot thread). 563 tests, ruff clean. Real-DB `alerts --dry-run` (read-only, hash unchanged): 0 subscribers, 0 messages, 0 admin notes; `report`: 0 unparsed upcoming outages; 15 upcoming outages stored (to 14 Nov). **Stop at Task 9 Step 2:** the owner creates the bot and fills `.env`.
+- **2026-11-11** — **Bot live-tested with the owner's OK** (`python -m outages bot`, Telegram only): a stranger chat got one "private bot" reply and its ID was logged; after the allowlist, `/start` and `/add` stored 1 subscriber with 2 subscriptions. No token in logs. One first long poll hung to the 60 s read timeout and the 5 s back-off recovered it; not seen again. Real-DB `alerts --dry-run`: nothing due now (DB hash unchanged); a read-only preview at Thu 12 Nov 20:00 gives 1 message with 1 item (a "Tomorrow" alert), and at Fri 06:00 the same outage as "Today". The first real send waits until it is due.
+- **2026-11-11** — **Task 10: docs, review, Phase 4 prompt.** `README.md` (setup, commands, creating the bot and `.env`); ROADMAP polling line, known issues and Phase 3 items updated; `prompts/phase4.md` written. One fresh whole-branch review: 0 critical, 3 important, all fixed test-first (568 tests): (1) a `removed` change never alerted, because `areas` deletes a removed outage's parse rows; it now uses the old text's barangays; (2) an `areas_changed` whose new text isn't parsed yet could say "dropped"; it now waits; (3) Sto. Niño showed as "Central"; `display_names.csv` fixes the shown name. 8 minors deferred (listed in the PR). Real-DB previews unchanged. **Left:** the first real alert (due Thu 12 Nov 20:00) and a second run that sends nothing, then the PR.
+- **2026-11-11** — **First real alert sent (owner's OK), Definition of Done met.** For a test the owner subscribed to a barangay with an outage on 12 Nov, so its evening-before alert was due under the real rules. `alerts --dry-run` showed 1 message with 1 item; `alerts --send` → sent 1 (1 `day_before` ledger row), received by the owner; a second `--send` → sent 0. No token in logs. The owner's own subscription's next alert is due Thu 12 Nov 20:00 with `serve` running. **Phase 3 build complete; PR to `main` waits for the owner's OK.**
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
 - A heading date within 2 days of the slug's week is never questioned, and one-date 2024 slugs give no week at all.
 - **Areas review queue after Phase 2 (19 items), each explained:**
-  - **Not in the gazetteer:** `Lipata` (Minglanilla, 11 outages) and `Sto. Niño` (Cebu City, 10) are real barangays missing from `philippines-json-maps` v1.1.1; stored `unmatched` with no code. A user in either can't be alerted by barangay until a later release or a hand-added code.
+  - ~~**Not in the gazetteer:** `Lipata` and `Sto. Niño`~~ → **resolved in Phase 3:** neither is missing. PSA lists Minglanilla's `Linao (Linao-Lipata)`, and Cebu City's Santo Niño (Poblacion) is the release's `730600022 Central`; two town-scoped aliases (unmatched 23 → 3). Shown to subscribers as "Santo Niño" (`display_names.csv`); matching still knows `Central`.
   - **VECO typos, one outage each:** `City Tuyan of`, `City of East Poblacion`, `San Roque T. Padilla`; left unmatched rather than guessed.
-  - **`other_town` (13 rows):** VECO names a barangay under the wrong town (`Jagobiao` under Consolacion; `Poblacion`, `Sta. Cruz`, `Cadulawan` under Minglanilla). These rows carry **another town's** PSGC code. **Phase 3 must not alert from `other_town` rows.**
+  - **`other_town` (13 rows):** VECO names a barangay under the wrong town (`Jagobiao` under Consolacion; `Poblacion`, `Sta. Cruz`, `Cadulawan` under Minglanilla). These rows carry **another town's** PSGC code. **Phase 3 never alerts from them:** an upcoming outage with such a row sends the admin chat a note with the fix (a town-scoped alias).
   - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.
   - `testing` (2) and `Mandaue City DCA Brokerage…` (1): no barangay at all.
 
 ### Lessons for later phases
 - **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
 - **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
-- **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Phase 3 must not alert from a post whose latest parse failed.
+- **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Never present stale data as current: Phase 3 alerts from such a post carry a caveat and the post link (owner, 2026-11-11; holding them back would mean silence).
 - **Check a rule against the data before agreeing to it.** "Fix the AM/PM flip that matches the label" sounded right and can never pick one.
 - **Measure before assuming hardware limits.** "CPU-only Qwen" would have ruled out a full-corpus LLM pass; a 20-second probe showed the model in VRAM at ~54 tok/s.
 - **Fix the decision rule before the results.** Labels before rules, a frozen test split, and a margin written down in advance keep an eval from confirming whatever was built.
 - **…and check that the rule can be won.** A "+5 points" margin on a metric where the baseline already scores 98.9 can't be met; the rule decided the outcome before Qwen ran. Next time, set the margin after a dev baseline exists, or on the metric with headroom.
+- **Check a "missing" record against its source before adding one.** Lipata and Sto. Niño looked like barangays missing from the gazetteer; PSA showed one is part of Linao and the other is listed under an old name. New codes would have split one place in two.
 - **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
 ## Phase 0 — Setup
@@ -115,9 +132,9 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - [x] Hand-label 60 historical "Areas Affected" strings (20 dev / 40 frozen test); eval reports barangay precision/recall and PSGC match rate (rules), and street and typed-entity P/R/F1 for rules vs Qwen (vs Haiku when a key is set). Default picked by the pre-registered rule. → `evals/areas/results/`; results go into the README in Phase 6.
 
 ## Phase 3 — Telegram alerts (my barangay)
-- [ ] Bot, alert at ~20:00 the evening before and ~06:00 the morning of, and on cancelled / time changed / added / removed.
-- [ ] Fresh fetch of the current week's post right before each alert run; catch-up alerts on start for outages that haven't begun.
-- [ ] "May affect you" wording.
+- [x] Bot, alert at ~20:00 the evening before and ~06:00 the morning of, and on cancelled / time changed / added / removed. → allowlisted bot (`/start`, `/add`, `/list`, `/remove`); `alerts --dry-run/--send`; an `alerts_sent` ledger written after Telegram accepts.
+- [x] Fresh fetch of the current week's post right before each alert run; catch-up alerts on start for outages that haven't begun. → each run is a full `check` then an alert run, at 06:00 / 20:00; catch-up + 6 h misfire grace.
+- [x] "May affect you" wording. → header `Scheduled outages that may affect you`; ambiguous, failed-parse and removed notes; admin chat for operational notes.
 
 ## Phase 4 — Map
 - [ ] FastAPI serves the week's outages as one GeoJSON; Leaflet + OSM tiles, vanilla JS.
@@ -146,6 +163,6 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 | Storage | SQLite via stdlib `sqlite3`, numbered migrations |
 | Scheduling | APScheduler in the `serve` process |
 | Areas | Rules + PSGC gazetteer; streets by rules or local Qwen (Ollama), whichever the eval picks; Claude Haiku optional in the eval |
-| Alerts | python-telegram-bot |
+| Alerts | Telegram Bot API over httpx (long polling) |
 | Map | FastAPI, Leaflet + OSM tiles, vanilla JS |
 | Quality | pytest, ruff, GitHub Actions |

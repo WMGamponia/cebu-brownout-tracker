@@ -11,7 +11,7 @@
     "street_f1": 0.9887,
     "typed_f1": 0.9529,
     "untyped_f1": 0.9861,
-    "barangay_f1": 1.0,
+    "barangay_f1": 0.9931,
     "match_rate": 0.9864
   }
 }

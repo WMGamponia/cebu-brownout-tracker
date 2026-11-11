@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,16 @@ def areas_line(conn: sqlite3.Connection) -> str:
     kinds = ("exact", "alias", "ambiguous", "other_town", "unmatched")
     parts = ", ".join(f"{k} {counts.get(k, 0)}" for k in kinds)
     return f"Areas: {sum(counts.values())} barangay rows ({parts}); review queue {queue} names"
+
+
+def alerts_line(conn: sqlite3.Connection, now: datetime | None = None) -> str:
+    """One line on Phase 3 alerts: active subscribers, ledger rows, unparsed upcoming areas."""
+    from outages.alerts.run import unparsed_upcoming
+
+    subs = conn.execute("SELECT count(*) FROM subscribers WHERE active = 1").fetchone()[0]
+    sent = conn.execute("SELECT count(*) FROM alerts_sent").fetchone()[0]
+    unparsed = unparsed_upcoming(conn, now or datetime.now(UTC))
+    return f"alerts: {subs} subscribers, {sent} sent; unparsed areas: {unparsed} upcoming outages"
 
 
 def format_table(rows: list[ReportRow], dups: list[Duplicate], areas: str | None = None) -> str:

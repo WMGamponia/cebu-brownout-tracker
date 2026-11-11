@@ -1,15 +1,18 @@
-"""Paths, User-Agent, schedule and delays (spec 5, 7); Phase 2 gazetteer and LLM settings."""
+"""Paths, User-Agent, schedule and delays (spec 5, 7); Phase 2 gazetteer and LLM settings;
+Phase 3 run times, `.env` lookup and Telegram settings."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 USER_AGENT = "CebuBrownoutTracker/0.1 (+https://github.com/WMGamponia/OutageTracker)"
 SITEMAP_URL = "https://www.visayanelectric.com/blog-posts-sitemap.xml"
 SLUG_MARKER = "interruption"
-CHECK_TIMES = ("07:00", "17:00")  # Asia/Manila
+# Phase 3: each run is a check, then an alert run (Asia/Manila). Replaces 07:00 / 17:00.
+RUN_TIMES = ("06:00", "20:00")
+MISFIRE_GRACE_S = 6 * 3600  # a PC that slept through a run still runs it once on waking
 BACKFILL_DELAY_S = (3, 8)
 CATCH_UP_AFTER_H = 12
 
@@ -68,3 +71,44 @@ class Paths:
     @property
     def gazetteer(self) -> Path:
         return self.data / "gazetteer"
+
+
+def dotenv_get(name: str, path: Path = Path(".env")) -> str | None:
+    """`name` from the environment, else from a `KEY=value` line in `.env`; None when unset."""
+    value = os.environ.get(name)
+    if value:
+        return value
+    if not path.is_file():
+        return None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        k, sep, v = line.strip().partition("=")
+        if sep and k.strip() == name:
+            return v.strip().strip("'\"") or None
+    return None
+
+
+@dataclass(frozen=True)
+class TelegramSettings:
+    token: str = field(repr=False)  # never in logs or reprs
+    allowed: frozenset[int]
+    admin_chat_id: int | None
+
+
+def _chat_ids(key: str) -> list[int]:
+    raw = dotenv_get(key) or ""
+    try:
+        return [int(x) for x in raw.split(",") if x.strip()]
+    except ValueError:
+        raise ValueError(f"{key} must be comma-separated integer chat IDs") from None
+
+
+def telegram_settings() -> TelegramSettings | None:
+    """Telegram settings from the environment or `.env`; None without a bot token."""
+    token = dotenv_get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return None
+    admin = _chat_ids("TELEGRAM_ADMIN_CHAT_ID")
+    if len(admin) > 1:
+        raise ValueError("TELEGRAM_ADMIN_CHAT_ID must be one integer chat ID")
+    allowed = frozenset(_chat_ids("TELEGRAM_ALLOWED_CHAT_IDS"))
+    return TelegramSettings(token, allowed, admin[0] if admin else None)

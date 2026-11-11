@@ -81,11 +81,15 @@ def is_current(conn: sqlite3.Connection) -> bool:
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    """Open (creating dirs), enable foreign keys, apply pending migrations, each atomically."""
+    """Open (creating dirs), enable foreign keys, apply pending migrations, each atomically.
+
+    `busy_timeout` makes the bot thread and a scheduled run wait for each other's writes
+    instead of failing with `database is locked`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
     current = _version(conn)
     for n, sql in _migrations():
         if n > current:

@@ -7,18 +7,16 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import sqlite3
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 
 import httpx
 
 from outages.areas.entities import KINDS, Entity, normalize_entity
 from outages.areas.entities_rules import RulesExtractor
 from outages.areas.segment import Segmented, sub_label_kind
-from outages.config import HAIKU_MODEL, LLM_TIMEOUT_S, OLLAMA_URL, QWEN_MODEL
+from outages.config import HAIKU_MODEL, LLM_TIMEOUT_S, OLLAMA_URL, QWEN_MODEL, dotenv_get
 
 log = logging.getLogger("outages.llm")
 
@@ -304,17 +302,7 @@ class AnthropicExtractor(_CachedLLM):
         raise _Invalid("no tool_use block")
 
 
-def _dotenv_key(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    for line in path.read_text(encoding="utf-8").splitlines():
-        k, sep, v = line.strip().partition("=")
-        if sep and k.strip() == "ANTHROPIC_API_KEY":
-            return v.strip().strip("'\"") or None
-    return None
-
-
 def anthropic_from_env(conn: sqlite3.Connection) -> AnthropicExtractor | None:
     """The Haiku arm, or None (the eval writes `haiku: skipped`) when no key is set."""
-    key = os.environ.get("ANTHROPIC_API_KEY") or _dotenv_key(Path(".env"))
+    key = dotenv_get("ANTHROPIC_API_KEY")
     return AnthropicExtractor(conn, key) if key else None
