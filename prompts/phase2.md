@@ -26,7 +26,7 @@ The Phase 2 goal (ROADMAP): barangays and cities by rules with a PSGC gazetteer;
 3. **Wrapped values:** an areas value can continue on a second line (`… along diversion road` / `going to Lataban road.`).
 4. **Names that don't match PSGC directly:** `Duljo Fatima` → Duljo, `Quiot` → Quiot Pardo, `Tugbungan` → Tugbongan, `Kinasang-an Pardo`, `Pung-ol Sibugay`; `North/South Reclamation Area`, `Greenhills`, `Cebu Business Park`, `Cebu I.T. Park` are not barangays. `Tayud` is a barangay in both Consolacion and Liloan.
 5. **Map thumbnails exist** on some 2026 posts (`map_image_url`). They could be a weak extra signal; don't depend on them.
-6. Check `python -m outages report` for anything else. At the end of Phase 1, 6 posts still failed on owner decisions (ROADMAP Known issues). Their earlier outages, wrong dates included, are still stored, and 17 `removed` rows are old wrong-dated copies. Area work must skip `removed` outages and should say how it treats posts whose latest parse failed.
+6. Check `python -m outages report` for anything else. At the end of Phase 1, 1 post fails on purpose (ROADMAP Known issues); its earlier outages are still stored. 17 `removed` rows are old wrong-dated copies. Area work must skip `removed` outages and should say how it treats posts whose latest parse failed.
 
 ## Questions the brainstorm must settle
 - Where area parsing lives (`areas.py` over `outages.areas_raw`, a new table `outage_areas(outage_id, psgc_code, name, town, kind, match)`?) and how `reparse` rebuilds it.

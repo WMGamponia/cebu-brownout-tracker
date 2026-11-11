@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 1 — Ingest, parse, store, backfill (branch `phase1-ingest-parser`; done except 6 posts that wait on owner decisions, and the GitHub repo/PR).
+**Current phase:** Phase 1 — Ingest, parse, store, backfill (branch `phase1-ingest-parser`; done, waiting on the GitHub repo and PR).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -41,13 +41,14 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - **Wrong heading dates corrected from the post's week** (slug) when the weekday pins one day: 19 outages in 5 posts (e.g. `November 7, 2024 (Saturday)` → Dec 7). The old copies stay as 17 `removed` rows; no change was logged.
   - A heading with a bad year (`November 20, 024`) was being **silently skipped**, which would have filed its outages under the day before. Such lines now fail the post.
   - `check` run twice: sitemap + the current week's post only, unchanged, nothing logged.
+- **2026-11-11** — **Last 5 failures settled (owner picks): 150 of 151 posts parse, 3,008 outages (213 cancelled, 51 additional), 0 changes logged.** 222 tests.
+  - AM/PM slip: the reading that stays on one day wins (`9:00 PM to 5:00 PM (8hrs)` → 9 AM to 5 PM, May 11–16 and May 18–23 2024), because VECO always writes overnight work with explicit dates.
+  - `Updated Schedule: … Original Schedule: … - CANCELLED` → two outages: the updated one as posted, the original cancelled.
+  - `November 20, 024` → 2024, only because the post's week confirms it.
+  - Two weekday matches in an 8-day week → the one with the same day of the month (`November 14` → Dec 14).
 
 ### Known issues
-- **6 posts fail to parse; each needs an owner decision** (their earlier outages stay stored as they were, per spec §6.2):
-  - AM/PM slips (`9:00 PM to 5:00 PM (8hrs)` in May 11–16 and May 18–23 2024; `8:00 AM to 9:00 PM (1hr)` in Dec 14–20 2025). Flipping either AM/PM gives the label's span, so the label can't say which is wrong.
-  - `Updated Schedule: 5:00 AM to 6:00 AM (1hr) Original Schedule: 10:00 PM to 11:00 PM (1hr) - CANCELLED` (March 8–13 2026): a new format.
-  - `November 20, 024 (Wednesday)` (Nov 16–22 2024): year typo.
-  - `November 14, 2024 (Saturday)` in the 8-day Dec 14–21 2024 post: two Saturdays, so the weekday doesn't pin one day.
+- **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
 - A heading date within 2 days of the slug's week is never questioned, and one-date 2024 slugs give no week at all.
 
@@ -68,7 +69,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - [x] SQLite schema with numbered migrations: `posts`, `post_versions`, `outages`, `outage_changes`. → `migrations/001_init.sql` + `meta`.
 - [x] Re-parse upsert with matching passes and a change log. → `upsert.match` + `db.apply_changes`.
 - [x] Sitemap discovery + polite fetcher; `backfill`, `check`, `reparse`, `serve` (scheduler only). → plus `report`.
-- [x] Backfill all posts; report per-post outage counts, warnings, failures. → 151 posts, 145 parsed, 2,939 outages; 6 failures wait on the owner (Known issues).
+- [x] Backfill all posts; report per-post outage counts, warnings, failures. → 151 posts, 150 parsed, 3,008 outages; 1 ambiguous post fails on purpose (Known issues).
 
 ## Phase 2 — Areas and evals
 - [ ] Rule-based barangay/city extraction for both layouts and two-town lines.
