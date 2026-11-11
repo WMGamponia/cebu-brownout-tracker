@@ -1,7 +1,7 @@
 # Cebu Brownout Tracker — Roadmap
 
 Turns Visayan Electric (VECO) scheduled power interruption advisories into per-barangay Telegram alerts, an interactive map of the VECO franchise area with a time slider, and historical stats.
-Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later FastAPI, Leaflet and a Telegram bot. The LLM part is small, deliberate and measured with evals.
+Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Telegram bot, and a FastAPI + Leaflet map. The LLM part is small, deliberate and measured with evals.
 
 > Be gentle with visayanelectric.com: discover posts from the sitemap, one request at a time, a named User-Agent, ~4–6 requests a day once backfilled (two runs a day, each a check).
 
@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 
 ## Status
 
-**Current phase:** Phase 4 — Map, **spec and plan approved** on branch `phase4-map`; build next with `prompts/phase4-build.md`. Phases 1–3 merged to `main` (PRs #1, #2, #3).
+**Current phase:** Phase 4 — Map, **built on branch `phase4-map`; PR to `main` waits for the owner's OK.** Phase 5 starts with `prompts/phase5.md`. Phases 1–3 merged to `main` (PRs #1, #2, #3).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -101,6 +101,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - Found while designing: the medium-resolution polygons are 149 KB, ~9 vertices per barangay (no simplification needed, but coarse); an "old data" warning must use 15 h, not the 12 h catch-up threshold (runs are 14 h apart); an `other_town` row's `town_psgc` is the matched code's town, so VECO's listed town comes from `towns_json` (can be empty); uvicorn reacts to a taken port with `sys.exit(1)`, which a thread must catch.
 - **2026-11-12** — **Phase 4 build: Tasks 1–9 code done; stop at Task 9 Steps 5–6 for the owner.** fastapi 0.162.5, uvicorn 0.54.0 (starlette 1.10.0); Leaflet 1.9.4 vendored from the release zip (SHA-256 in `SOURCE.txt`; the zip has no LICENSE, so ours is reconstructed). `boundaries.geojson` 135 KB, 304 features (232 VECO + 72 MECO). 643 Python tests + 14 JS tests (run under New York and Tokyo zones), ruff clean. Real-DB check by hand with `map` (read-only, DB hash unchanged, no WAL/journal): overnight 22:00–06:00 shaded on both days, cancelled greyed and toggled, Santo Niño named, popups with streets and VECO link, "Not on the map" matches the stored `other_town`/`unmatched` rows, desktop and 375 px. Found on the real data: **36 parsed outages name no barangay at all** (e.g. "Cebu Business Park", "South Reclamation Area"); the spec's rules would have dropped them, so they go in the side list as "VECO named places but no barangay". Fixed: a page opened in a background tab zoomed to max (fits once it has a size); the page passes `?from=&days=` on. **The DB's last check was Wed 11 Nov 03:29 (28 h old)**: the 11 Nov 20:00 and 12 Nov 06:00 runs did not happen, and the page's old-data warning said so.
 
+- **2026-11-12** — **Phase 4 build complete (Task 10).** The owner restarted `serve` on `phase4-map` (07:47): log `map: http://127.0.0.1:8765`, the catch-up check ran, `/healthz` and the page show "Data as of Thu 12 Nov, 07:47"; the 20:00 run with the map thread is still to be seen in the log. README: the map, LAN opt-in, Node tests, attributions. One fresh whole-branch review: 0 critical, 2 important, 9 minor; 4 fixed test-first (646 Python + 16 JS tests): (1) Ctrl+C on `map` exited 1 with "rerun to resume" (uvicorn re-raises SIGINT after its clean shutdown); (2) the page's lists ran in id order, not time order (JS orders integer-like keys numerically); (3) a map startup error other than bad boundaries would have stopped `serve` and its alerts; (4) a tab left open never refetched, so it could show old data without the warning. 5 minors deferred (listed in the PR). `prompts/phase5.md` written.
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
@@ -111,6 +113,10 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
   - **`other_town` (13 rows):** VECO names a barangay under the wrong town (`Jagobiao` under Consolacion; `Poblacion`, `Sta. Cruz`, `Cadulawan` under Minglanilla). These rows carry **another town's** PSGC code. **Phase 3 never alerts from them:** an upcoming outage with such a row sends the admin chat a note with the fix (a town-scoped alias).
   - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.
   - `testing` (2) and `Mandaue City DCA Brokerage…` (1): no barangay at all.
+- **Map limits (Phase 4, accepted):** a whole barangay is shaded for "portion of" (streets only in the popup until Phase 5); medium-resolution polygons are coarse (~9 vertices), so edges between barangays are approximate; OSM tiles are fine for one person's local use, but a public Phase 6 demo must re-check the tile policy or use another provider.
+- **36 outages name places but no barangay** (e.g. "Cebu Business Park", "South Reclamation Area"): the map lists them under "Not on the map"; alerts can't reach them. Phase 5 streets may place some.
+- **Leaflet's LICENSE is reconstructed** (the 1.9.4 release zip has none; see `vendor/leaflet-1.9.4/SOURCE.txt`); replace it with the repository's file at tag v1.9.4.
+- **On Windows a second listener on 0.0.0.0:8765 may not stop the map binding 127.0.0.1:8765** (no `SO_EXCLUSIVEADDRUSE`), so that clash isn't reported.
 
 ### Lessons for later phases
 - **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
@@ -121,6 +127,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - **Fix the decision rule before the results.** Labels before rules, a frozen test split, and a margin written down in advance keep an eval from confirming whatever was built.
 - **…and check that the rule can be won.** A "+5 points" margin on a metric where the baseline already scores 98.9 can't be met; the rule decided the outcome before Qwen ran. Next time, set the margin after a dev baseline exists, or on the metric with headroom.
 - **Check a "missing" record against its source before adding one.** Lipata and Sto. Niño looked like barangays missing from the gazetteer; PSA showed one is part of Linao and the other is listed under an old name. New codes would have split one place in two.
+- **Run the real thing in a real browser before calling a page done.** Fixture data happened to have ids in time order and a sized window; the real DB and a background tab exposed two bugs no unit test caught.
 - **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
 ## Phase 0 — Setup
@@ -148,8 +155,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 - [x] "May affect you" wording. → header `Scheduled outages that may affect you`; ambiguous, failed-parse and removed notes; admin chat for operational notes.
 
 ## Phase 4 — Map
-- [ ] FastAPI serves the week's outages as one GeoJSON; Leaflet + OSM tiles, vanilla JS.
-- [ ] Barangay shading (~~soft fill for "portion of"~~ → one "may be affected" style, spec §2), day tabs, hourly slider, play button, defaults to now, cancelled greyed and toggleable, popup with time, purpose, streets, link to post.
+- [x] FastAPI serves the week's outages as one GeoJSON; Leaflet + OSM tiles, vanilla JS. → `python -m outages map` and a thread in `serve`; window by time (today to the last stored end, ≤ 7 days; `?from=&days=` ≤ 14), not by post; Leaflet vendored.
+- [x] Barangay shading (~~soft fill for "portion of"~~ → one "may be affected" style: "portion of" is on 3,022 of 3,025 lines, so a soft/full split would never carry information), day tabs, hourly slider, play button, defaults to now (Manila), cancelled greyed and toggleable, popup with time, purpose, streets, link to post. → plus a "Not on the map" list (wrong town, typo, no barangay, not parsed), removed count, old-data warning past 15 h, stale-post caveat.
 
 ## Phase 5 — Streets, history, multi-user
 - [ ] Street highlighting via Overpass inside the barangay polygon, fallback to shading.
@@ -175,5 +182,5 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, later F
 | Scheduling | APScheduler in the `serve` process |
 | Areas | Rules + PSGC gazetteer; streets by rules or local Qwen (Ollama), whichever the eval picks; Claude Haiku optional in the eval |
 | Alerts | Telegram Bot API over httpx (long polling) |
-| Map | FastAPI, Leaflet + OSM tiles, vanilla JS |
+| Map | FastAPI + uvicorn (thread in `serve`), Leaflet 1.9.4 vendored + OSM tiles, vanilla JS (`node --test` in CI) |
 | Quality | pytest, ruff, GitHub Actions |
