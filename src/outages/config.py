@@ -34,6 +34,13 @@ VECO_TOWNS: dict[str, str] = {
     "San Fernando": "702241000",
 }
 
+
+# Phase 4: the map. Lapu-Lapu and Cordova are MECO's, drawn grey as "not covered".
+MECO_TOWNS: dict[str, str] = {"Lapu-Lapu City": "731100000", "Cordova": "702223000"}
+MAP_HOST = "127.0.0.1"
+MAP_PORT = 8765
+STALE_CHECK_H = 15  # runs are 14 h apart at most; older data means a run was missed
+
 OLLAMA_URL = "http://localhost:11434"
 QWEN_MODEL = "qwen3:14b"
 HAIKU_MODEL = "claude-haiku-5-5"

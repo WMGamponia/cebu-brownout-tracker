@@ -67,3 +67,11 @@ def test_bad_chat_id_error_hides_token(monkeypatch):
 def test_settings_repr_hides_token(monkeypatch):
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     assert "SECRET" not in repr(config.telegram_settings())
+
+
+def test_map_settings():
+    assert config.MAP_HOST == "127.0.0.1"
+    assert config.MAP_PORT == 8765
+    assert config.STALE_CHECK_H == 15
+    assert set(config.MECO_TOWNS.values()) == {"731100000", "702223000"}
+    assert not set(config.MECO_TOWNS.values()) & set(config.VECO_TOWNS.values())
