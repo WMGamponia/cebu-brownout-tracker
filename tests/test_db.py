@@ -25,18 +25,69 @@ def conn(tmp_path):
     c.close()
 
 
+AREA_TABLES = {"area_parses", "area_barangays", "area_entities", "llm_cache"}
+
+
 def test_fresh_db_has_schema(conn):
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert names >= TABLES
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == [1]
+    assert names >= TABLES | AREA_TABLES
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == [1, 2]
 
 
 def test_connect_twice_does_not_reapply(tmp_path):
     p = tmp_path / "o.db"
     db.connect(p).close()
     c = db.connect(p)
-    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 1
+    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 2
     c.close()
+
+
+def _phase1_db(path):
+    """A DB at schema version 1 with one post, version and outage (as Phase 1 left it)."""
+    sql = (db.resources.files("outages") / "migrations" / "001_init.sql").read_text("utf-8")
+    c = sqlite3.connect(path)
+    c.executescript(f"BEGIN;\n{sql}\nINSERT INTO schema_version (version) VALUES (1);\nCOMMIT;")
+    c.execute("INSERT INTO posts (id, url, slug, first_seen_at) VALUES (1, 'u', 's', 't')")
+    c.execute(
+        "INSERT INTO post_versions (id, post_id, fetched_at, text_hash, content_gz)"
+        " VALUES (1, 1, 't', 'h', x'00')"
+    )
+    c.execute(
+        "INSERT INTO outages (post_id, seq, heading_text, start_at, end_at, status, purpose,"
+        " areas_raw, areas_key, first_seen_version_id, last_seen_version_id)"
+        " VALUES (1, 0, 'h', 's', 'e', 'scheduled', 'p', 'Portion of Cebu City (Tisa)', 'k', 1, 1)"
+    )
+    c.commit()
+    c.close()
+
+
+def test_migration_002_on_phase1_db(tmp_path):
+    p = tmp_path / "o.db"
+    _phase1_db(p)
+    c = db.connect(p)
+    names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert names >= AREA_TABLES
+    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
+    assert c.execute("SELECT areas_hash, areas_raw FROM outages").fetchone()[0] is None
+    c.close()
+
+
+def test_area_rows_cascade(conn):
+    conn.execute(
+        "INSERT INTO area_parses (areas_hash, layout, towns_json, extractor, parsed_at)"
+        " VALUES ('h', 'city_first', '[]', 'rules', 't')"
+    )
+    conn.execute(
+        "INSERT INTO area_barangays (areas_hash, seq, name_raw, match)"
+        " VALUES ('h', 0, 'Tisa', 'unmatched')"
+    )
+    conn.execute(
+        "INSERT INTO area_entities (areas_hash, seq, kind, name, extractor)"
+        " VALUES ('h', 0, 'street', 'Katipunan St.', 'rules')"
+    )
+    conn.execute("DELETE FROM area_parses WHERE areas_hash = 'h'")
+    assert conn.execute("SELECT count(*) FROM area_barangays").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM area_entities").fetchone()[0] == 0
 
 
 def test_upsert_post_is_idempotent(conn):
