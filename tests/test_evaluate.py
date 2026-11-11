@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -178,3 +179,9 @@ def test_check_frozen_detects_edit(tmp_path):
     t.write_text(json.dumps({"id": "test-02"}) + "\n", encoding="utf-8", newline="\n")
     with pytest.raises(ev.EvalError, match="changed"):
         ev.check_frozen(t, f)
+
+
+def test_frozen_matches():
+    """The committed test split is unchanged since the freeze (spec 7.2). Prints nothing."""
+    root = Path(__file__).parent.parent / "evals" / "areas"
+    ev.check_frozen(root / "test.jsonl", root / "FROZEN")
