@@ -17,7 +17,14 @@ import {
 } from "./timeline.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
 
-const DATA_URL = "outages.geojson"; // relative: the Phase 6 snapshot is this page + that file
+// Relative, so the Phase 6 snapshot is this page + that file. The page's own ?from=&days= (other
+// weeks) are passed on; the server validates them.
+const DATA_URL = (() => {
+  const page = new URLSearchParams(location.search);
+  const q = new URLSearchParams();
+  for (const k of ["from", "days"]) if (page.has(k)) q.set(k, page.get(k));
+  return q.toString() ? `outages.geojson?${q}` : "outages.geojson";
+})();
 const REFETCH_AFTER_MS = 30 * 60 * 1000;
 const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
@@ -64,6 +71,7 @@ const state = {
   fetchedAt: 0,
   layer: null,
   openLayer: null,
+  fitted: false,
 };
 
 // --- map ---------------------------------------------------------------------------------------
@@ -181,11 +189,21 @@ function drawFeatures() {
 }
 
 function fitCovered() {
+  const box = map.getContainer();
+  if (!box.clientWidth || !box.clientHeight) return; // hidden tab: fit when it gets a size
   const covered = state.doc.features.filter((f) => f.properties.covered);
   if (!covered.length) return;
   const bounds = L.geoJSON({ type: "FeatureCollection", features: covered }).getBounds();
-  if (bounds.isValid()) map.fitBounds(bounds, { padding: [8, 8] });
+  if (!bounds.isValid()) return;
+  map.fitBounds(bounds, { padding: [8, 8] });
+  state.fitted = true;
 }
+
+// A page opened in a background tab has a 0×0 map, and fitBounds would pick max zoom.
+new ResizeObserver(() => {
+  map.invalidateSize();
+  if (state.doc && !state.fitted) fitCovered();
+}).observe(map.getContainer());
 
 // --- controls and panel ---------------------------------------------------------------------
 
@@ -336,7 +354,7 @@ async function load() {
   state.openLayer = null;
   map.closePopup();
   drawFeatures();
-  if (first) fitCovered();
+  if (!state.fitted) fitCovered();
   renderTopbar();
   render();
 }
