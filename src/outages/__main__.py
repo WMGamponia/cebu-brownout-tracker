@@ -18,7 +18,14 @@ from outages.areas.entities import Extractor
 from outages.areas.entities_rules import RulesExtractor
 from outages.areas.gazetteer import load as load_gazetteer
 from outages.areas.llm import LLMUnavailable, OllamaExtractor
-from outages.config import BACKFILL_DELAY_S, ENTITY_EXTRACTOR, Paths, telegram_settings
+from outages.config import (
+    BACKFILL_DELAY_S,
+    ENTITY_EXTRACTOR,
+    RUN_TIMES,
+    Paths,
+    TelegramSettings,
+    telegram_settings,
+)
 from outages.fetch import Fetcher
 from outages.notify import TelegramNotifier
 from outages.telegram import TelegramClient, install_redaction
@@ -28,7 +35,7 @@ COMMANDS = {
     "check": "fetch the sitemap and any new, edited or current-week posts",
     "reparse": "re-run parse + upsert over stored versions (no network)",
     "report": "print per-post outage counts, warnings, failures and duplicates",
-    "serve": "run checks at 07:00 and 17:00 Asia/Manila (catch-up on start)",
+    "serve": "run check + alerts at 06:00 and 20:00 Asia/Manila (catch-up on start)",
     "gazetteer": "download the pinned PSGC gazetteer and write barangays.csv (GitHub only)",
     "areas": "parse area texts into towns, barangays and entities (--dry-run, --review)",
     "eval": "area eval: `sample` the label set, or `run` the arms on a split",
@@ -258,17 +265,81 @@ def _summary(name: str, s: pipeline.CheckSummary) -> int:
     return 1 if s.failed or s.errors else 0
 
 
-def _run_check(paths: Paths) -> None:
-    """One scheduled check; opens its own connection (APScheduler runs jobs on a worker thread)."""
+def _check(paths: Paths) -> bool:
+    """One check on its own connection; True when VECO answered every request."""
     conn = db.connect(paths.db)
     fetcher = make_fetcher()
     try:
-        _summary("check", pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn)))
+        s = pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
+        _summary("check", s)
+        return s.errors == 0
     except Exception:
         log.exception("check failed")
+        return False
     finally:
         fetcher.close()
         conn.close()
+
+
+def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bool = True) -> None:
+    """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
+    failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
+    raises into the scheduler."""
+    check_ok = _check(paths) if do_check else True
+    if settings is None:
+        return
+    conn = db.connect(paths.db)
+    client = make_telegram(settings.token)
+    try:
+        alerts_run.alert_run(
+            conn,
+            TelegramNotifier(client),
+            utcnow(),
+            load_gazetteer(),
+            settings.admin_chat_id,
+            check_ok,
+        )
+    except Exception:
+        log.exception("alert run failed")
+    finally:
+        client.close()
+        conn.close()
+
+
+def _serve(paths: Paths, last_check_at: str | None) -> int:
+    """Catch-up, the bot thread, then runs at RUN_TIMES until Ctrl+C."""
+    try:
+        settings = telegram_settings()
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    stop = threading.Event()
+    if settings is None:
+        log.info("serve: alerts disabled (no TELEGRAM_BOT_TOKEN); checks only")
+    else:
+        install_redaction(settings.token)
+        threading.Thread(
+            target=bot.poll_forever,
+            args=(
+                make_telegram(settings.token),
+                paths.db,
+                load_gazetteer(),
+                settings.allowed,
+                stop,
+            ),
+            name="telegram-bot",
+            daemon=True,
+        ).start()
+    log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
+    catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
+    if catch_up or settings is not None:
+        _scheduled_run(paths, settings, do_check=catch_up)
+    try:
+        with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
+            scheduler.build(lambda: _scheduled_run(paths, settings)).start()
+    finally:
+        stop.set()
+    return 0
 
 
 def _report(paths: Paths, conn) -> int:
@@ -311,12 +382,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
             conn.close()
-            log.info("serve: checks at 07:00 and 17:00 Asia/Manila; Ctrl+C to stop")
-            if scheduler.needs_catch_up(last, utcnow()):
-                _run_check(paths)
-            with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-                scheduler.build(lambda: _run_check(paths)).start()
-            return 0
+            return _serve(paths, last)
         fetcher = make_fetcher()
         try:
             if command == "backfill":

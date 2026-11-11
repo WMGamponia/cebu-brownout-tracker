@@ -1,4 +1,5 @@
-"""Checks at 07:00 and 17:00 Asia/Manila for `serve` (spec 7). Only module importing APScheduler."""
+"""Runs at 06:00 and 20:00 Asia/Manila for `serve` (Phase 3 spec 5.9): each is a check, then an
+alert run. Only module importing APScheduler."""
 
 from __future__ import annotations
 
@@ -12,15 +13,15 @@ from outages.config import CATCH_UP_AFTER_H, MISFIRE_GRACE_S, RUN_TIMES
 from outages.timeparse import MANILA
 
 
-def build(run_check: Callable[[], None]) -> BlockingScheduler:
+def build(run: Callable[[], None]) -> BlockingScheduler:
     """A scheduler with one cron job per RUN_TIMES entry, in Manila time."""
     sched = BlockingScheduler(timezone=MANILA)
     for hm in RUN_TIMES:
         h, m = hm.split(":")
         sched.add_job(
-            run_check,
+            run,
             CronTrigger(hour=int(h), minute=int(m), timezone=MANILA),
-            id=f"check-{hm}",
+            id=f"run-{hm}",
             coalesce=True,
             max_instances=1,
             misfire_grace_time=MISFIRE_GRACE_S,
