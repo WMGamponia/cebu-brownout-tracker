@@ -238,6 +238,8 @@ def _gazetteer(paths: Paths) -> int:
     for town, n in counts.items():
         print(f"{town} {n}")
     print(f"total {sum(counts.values())}; written: {gazetteer_build.CSV_PATH}")
+    n = gazetteer_build.boundary_count()
+    print(f"boundaries {n}; written: {gazetteer_build.BOUNDARIES_PATH}")
     return 0
 
 
