@@ -4,8 +4,9 @@
 /* global L */
 
 import { binOf, legendLabels, monthBars, quantileEdges } from "./bins.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { makeSource } from "./source.js";
-import { manila, mondayOf, parseIso } from "./timeline.js";
+import { manila, mondayOf, parseIso, shiftDate } from "./timeline.js";
 import { addTiles } from "./tiles.js";
 
 const COLORS = ["#ffffff", "#fee8c8", "#fdbb84", "#fc8d59", "#e34a33", "#b30000"];
@@ -88,9 +89,18 @@ function showDetail(p) {
   }
   const last = manila(parseIso(b.last.start)).date;
   kids.push(el("p", { text: `Latest: ${dateLabel(last)}` }));
-  const href = `./?from=${mondayOf(last)}&days=7`;
-  kids.push(el("p", {}, [el("a", { text: "See that week on the map", attrs: { href } })]));
+  const week = weekLink(last);
+  if (week) kids.push(el("p", {}, [el("a", { text: "See that week on the map", attrs: { href: week } })]));
   box.replaceChildren(...kids);
+}
+
+/** The map link for the week holding `day`: live, its Monday's week; in a snapshot, the stored
+ *  week containing it, or none when the snapshot doesn't reach back that far. */
+function weekLink(day) {
+  if (!src.isSnapshot) return `./?from=${mondayOf(day)}&days=7`;
+  const w = src.weeks;
+  if (day < w[0] || day > shiftDate(w[w.length - 1], 6)) return null;
+  return `./?from=${src.snapWeek(day)}&days=7`;
 }
 
 function drawMap() {
@@ -234,6 +244,7 @@ async function load() {
     return;
   }
   $("banner").hidden = true;
+  if (src.isSnapshot) $("range-select").value = src.rangeId(new URLSearchParams(location.search));
   $("from").value = state.doc.range.from;
   $("to").value = state.doc.range.to;
   $("attribution").textContent = state.boundaries.attribution || "";
@@ -251,6 +262,10 @@ $("range").addEventListener("submit", (e) => {
   history.replaceState(null, "", `${location.pathname}?${q}`);
   load();
 });
+$("range-select").addEventListener("change", (e) => {
+  history.replaceState(null, "", `${location.pathname}?${new URLSearchParams({ range: e.target.value })}`);
+  load();
+});
 new ResizeObserver(() => {
   map.invalidateSize();
   if (!state.fitted) fitCovered();
@@ -261,4 +276,23 @@ new ResizeObserver(() => {
   if (!state.fitted) fitCovered();
 }).observe(map.getContainer());
 
-load();
+/** In snapshot mode: load snapshot.json, swap the From/To form for the stored ranges. */
+async function start() {
+  if (isSnapshotPage()) {
+    try {
+      src = await pageSource();
+    } catch (e) {
+      showBanner(`Couldn't load the snapshot (${e.message}).`);
+      return;
+    }
+    showSnapshotChrome(src.snap);
+    $("range").hidden = true;
+    $("range-select").replaceChildren(
+      ...src.ranges.map((r) => el("option", { text: r.label, attrs: { value: r.id } })),
+    );
+    $("range-pick").hidden = false;
+  }
+  load();
+}
+
+start();

@@ -17,7 +17,9 @@ import {
   onDay,
   rangeLabel,
   safePostUrl,
+  shiftDate,
 } from "./timeline.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { makeSource } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
@@ -454,6 +456,13 @@ async function load() {
     }
     doc = await r.json();
   } catch (e) {
+    const asked = pageParams().get("from");
+    if (src.isSnapshot && asked && src.snapWeek(asked) !== src.snap.snapshot_week) {
+      // A week file missing from the snapshot (404 or bad JSON): say so, show the snapshot week.
+      goToWeek(null);
+      $("week-missing").hidden = false;
+      return;
+    }
     showBanner(`Couldn't load the outage data (${e.message}).`);
     return;
   }
@@ -482,7 +491,7 @@ $("show-cancelled").addEventListener("change", (e) => {
   state.showCancelled = e.target.checked;
   if (state.doc) render();
 });
-$("retry").addEventListener("click", load);
+$("retry").addEventListener("click", start);
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
   if (state.doc) render();
@@ -500,6 +509,7 @@ function goToWeek(from) {
   }
   const qs = q.toString();
   history.replaceState(null, "", qs ? `${location.pathname}?${qs}` : location.pathname);
+  $("week-missing").hidden = true;
   stopPlaying();
   load();
 }
@@ -534,4 +544,21 @@ setInterval(() => {
   else if (state.doc) renderTopbar();
 }, 5 * 60 * 1000);
 
-load();
+/** Pick the data source (live, or the snapshot named by snapshot.json), then load the week. */
+async function start() {
+  if (isSnapshotPage() && !src.isSnapshot) {
+    try {
+      src = await pageSource();
+    } catch (e) {
+      showBanner(`Couldn't load the snapshot (${e.message}).`);
+      return;
+    }
+    showSnapshotChrome(src.snap);
+    const week = $("week");
+    week.min = src.weeks[0];
+    week.max = shiftDate(src.snap.snapshot_week, 6);
+  }
+  load();
+}
+
+start();

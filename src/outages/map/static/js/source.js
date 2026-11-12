@@ -18,6 +18,7 @@ function withParams(base, params, keys) {
 function liveSource() {
   return {
     isSnapshot: false,
+    snap: null,
     refetch: true,
     ranges: [],
     weeks: [],
@@ -51,6 +52,7 @@ function snapshotSource(snap) {
 
   return {
     isSnapshot: true,
+    snap,
     refetch: false,
     ranges: snap.ranges,
     weeks,

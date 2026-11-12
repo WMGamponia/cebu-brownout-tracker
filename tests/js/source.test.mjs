@@ -37,6 +37,7 @@ test("live: today's server URLs", () => {
   assert.equal(src.isSnapshot, false);
   assert.equal(src.refetch, true);
   assert.deepEqual(src.ranges, []);
+  assert.equal(src.snap, null);
   assert.equal(src.mapUrl(q("from=2026-10-01&days=7")), "outages.geojson?from=2026-10-01&days=7");
   assert.equal(src.mapUrl(q("")), "outages.geojson");
   assert.equal(src.mapUrl(q("x=1")), "outages.geojson");
@@ -61,6 +62,7 @@ test("snapshot: now() is taken_at", () => {
   assert.equal(src.now(), Date.parse("2026-11-12T12:05:11Z"));
   assert.equal(src.ranges, SNAP.ranges);
   assert.equal(src.weeks, SNAP.weeks);
+  assert.equal(src.snap, SNAP);
 });
 
 test("snapshot: week files", () => {

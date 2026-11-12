@@ -42,3 +42,26 @@ def test_fix_the_map_link():
             r'<a [^>]*href="https://www\.openstreetmap\.org/fixthemap"[^>]*>Report a map issue</a>',
             html,
         ), page
+
+
+def _tag_with_id(html: str, el_id: str) -> str:
+    m = re.search(rf'<[a-z]+[^>]*\bid="{el_id}"[^>]*>', html)
+    assert m, el_id
+    return m.group(0)
+
+
+def test_snapshot_elements_hidden_by_default():
+    for page in PAGES:
+        html = _text(page)
+        for el_id in ("snapshot-banner", "snapshot-credits"):
+            assert re.search(r"\shidden\b", _tag_with_id(html, el_id)), (page, el_id)
+    html = _text("history.html")
+    assert re.search(r"\shidden\b", _tag_with_id(html, "range-pick"))
+    pick = html[html.index('id="range-pick"') :]
+    pick = pick[: pick.index("</div>")]
+    assert 'id="range-select"' in pick and "<select" in pick
+
+
+def test_pages_live_by_default():
+    for page in PAGES:
+        assert 'data-mode="snapshot"' not in _text(page), page
