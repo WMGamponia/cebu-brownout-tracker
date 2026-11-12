@@ -164,7 +164,7 @@ def test_serve_starts_bot_thread_and_catch_up(home, monkeypatch):
     started = threading.Event()
     box: dict = {}
 
-    def fake_poll(client, db_path, gaz, allowed, stop, sleep=None):
+    def fake_poll(client, db_path, gaz, allowed, stop, sleep=None, admin_chat_id=None):
         box["stop"], box["allowed"] = stop, allowed
         box["thread"] = threading.current_thread()
         started.set()

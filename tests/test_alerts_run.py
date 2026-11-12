@@ -288,3 +288,47 @@ def test_unparsed_outage_listed_in_snapshot(conn):
     oid = add_outage(conn, m(14, 9), parse=False)
     h = conn.execute("SELECT areas_hash FROM outages WHERE id = ?", (oid,)).fetchone()[0]
     assert load(conn, NOW, GAZ).unparsed == frozenset({h})
+
+
+# --- Phase 5 (spec 4.9) ---
+
+
+def test_only_approved_alerted(conn):
+    subscribe(conn, 42)
+    for chat, status in ((43, "pending"), (44, "blocked")):
+        sid = subscribe(conn, chat)
+        conn.execute("UPDATE subscribers SET status = ? WHERE id = ?", (status, sid))
+    conn.commit()
+    add_outage(conn, m(13, 9))
+    n = RecordingNotifier()
+    s = run(conn, n)
+    assert [c for c, _ in n.sent] == [42]
+    assert s.subscribers == 1
+
+
+def test_record_after_forget_is_skipped(conn):
+    """/forget lands (bot thread) while this run is sending to that user."""
+    sid = subscribe(conn, 42)
+    add_outage(conn, m(13, 9))
+
+    class ForgetDuringSend(RecordingNotifier):
+        def send(self, chat_id, html):
+            out = super().send(chat_id, html)
+            with conn:
+                store.forget(conn, chat_id)
+            return out
+
+    s = run(conn, ForgetDuringSend())
+    assert s.sent == 1
+    assert n_sent(conn) == 0
+    assert conn.execute("SELECT count(*) FROM subscribers WHERE id = ?", (sid,)).fetchone()[0] == 0
+
+
+def test_send_spacing(conn):
+    subscribe(conn, 42)
+    subscribe(conn, 43)
+    add_outage(conn, m(13, 9))
+    slept = []
+    alert_run(conn, RecordingNotifier(), NOW, GAZ, ADMIN, True, sleep=slept.append)
+    assert slept and all(x >= 0.05 for x in slept)
+    assert len(slept) >= 1

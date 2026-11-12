@@ -72,14 +72,16 @@ def subs(conn, chat_id=ME) -> list[str]:
     return store.subscriptions(conn, s.id) if s else []
 
 
-def test_stranger_gets_one_reply(conn, caplog):
+def test_stranger_without_start_gets_one_hint(conn, caplog):
+    """Phase 5: strangers may /start to ask to join (tests/test_bot_join.py); anything else
+    gets one hint, then silence."""
     caplog.set_level(logging.INFO, logger="outages")
-    first = say(conn, msg("/start", STRANGER))
-    second = say(conn, msg("/add Lahug", STRANGER))
-    assert [r.text for r in first] == ["This is a private bot."] and second == []
+    first = say(conn, msg("/add Lahug", STRANGER))
+    second = say(conn, msg("/list", STRANGER))
+    assert [r.text for r in first] == ["Send /start to ask to join."] and second == []
     assert store.get_subscriber(conn, STRANGER) is None
-    lines = [r.getMessage() for r in caplog.records if "not allowed" in r.getMessage()]
-    assert lines == [f"bot: message from chat {STRANGER} (not allowed)"]
+    lines = [r.getMessage() for r in caplog.records if "unknown chat" in r.getMessage()]
+    assert lines == [f"bot: message from unknown chat {STRANGER}"]
 
 
 def test_start_creates_subscriber(conn):
@@ -255,7 +257,11 @@ def test_unhandled_updates_ignored_offset_advances(conn):
     ]
     seen: list = []
     assert poll_once(mock_client(updates, seen), conn, GAZ, ALLOWED, NOW) == 5
-    assert [m for m, _ in seen] == ["getUpdates"]
+    # Phase 5: a group chat gets one "private chats only"; the rest stay unanswered
+    assert [(m, b.get("chat_id")) for m, b in seen] == [
+        ("getUpdates", None),
+        ("sendMessage", -100123),
+    ]
     assert db.get_meta(conn, "telegram_update_offset") == "25"
 
 

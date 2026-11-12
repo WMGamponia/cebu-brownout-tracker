@@ -112,7 +112,8 @@ def test_report_alerts_line(home):
         "SELECT count(*) FROM outages WHERE status IN ('scheduled', 'additional')"
     ).fetchone()[0]
     assert report.alerts_line(conn, now) == (
-        f"alerts: 1 subscribers, 0 sent; unparsed areas: {upcoming} upcoming outages"
+        f"alerts: 1 subscribers (approved 1, pending 0, blocked 0), 0 sent;"
+        f" unparsed areas: {upcoming} upcoming outages"
     )
     conn.close()
 

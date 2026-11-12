@@ -221,7 +221,7 @@ def test_report_offline_builds_no_telegram(capsys, monkeypatch, no_tg_env):
     no_network(monkeypatch)
     no_telegram(monkeypatch)
     assert main(["report"]) == 0
-    assert "alerts: 0 subscribers, 0 sent; unparsed areas: 0 upcoming outages" in (
+    assert "alerts: 0 subscribers (approved 0, pending 0, blocked 0), 0 sent;" in (
         capsys.readouterr().out
     )
 
@@ -235,10 +235,16 @@ def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
     no_network(monkeypatch)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_IDS", "42")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "42")
     polls = {"n": 0}
+    sent_to = []
 
     def handler(req):
         method = req.url.path.rsplit("/", 1)[1]
+        if method == "sendMessage":
+            import json as _json
+
+            sent_to.append(_json.loads(req.content)["chat_id"])
         if method == "getUpdates":
             polls["n"] += 1
             if polls["n"] > 1:
@@ -262,7 +268,8 @@ def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
     out = capsys.readouterr()
     assert "SECRET" not in out.out + out.err
     log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
-    assert "bot: message from chat 7 (not allowed)" in log and "SECRET" not in log
+    assert "bot: join request from chat 7" in log and "SECRET" not in log
+    assert sent_to == [7, 42]  # the welcome, then the admin's Approve / Deny request
 
 
 def test_bot_without_token_exits_1(capsys, monkeypatch, no_tg_env):

@@ -101,13 +101,19 @@ def streets_line(conn: sqlite3.Connection) -> str:
 
 
 def alerts_line(conn: sqlite3.Connection, now: datetime | None = None) -> str:
-    """One line on Phase 3 alerts: active subscribers, ledger rows, unparsed upcoming areas."""
+    """One line on alerts: active subscribers (and join status, Phase 5), ledger rows,
+    unparsed upcoming areas."""
     from outages.alerts.run import unparsed_upcoming
 
     subs = conn.execute("SELECT count(*) FROM subscribers WHERE active = 1").fetchone()[0]
+    by = dict(conn.execute("SELECT status, count(*) FROM subscribers GROUP BY status").fetchall())
+    statuses = ", ".join(f"{k} {by.get(k, 0)}" for k in ("approved", "pending", "blocked"))
     sent = conn.execute("SELECT count(*) FROM alerts_sent").fetchone()[0]
     unparsed = unparsed_upcoming(conn, now or datetime.now(UTC))
-    return f"alerts: {subs} subscribers, {sent} sent; unparsed areas: {unparsed} upcoming outages"
+    return (
+        f"alerts: {subs} subscribers ({statuses}), {sent} sent;"
+        f" unparsed areas: {unparsed} upcoming outages"
+    )
 
 
 def format_table(rows: list[ReportRow], dups: list[Duplicate], areas: str | None = None) -> str:

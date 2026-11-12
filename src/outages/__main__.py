@@ -190,7 +190,14 @@ def _bot(paths: Paths) -> int:
     client = make_telegram(settings.token)
     log.info("bot: polling for %d allowed chat(s); Ctrl+C to stop", len(settings.allowed))
     try:
-        bot.poll_forever(client, paths.db, load_gazetteer(), settings.allowed, threading.Event())
+        bot.poll_forever(
+            client,
+            paths.db,
+            load_gazetteer(),
+            settings.allowed,
+            threading.Event(),
+            admin_chat_id=settings.admin_chat_id,
+        )
     except KeyboardInterrupt:
         print("bot: stopped")
     finally:
@@ -584,6 +591,7 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
                 settings.allowed,
                 stop,
             ),
+            kwargs={"admin_chat_id": settings.admin_chat_id},
             name="telegram-bot",
             daemon=True,
         ).start()
