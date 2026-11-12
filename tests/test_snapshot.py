@@ -327,7 +327,7 @@ def test_build_files_licence_follows_draw(conn, world):
 
     on = build_files(conn, world[0], world[1], TAKEN, LAST_CHECK, draw=True, osm_base="B1")
     assert "B1" in on["LICENSES.md"].decode("utf-8")
-    off = build_files(conn, world[0], world[1], TAKEN, LAST_CHECK)
+    off = build_files(conn, world[0], world[1], TAKEN, LAST_CHECK, draw=False)
     assert "none while street drawing is off" in off["LICENSES.md"].decode("utf-8")
 
 
