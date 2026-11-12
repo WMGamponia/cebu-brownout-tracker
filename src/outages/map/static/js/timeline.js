@@ -57,9 +57,18 @@ export function dayLabel(dateStr, todayStr) {
   return `${p.dow} ${p.day}`;
 }
 
-/** "22:00–23:00". */
-export function hourLabel(h) {
-  return `${pad(h)}:00–${pad(h + 1)}:00`;
+/** Clock text of {hour, minute}: "22:05" or, with fmt "12", "10:05 PM". Hour 24 is the
+ *  midnight that ends a day: "24:00", or "12:00 AM". `compact` drops ":00" in 12-hour time. */
+export function clockText(m, fmt = "24", compact = false) {
+  if (fmt !== "12") return `${pad(m.hour)}:${pad(m.minute)}`;
+  const h = m.hour % 12 || 12;
+  const half = m.hour % 24 < 12 ? "AM" : "PM";
+  return compact && m.minute === 0 ? `${h} ${half}` : `${h}:${pad(m.minute)} ${half}`;
+}
+
+/** "22:00–23:00", or with fmt "12" "10:00 PM–11:00 PM". */
+export function hourLabel(h, fmt = "24") {
+  return `${clockText({ hour: h, minute: 0 }, fmt)}–${clockText({ hour: h + 1, minute: 0 }, fmt)}`;
 }
 
 function dateLabel(dateStr) {
@@ -67,19 +76,33 @@ function dateLabel(dateStr) {
   return `${p.dow} ${p.day} ${p.mon}`;
 }
 
-const clock = (m) => `${pad(m.hour)}:${pad(m.minute)}`;
+const MIDNIGHT = { hour: 24, minute: 0 };
+
+/** True when `endMs` is exactly the 00:00 that ends start day `startDate`. */
+const endsAtMidnight = (startDate, endMs) => {
+  const e = manila(endMs);
+  return e.hour === 0 && e.minute === 0 && manila(endMs - 1).date === startDate;
+};
 
 /** "Thu 12 Nov 08:00–17:00"; across midnight "Thu 12 Nov 22:00 – Fri 13 Nov 05:00".
- *  An end at exactly 00:00 the next day reads as 24:00 on the start day. */
-export function rangeLabel(start, end) {
+ *  An end at exactly 00:00 the next day reads as 24:00 (12:00 AM) on the start day. */
+export function rangeLabel(start, end, fmt = "24") {
+  const clock = (m) => clockText(m, fmt);
   const s = manila(parseIso(start));
   const endMs = parseIso(end);
   const e = manila(endMs);
   if (s.date === e.date) return `${dateLabel(s.date)} ${clock(s)}–${clock(e)}`;
-  if (e.hour === 0 && e.minute === 0 && manila(endMs - 1).date === s.date) {
-    return `${dateLabel(s.date)} ${clock(s)}–24:00`;
-  }
+  if (endsAtMidnight(s.date, endMs)) return `${dateLabel(s.date)} ${clock(s)}–${clock(MIDNIGHT)}`;
   return `${dateLabel(s.date)} ${clock(s)} – ${dateLabel(e.date)} ${clock(e)}`;
+}
+
+/** Times only, for map labels: "22:00–06:00", or compact 12-hour "10 PM–6 AM". */
+export function shortRange(start, end, fmt = "24") {
+  const clock = (m) => clockText(m, fmt, true);
+  const s = manila(parseIso(start));
+  const endMs = parseIso(end);
+  const e = endsAtMidnight(s.date, endMs) ? MIDNIGHT : manila(endMs);
+  return `${clock(s)}–${clock(e)}`;
 }
 
 /** `[id, outage]` pairs by start time, then id. Object key order is numeric, not the server's. */
@@ -96,11 +119,11 @@ export function needsRefetch(fetchedAtMs, nowMs) {
   return nowMs - fetchedAtMs > REFETCH_AFTER_MS;
 }
 
-/** "Thu 12 Nov, 20:00" in Manila for any offset; null stays null. */
-export function asOfLabel(iso) {
+/** "Thu 12 Nov, 20:00" (or "8:00 PM") in Manila for any offset; null stays null. */
+export function asOfLabel(iso, fmt = "24") {
   if (!iso) return null;
   const m = manila(parseIso(iso));
-  return `${dateLabel(m.date)}, ${clock(m)}`;
+  return `${dateLabel(m.date)}, ${clockText(m, fmt)}`;
 }
 
 /** Today's tab at the current Manila hour; the first day at 00:00 if today isn't shown. */
