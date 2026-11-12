@@ -63,6 +63,10 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html", media_type="text/html; charset=utf-8")
 
+    @app.get("/history", include_in_schema=False)
+    def history_page() -> FileResponse:
+        return FileResponse(STATIC / "history.html", media_type="text/html; charset=utf-8")
+
     @app.get("/outages.geojson")
     def outages(from_: str | None = Query(None, alias="from"), days: str | None = None) -> Response:
         try:

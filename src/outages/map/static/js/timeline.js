@@ -121,6 +121,12 @@ export function shiftDate(dateStr, days) {
   return manila(dayStartMs(dateStr) + days * 24 * HOUR_MS).date;
 }
 
+/** The Monday on or before Manila date `dateStr`. */
+export function mondayOf(dateStr) {
+  const dow = new Date(dayStartMs(dateStr) + OFFSET_MS).getUTCDay(); // 0 = Sunday
+  return shiftDate(dateStr, -((dow + 6) % 7));
+}
+
 /** "History: 3–9 Nov 2025"; months or years named on both ends only when they differ. */
 export function historyLabel(days) {
   const a = new Date(dayStartMs(days[0]) + OFFSET_MS);

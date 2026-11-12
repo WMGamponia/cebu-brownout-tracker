@@ -228,3 +228,13 @@ def test_stats_and_boundaries_leave_db_unchanged(db_path):
     ):
         assert c.get(route).status_code == 200
     assert _sha(db_path) == before
+
+
+def test_history_page(db_path):
+    c = _client(db_path)
+    r = c.get("/history")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "VECO's scheduled interruptions, not measured outages." in r.text
+    for asset in ("/static/js/history.js", "/static/js/bins.js", "/static/history.css"):
+        assert c.get(asset).status_code == 200
