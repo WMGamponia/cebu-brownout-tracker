@@ -216,6 +216,16 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - [ ] Fresh street test split of ≥ 150 rows (distinct from the 80 labelled), gold = the OSM `name` tag; same bar (precision ≥ 0.95 over ≥ 20 drawn), run once.
 - [ ] Offline LLM alias suggester (OSM names in scope only; dev and unlabelled mentions only; owner approves each into `street_aliases.csv`; aliases frozen before the test run).
 
+## Map UI refresh (after Streets v2)
+Owner, 2026-11-13: the page around the map looks bland; take cues from zoom.earth's interface elements (borrow the ideas only, not its branding or exact layout). **The map itself stays as is** (OSM tiles, current shading). Brainstorm and spec first, like a phase.
+- [x] Reading aids: short always-on labels ("Inayawan · 10 PM–6 AM", nearest the centre wins), hover outline, popups after a 500 ms hover, AM/PM toggle. → PR #3.
+- [ ] Full-bleed map: the top bar, controls and side panel become floating, collapsible cards over the map, so the map fills the screen on desktop and phone.
+- [ ] Bottom timeline bar: play, day and hour steppers in one floating control (replaces the control row); the week picker and toggles move to a menu.
+- [ ] Label chips as pills with a state colour (outage now / later today / cancelled), like the place chips on zoom.earth.
+- [ ] Barangay card: a click pins a side card for that barangay with its outages across the week (a 7-day strip), instead of only a popup.
+- [ ] Compact legend as a colour bar in a corner; credits behind an ⓘ button.
+- [ ] Floating cards and controls stay readable over the light map on a phone in daylight (WCAG AA contrast).
+
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.
 
