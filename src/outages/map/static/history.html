@@ -15,6 +15,7 @@
       <h1>Cebu Brownout History</h1>
       <a href="./">Back to the map</a>
     </div>
+    <p id="snapshot-banner" class="snapshot" hidden></p>
     <p class="note">These are VECO's scheduled interruptions, not measured outages.</p>
     <p id="coverage" class="muted">Loading…</p>
     <form id="range" class="range">
@@ -22,6 +23,9 @@
       <label>To <input id="to" type="date" required></label>
       <button type="submit">Show</button>
     </form>
+    <div id="range-pick" class="range" hidden>
+      <label>Range <select id="range-select"></select></label>
+    </div>
   </header>
 
   <div id="banner" class="banner" role="alert" hidden>
@@ -75,7 +79,8 @@
 
     <section class="credits">
       <p id="attribution"></p>
-      <p>Map tiles © OpenStreetMap contributors. Map library: Leaflet (BSD-2-Clause).</p>
+      <p id="snapshot-credits" hidden></p>
+      <p>Map tiles © OpenStreetMap contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>). Map library: Leaflet (BSD-2-Clause).</p>
       <p>Hours per barangay count overlapping outages once. Town and month figures sum each
         outage's own hours. An outage VECO listed for a barangay name found in two towns counts
         for both.</p>

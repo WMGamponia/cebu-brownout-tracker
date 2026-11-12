@@ -4,7 +4,10 @@
 /* global L */
 
 import { binOf, legendLabels, monthBars, quantileEdges } from "./bins.js";
-import { manila, mondayOf, parseIso } from "./timeline.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { makeSource } from "./source.js";
+import { manila, mondayOf, parseIso, shiftDate } from "./timeline.js";
+import { addTiles } from "./tiles.js";
 
 const COLORS = ["#ffffff", "#fee8c8", "#fdbb84", "#fc8d59", "#e34a33", "#b30000"];
 const MECO = "#9e9e9e";
@@ -42,15 +45,12 @@ function dateLabel(dateStr) {
 }
 
 const state = { doc: null, boundaries: null, layer: null, edges: [], fitted: false };
+// The live server's /stats.json, or a snapshot's stats/<range>.json (Phase 6 spec 4.3).
+let src = makeSource("live", null);
 
 const map = L.map("map", { attributionControl: true });
 map.attributionControl.setPrefix(false);
-const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "© OpenStreetMap contributors",
-});
-tiles.on("tileerror", () => {});
-tiles.addTo(map);
+addTiles(L, map);
 map.setView([10.32, 123.9], 11);
 
 function hoursOf(psgc) {
@@ -89,9 +89,18 @@ function showDetail(p) {
   }
   const last = manila(parseIso(b.last.start)).date;
   kids.push(el("p", { text: `Latest: ${dateLabel(last)}` }));
-  const href = `./?from=${mondayOf(last)}&days=7`;
-  kids.push(el("p", {}, [el("a", { text: "See that week on the map", attrs: { href } })]));
+  const week = weekLink(last);
+  if (week) kids.push(el("p", {}, [el("a", { text: "See that week on the map", attrs: { href: week } })]));
   box.replaceChildren(...kids);
+}
+
+/** The map link for the week holding `day`: live, its Monday's week; in a snapshot, the stored
+ *  week containing it, or none when the snapshot doesn't reach back that far. */
+function weekLink(day) {
+  if (!src.isSnapshot) return `./?from=${mondayOf(day)}&days=7`;
+  const w = src.weeks;
+  if (day < w[0] || day > shiftDate(w[w.length - 1], 6)) return null;
+  return `./?from=${src.snapWeek(day)}&days=7`;
 }
 
 function drawMap() {
@@ -223,12 +232,9 @@ async function getJson(url) {
 }
 
 async function load() {
-  const page = new URLSearchParams(location.search);
-  const q = new URLSearchParams();
-  for (const k of ["from", "to"]) if (page.get(k)) q.set(k, page.get(k));
   try {
     const [doc, boundaries] = await Promise.all([
-      getJson(q.toString() ? `stats.json?${q}` : "stats.json"),
+      getJson(src.statsUrl(new URLSearchParams(location.search))),
       state.boundaries ? Promise.resolve(state.boundaries) : getJson("boundaries.geojson"),
     ]);
     state.doc = doc;
@@ -238,6 +244,7 @@ async function load() {
     return;
   }
   $("banner").hidden = true;
+  if (src.isSnapshot) $("range-select").value = src.rangeId(new URLSearchParams(location.search));
   $("from").value = state.doc.range.from;
   $("to").value = state.doc.range.to;
   $("attribution").textContent = state.boundaries.attribution || "";
@@ -255,6 +262,10 @@ $("range").addEventListener("submit", (e) => {
   history.replaceState(null, "", `${location.pathname}?${q}`);
   load();
 });
+$("range-select").addEventListener("change", (e) => {
+  history.replaceState(null, "", `${location.pathname}?${new URLSearchParams({ range: e.target.value })}`);
+  load();
+});
 new ResizeObserver(() => {
   map.invalidateSize();
   if (!state.fitted) fitCovered();
@@ -265,4 +276,23 @@ new ResizeObserver(() => {
   if (!state.fitted) fitCovered();
 }).observe(map.getContainer());
 
-load();
+/** In snapshot mode: load snapshot.json, swap the From/To form for the stored ranges. */
+async function start() {
+  if (isSnapshotPage()) {
+    try {
+      src = await pageSource();
+    } catch (e) {
+      showBanner(`Couldn't load the snapshot (${e.message}).`);
+      return;
+    }
+    showSnapshotChrome(src.snap);
+    $("range").hidden = true;
+    $("range-select").replaceChildren(
+      ...src.ranges.map((r) => el("option", { text: r.label, attrs: { value: r.id } })),
+    );
+    $("range-pick").hidden = false;
+  }
+  load();
+}
+
+start();

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from outages.__main__ import main
+from outages.timeparse import MANILA
 
 
 def test_help_lists_commands(capsys):
@@ -504,3 +508,227 @@ def test_stats_command_offline(capsys, monkeypatch, tmp_path):
     assert hashlib.sha256(p.read_bytes()).hexdigest() == before
     assert main(["stats", "--from", "2026-11-30", "--to", "2026-11-01"]) == 2
     assert "must not be after" in capsys.readouterr().err
+
+
+def test_no_console_handler_without_stderr(monkeypatch, tmp_path):
+    """Under pythonw `sys.stderr` is None: file log only (Phase 6 spec 4.5)."""
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    from outages import __main__ as cli
+
+    monkeypatch.setattr(sys, "stderr", None)
+    handlers = cli._setup_logging(cli.Paths(tmp_path))
+    try:
+        assert handlers and all(isinstance(h, RotatingFileHandler) for h in handlers)
+        logging.getLogger("outages").info("no console here")
+    finally:
+        for h in handlers:
+            cli.log.removeHandler(h)
+            h.close()
+    log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
+    assert "no console here" in log
+
+
+@pytest.mark.parametrize(
+    "argv", [["serve"], ["bot"], ["check"], ["backfill"], ["alerts", "--send"]]
+)
+def test_locked_commands_exit_3_when_held(
+    argv, capsys, monkeypatch, tmp_path, no_tg_env, held_lock
+):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    h = held_lock(tmp_path / "data" / "serve.lock")
+    assert main(argv) == 3
+    err = capsys.readouterr().err
+    assert f"serve is already running (pid {h.pid}); stop it first" in err
+
+
+def test_read_only_commands_ignore_lock(capsys, monkeypatch, tmp_path, no_tg_env, held_lock):
+    from outages import db
+
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    db.connect(tmp_path / "data" / "outages.db").close()
+    held_lock(tmp_path / "data" / "serve.lock")
+    assert main(["alerts", "--dry-run"]) == 0
+    assert main(["report"]) == 0
+    assert "already running" not in capsys.readouterr().err
+
+
+def test_lock_released_after_command(capsys, monkeypatch, tmp_path, no_tg_env):
+    from outages.lock import acquire
+
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    assert main(["alerts", "--send"]) == 1  # no token: fails after taking the lock
+    with acquire(tmp_path / "data" / "serve.lock"):
+        pass
+
+
+SNAP_TAKEN = datetime(2026, 11, 12, 20, 5, 11, tzinfo=MANILA)
+
+
+@pytest.fixture
+def snap_env(monkeypatch, tmp_path, no_tg_env):
+    """A populated DB in tmp_path/data, the clock at SNAP_TAKEN, and no network of any kind."""
+    from map_world import populate
+
+    from outages import __main__ as cli
+    from outages import db
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    no_telegram(monkeypatch)
+    monkeypatch.setattr(cli, "utcnow", lambda: SNAP_TAKEN.astimezone(UTC))
+    p = tmp_path / "data" / "outages.db"
+    c = db.connect(p)
+    populate(c)
+    c.close()
+    return p
+
+
+def _set_last_check(path, value):
+    from outages import db
+
+    c = db.connect(path)
+    with c:
+        db.set_meta(c, "last_check_at", value)
+    c.close()
+
+
+def test_snapshot_offline(capsys, tmp_path, snap_env):
+    import hashlib
+
+    before = hashlib.sha256(snap_env.read_bytes()).hexdigest()
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 0
+    assert (out / "snapshot.json").is_file()
+    assert len(list((out / "weeks").glob("*.geojson"))) == 53
+    assert hashlib.sha256(snap_env.read_bytes()).hexdigest() == before
+    assert not list(snap_env.parent.glob("outages.db-*"))
+    printed = capsys.readouterr().out
+    assert "2026-11-12T20:05:11+08:00" in printed and "53 weeks written" in printed
+    # a second run over its own output is a refresh
+    assert main(["snapshot", "--out", str(out)]) == 0
+
+
+def test_snapshot_refuses_old_data(capsys, tmp_path, snap_env):
+    _set_last_check(snap_env, (SNAP_TAKEN - timedelta(hours=16)).astimezone(UTC).isoformat())
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 2
+    assert "data is 16 h old; run check first or pass --allow-old" in capsys.readouterr().err
+    assert not out.exists()
+    assert main(["snapshot", "--out", str(out), "--allow-old"]) == 0
+    assert (out / "snapshot.json").is_file()
+
+
+def test_snapshot_refuses_never_checked(capsys, tmp_path, snap_env):
+    from outages import db
+
+    c = db.connect(snap_env)
+    with c:
+        c.execute("DELETE FROM meta WHERE key = 'last_check_at'")
+    c.close()
+    assert main(["snapshot", "--out", str(tmp_path / "site")]) == 2
+    assert "--allow-old" in capsys.readouterr().err
+
+
+def test_snapshot_refuses_foreign_folder(capsys, tmp_path, snap_env):
+    out = tmp_path / "site"
+    out.mkdir()
+    (out / "notes.txt").write_text("mine", encoding="utf-8")
+    assert main(["snapshot", "--out", str(out)]) == 2
+    assert "notes.txt" in capsys.readouterr().err
+    assert [p.name for p in out.iterdir()] == ["notes.txt"]
+
+
+def test_snapshot_leak_writes_nothing(capsys, tmp_path, snap_env):
+    from outages import db
+
+    c = db.connect(snap_env)
+    with c:
+        c.execute(
+            "INSERT INTO subscribers (chat_id, created_at) VALUES (424242424, '2026-11-01T00:00Z')"
+        )
+        c.execute("UPDATE outages SET purpose = 'call 424242424' WHERE id = 1")
+    c.close()
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 1
+    cap = capsys.readouterr()
+    assert "chat ID" in cap.err
+    assert "424242424" not in cap.out + cap.err
+    assert not out.exists()
+
+
+def test_snapshot_leak_of_allowed_chat_id(capsys, monkeypatch, tmp_path, snap_env):
+    from outages import db
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_IDS", "515151515")
+    c = db.connect(snap_env)
+    with c:
+        c.execute("UPDATE outages SET areas_raw = 'x 515151515' WHERE id = 1")
+    c.close()
+    assert main(["snapshot", "--out", str(tmp_path / "site")]) == 1
+    assert "chat ID" in capsys.readouterr().err
+
+
+def test_snapshot_token_leak(capsys, tmp_path, snap_env):
+    from outages import db
+
+    fake = "123:fake-token-xyz"
+    (tmp_path / ".env").write_text(f"TELEGRAM_BOT_TOKEN={fake}\n", encoding="utf-8")
+    c = db.connect(snap_env)
+    with c:
+        c.execute("UPDATE outages SET areas_raw = ? WHERE id = 1", (f"see {fake} here",))
+    c.close()
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 1
+    cap = capsys.readouterr()
+    assert "bot token" in cap.err and fake not in cap.out + cap.err
+    assert not out.exists()
+
+
+def test_snapshot_db_not_ready(capsys, monkeypatch, tmp_path, no_tg_env):
+    no_network(monkeypatch)
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 2
+    assert not out.exists()
+    assert not (tmp_path / "data" / "outages.db").exists()
+
+
+def test_snapshot_db_not_migrated(capsys, monkeypatch, tmp_path, no_tg_env):
+    import sqlite3
+
+    no_network(monkeypatch)
+    p = tmp_path / "data" / "outages.db"
+    p.parent.mkdir(parents=True)
+    sqlite3.connect(p).close()
+    assert main(["snapshot", "--out", str(tmp_path / "site")]) == 2
+    assert "outages areas" in capsys.readouterr().err
+
+
+def test_snapshot_build_failure_writes_nothing(capsys, monkeypatch, tmp_path, snap_env):
+    from outages import snapshot
+
+    real = snapshot.build
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 10:
+            raise RuntimeError("boom")
+        return real(*a, **kw)
+
+    monkeypatch.setattr(snapshot, "build", flaky)
+    out = tmp_path / "site"
+    assert main(["snapshot", "--out", str(out)]) == 1
+    assert "boom" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_snapshot_does_not_take_the_lock(capsys, tmp_path, snap_env, held_lock):
+    held_lock(tmp_path / "data" / "serve.lock")
+    assert main(["snapshot", "--out", str(tmp_path / "site")]) == 0

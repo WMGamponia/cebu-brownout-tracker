@@ -15,7 +15,9 @@
       <h1>Cebu Brownout Map</h1>
       <p id="asof" class="asof">Loading…</p>
     </div>
+    <p id="snapshot-banner" class="snapshot" hidden></p>
     <p id="history-banner" class="history" hidden></p>
+    <p id="week-missing" class="warn" hidden>This week isn't in the snapshot; showing the snapshot week.</p>
     <p id="old-warning" class="warn" hidden></p>
     <div id="stale" class="warn" hidden>
       <span>VECO updated this post and we couldn't read the update; this is from the earlier version.</span>
@@ -77,8 +79,9 @@
       </section>
       <section class="credits">
         <p id="attribution"></p>
-        <p>Map tiles © OpenStreetMap contributors. Map library: Leaflet (BSD-2-Clause).</p>
+        <p>Map tiles © OpenStreetMap contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>). Map library: Leaflet (BSD-2-Clause).</p>
         <p>Data: VECO's scheduled power interruption posts.</p>
+        <p id="snapshot-credits" hidden></p>
       </section>
     </aside>
   </main>

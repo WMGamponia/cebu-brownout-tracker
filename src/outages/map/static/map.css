@@ -176,6 +176,8 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .week-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .week-row input[type="date"] { font: inherit; padding: 2px 4px; }
 .week-row .history-link { margin-left: auto; }
+.snapshot { background: #fff4d6; color: #5c4400; padding: 4px 8px; margin: 4px 0 0; border-radius: 4px; }
+.snapshot a { color: inherit; }
 .history { background: #e8f0fe; color: #1a3d7c; padding: 4px 8px; margin: 4px 0 0; border-radius: 4px; }
 .ln { display: inline-block; width: 22px; height: 0; margin-right: 6px; vertical-align: middle; }
 .ln-active { border-top: 5px solid #9a3412; }

@@ -19,18 +19,18 @@ import {
   safePostUrl,
   shiftDate,
 } from "./timeline.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { makeSource } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
+import { addTiles } from "./tiles.js";
 
-// Relative, so the Phase 6 snapshot is this page + that file. The page's own ?from=&days= (other
-// weeks) are passed on; the server validates them.
-// Read on every load, so the week picker can change them with history.replaceState.
-function dataUrl() {
-  const page = new URLSearchParams(location.search);
-  const q = new URLSearchParams();
-  for (const k of ["from", "days"]) if (page.has(k)) q.set(k, page.get(k));
-  return q.toString() ? `outages.geojson?${q}` : "outages.geojson";
-}
+// Every data URL and every "now" come from the source (Phase 6 spec 4.3): the live server, or a
+// static snapshot pinned to its `taken_at`. URLs are relative, so the page works from a subpath.
+// The page's own ?from=&days= (other weeks) are read on every load, so the week picker can change
+// them with history.replaceState.
+let src = makeSource("live", null);
+const pageParams = () => new URLSearchParams(location.search);
 const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
 
@@ -99,12 +99,7 @@ const streetsShown = () => drawing() && state.showStreets;
 
 const map = L.map("map", { zoomControl: true, attributionControl: true });
 map.attributionControl.setPrefix(false);
-const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "© OpenStreetMap contributors",
-});
-tiles.on("tileerror", () => {}); // offline: polygons still draw on a blank background
-tiles.addTo(map);
+addTiles(L, map); // offline: polygons still draw on a blank background
 map.setView([10.32, 123.9], 11);
 
 function visibleOutages(ids) {
@@ -310,12 +305,14 @@ function renderTopbar() {
   const meta = state.doc.meta;
   const asOf = asOfLabel(meta.last_check_at);
   $("asof").textContent = asOf ? `Data as of ${asOf}` : "No check has run yet";
-  const age = checkAgeHours(meta.last_check_at, Date.now());
+  const age = checkAgeHours(meta.last_check_at, src.now());
   const warn = $("old-warning");
-  const past = isPastWindow(meta, Date.now());
+  const past = isPastWindow(meta, src.now());
   $("history-banner").textContent = past ? historyLabel(meta.days) : "";
   $("history-banner").hidden = !past;
   $("week").value = meta.window.from;
+  $("week-prev").disabled = src.weekStep(meta.window.from, -1) === null;
+  $("week-next").disabled = src.weekStep(meta.window.from, 1) === null;
   $("streets-toggle").hidden = !drawing();
   $("legend-lines").hidden = !drawing();
   $("streets-note").textContent = drawing()
@@ -346,7 +343,7 @@ function renderTopbar() {
 }
 
 function renderDays() {
-  const today = manila(Date.now()).date;
+  const today = manila(src.now()).date;
   const tabs = state.doc.meta.days.map((d) => {
     const selected = d === state.day;
     const b = el("button", {
@@ -447,7 +444,7 @@ function showBanner(text) {
 async function load() {
   let doc;
   try {
-    const r = await fetch(dataUrl(), { cache: "no-store" });
+    const r = await fetch(src.mapUrl(pageParams()), { cache: "no-store" });
     if (!r.ok) {
       let detail = `HTTP ${r.status}`;
       try {
@@ -459,16 +456,23 @@ async function load() {
     }
     doc = await r.json();
   } catch (e) {
+    const asked = pageParams().get("from");
+    if (src.isSnapshot && asked && src.snapWeek(asked) !== src.snap.snapshot_week) {
+      // A week file missing from the snapshot (404 or bad JSON): say so, show the snapshot week.
+      goToWeek(null);
+      $("week-missing").hidden = false;
+      return;
+    }
     showBanner(`Couldn't load the outage data (${e.message}).`);
     return;
   }
   $("banner").hidden = true;
   const first = state.doc === null;
   state.doc = doc;
-  state.fetchedAt = Date.now();
+  state.fetchedAt = src.now();
   const days = doc.meta.days;
   if (first || !days.includes(state.day)) {
-    const sel = defaultSelection(Date.now(), days);
+    const sel = defaultSelection(src.now(), days);
     state.day = sel.day;
     state.hour = sel.hour;
   }
@@ -487,7 +491,7 @@ $("show-cancelled").addEventListener("change", (e) => {
   state.showCancelled = e.target.checked;
   if (state.doc) render();
 });
-$("retry").addEventListener("click", load);
+$("retry").addEventListener("click", start);
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
   if (state.doc) render();
@@ -505,12 +509,17 @@ function goToWeek(from) {
   }
   const qs = q.toString();
   history.replaceState(null, "", qs ? `${location.pathname}?${qs}` : location.pathname);
+  $("week-missing").hidden = true;
   stopPlaying();
   load();
 }
-$("week").addEventListener("change", (e) => goToWeek(e.target.value || null));
-$("week-prev").addEventListener("click", () => state.doc && goToWeek(shiftDate(state.doc.meta.window.from, -7)));
-$("week-next").addEventListener("click", () => state.doc && goToWeek(shiftDate(state.doc.meta.window.from, 7)));
+$("week").addEventListener("change", (e) => goToWeek(e.target.value ? src.snapWeek(e.target.value) : null));
+function stepWeek(dir) {
+  const to = state.doc && src.weekStep(state.doc.meta.window.from, dir);
+  if (to) goToWeek(to);
+}
+$("week-prev").addEventListener("click", () => stepWeek(-1));
+$("week-next").addEventListener("click", () => stepWeek(1));
 $("week-today").addEventListener("click", () => goToWeek(null));
 $("panel-toggle").addEventListener("click", () => setPanel(!$("panel").classList.contains("open")));
 $("panel-close").addEventListener("click", () => setPanel(false));
@@ -522,14 +531,34 @@ $("days").addEventListener("keydown", (e) => {
   select(days[i], state.hour);
   $("days").children[i].focus();
 });
+// A snapshot never refetches: its data and its "now" are fixed.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, Date.now())) load();
+  if (!src.refetch) return;
+  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
 });
 // A tab left open (a wall display) never changes visibility: refetch it too, and let the
 // old-data warning appear when runs are missed.
 setInterval(() => {
-  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, Date.now())) load();
+  if (!src.refetch) return;
+  if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
   else if (state.doc) renderTopbar();
 }, 5 * 60 * 1000);
 
-load();
+/** Pick the data source (live, or the snapshot named by snapshot.json), then load the week. */
+async function start() {
+  if (isSnapshotPage() && !src.isSnapshot) {
+    try {
+      src = await pageSource();
+    } catch (e) {
+      showBanner(`Couldn't load the snapshot (${e.message}).`);
+      return;
+    }
+    showSnapshotChrome(src.snap);
+    const week = $("week");
+    week.min = src.weeks[0];
+    week.max = shiftDate(src.snap.snapshot_week, 6);
+  }
+  load();
+}
+
+start();
