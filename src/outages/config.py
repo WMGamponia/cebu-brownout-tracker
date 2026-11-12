@@ -129,6 +129,7 @@ OSM_DIR_NAME = "osm"  # under data/; ODbL, never committed
 STREET_BUFFER_M = 150
 BBOX_PAD_M = 500
 # Set by the pre-registered street eval gate (spec 5.4): test precision >= 0.95, >= 20 drawn.
+# Test split 2026-11-12: precision 0.923 (12 of 13 drawn), coverage 0.600 -> off.
 STREETS_DRAW = False
 
 # Phase 5: approve-to-join bot (spec 4.9).
