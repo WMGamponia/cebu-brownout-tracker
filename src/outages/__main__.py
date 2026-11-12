@@ -7,6 +7,7 @@ import contextlib
 import logging
 import sys
 import threading
+from collections import Counter
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -61,6 +62,7 @@ from outages.streets import evaluate as streets_eval
 from outages.streets import review as streets_review
 from outages.streets import store as streets_store
 from outages.streets.match import ALIASES_PATH
+from outages.streets.normalize import street_key as street_keys
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -242,8 +244,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     a.add_argument("--dry-run", action="store_true", help="parse in memory, write nothing")
     a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
-    e.add_argument("action", choices=("sample", "run"))
-    e.add_argument("--suite", choices=("areas", "streets"), default="areas")
+    e.add_argument("action", choices=("sample", "run", "check", "review-sample", "freeze"))
+    e.add_argument("--suite", choices=("areas", "streets", "streets-v2"), default="areas")
+    e.add_argument("--n", type=int, default=25, help="review-sample: rows (default 25)")
     e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
     e.add_argument("--split", choices=("dev", "test"), default="dev")
     e.add_argument("--arms", default="rules")
@@ -311,6 +314,76 @@ def _eval_sample_streets(paths: Paths, seed: int) -> int:
         return 1
     print(f"{len(rows)} street mentions; sampled dev {len(dev)}, test {len(test)}")
     print(f"written: {streets_eval.EVAL_DIR}")
+    return 0
+
+
+REVIEW_FILE = Path("streets") / "label-review.md"
+
+
+def _eval_streets_v2(paths: Paths, args: argparse.Namespace) -> int:
+    """The v2 test split's label handling (spec 6.1-6.3). Offline; never prints a gold."""
+    d = streets_eval.EVAL_DIR
+    rows_p, test_p = d / streets_eval.TEST_ROWS, d / "test.jsonl"
+    try:
+        if args.action == "sample":
+            return _eval_sample_v2(paths, args.seed or streets_eval.SEED_V2)
+        index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+        if index is None:
+            print("error: no OSM extract (run `streets fetch`)", file=sys.stderr)
+            return 1
+        if args.action == "check":
+            c = streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            print(" ".join(f"{k} {v}" for k, v in c.items()) + f"; osm_base {index.osm_base}")
+            return 0
+        if args.action == "freeze":
+            frozen = d / "FROZEN"
+            if frozen.exists():
+                print(f"error: {frozen} exists; the test split is frozen", file=sys.stderr)
+                return 2
+            streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            evaluate.freeze(test_p, frozen)
+            print(f"written: {frozen}")
+            return 0
+        if args.action == "review-sample":
+            streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            picked = streets_eval.review_sample(evaluate.load_split(test_p), n=args.n)
+            out = paths.data / REVIEW_FILE
+            out.parent.mkdir(parents=True, exist_ok=True)
+            text = streets_eval.format_review(picked, index, load_boundaries())
+            out.write_text(text, encoding="utf-8", newline="\n")
+            print(Path("data") / REVIEW_FILE)
+            return 0
+    except streets_eval.GuardError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(f"error: eval {args.action} is not a streets-v2 action", file=sys.stderr)
+    return 2
+
+
+def _eval_sample_v2(paths: Paths, seed: int) -> int:
+    """Write the 150 test rows (no gold) and their hash; refuse to overwrite either."""
+    d = streets_eval.EVAL_DIR
+    rows_p, frozen = d / streets_eval.TEST_ROWS, d / streets_eval.ROWS_FROZEN
+    for p in (rows_p, frozen):
+        if p.exists():
+            print(f"error: {p} exists; the v2 test rows are sampled once", file=sys.stderr)
+            return 2
+    dev = evaluate.load_split(d / "dev.jsonl") if (d / "dev.jsonl").is_file() else []
+    exclude = {k for k in (street_keys(r.get("name", "")) for r in dev) if k}
+    conn = db.connect_ro(paths.db)
+    try:
+        mentions = streets_eval.street_rows(conn)
+    finally:
+        conn.close()
+    rows = streets_eval.sample_v2(mentions, exclude, seed=seed)
+    d.mkdir(parents=True, exist_ok=True)
+    evaluate.write_split(rows_p, rows)
+    evaluate.freeze(rows_p, frozen)
+    names = {v: k for k, v in VECO_TOWNS.items()}
+    by_town = Counter(names.get(r["town_psgc"], str(r["town_psgc"])) for r in rows)
+    print(f"{len(mentions)} mentions, {len(exclude)} dev keys excluded; sampled {len(rows)} rows")
+    print("by town: " + ", ".join(f"{t} {n}" for t, n in sorted(by_town.items())))
+    print(f"written: {rows_p}, {frozen}")
     return 0
 
 
@@ -792,6 +865,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
     if command == "snapshot":
         return _snapshot(paths, args)
     if command == "eval":
+        if args.suite == "streets-v2":
+            return _eval_streets_v2(paths, args)
         if args.suite == "streets":
             if args.action == "sample":
                 return _eval_sample_streets(paths, args.seed or streets_eval.SEED)

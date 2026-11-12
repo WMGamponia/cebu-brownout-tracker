@@ -6,6 +6,8 @@ labelled. Splits, freezing and the frozen check are `outages.evaluate`'s.
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import json
 import math
 import random
@@ -327,3 +329,173 @@ def run_streets(
 def gate(s: dict) -> bool:
     """Spec 5.4: drawing on only with test precision ≥ 0.95 over ≥ 20 drawn rows."""
     return s["precision"] is not None and s["precision"] >= 0.95 and s["drawn"] >= 20
+
+
+# --- Streets v2: the 150-row test split (spec 6.1-6.3) ---
+
+SEED_V2 = 20261113
+N_TEST_V2 = 150
+REVIEW_CANDIDATES = 15  # per row in label-review.md, closest first
+ROW_FIELDS = ("id", "areas_hash", "seq", "name", "areas_raw", "towns", "barangays", "town_psgc")
+
+
+def sample_v2(
+    rows: list[StreetRow], exclude_keys: set[str], n: int = N_TEST_V2, seed: int = SEED_V2
+) -> list[dict]:
+    """Mentions drawn uniformly (seeded), one per (town, street_key), keys in `exclude_keys`
+    left out everywhere. Rows carry no gold."""
+    pool = sorted(
+        (r for r in rows if street_key(r.name) and street_key(r.name) not in exclude_keys),
+        key=lambda r: (r.areas_hash, r.seq),
+    )
+    random.Random(seed).shuffle(pool)
+    taken: set[tuple[str | None, str]] = set()
+    out: list[dict] = []
+    for r in pool:
+        pair = (r.town_psgc, street_key(r.name))
+        if pair in taken:
+            continue
+        taken.add(pair)
+        out.append(
+            {
+                "id": f"t2-{len(out) + 1:03d}",
+                "areas_hash": r.areas_hash,
+                "seq": r.seq,
+                "name": r.name,
+                "areas_raw": r.areas_raw,
+                "towns": r.towns,
+                "barangays": r.barangays,
+                "town_psgc": r.town_psgc,
+            }
+        )
+        if len(out) >= n:
+            break
+    return out
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def check_rows_frozen(rows_path: Path) -> None:
+    frozen = rows_path.parent / ROWS_FROZEN
+    if not frozen.is_file():
+        raise GuardError(f"{frozen} missing: the test rows were never frozen")
+    if _sha(rows_path) != frozen.read_text(encoding="utf-8").strip():
+        raise GuardError(f"{rows_path} changed since {ROWS_FROZEN} was written")
+
+
+def check_labels(rows_path: Path, test_path: Path, index_osm_base: str | None) -> dict:
+    """The labelled file fits the frozen rows (same ids, same mentions, in order), every row
+    has a gold of the right type and the extract's osm_base. Returns counts only: no gold
+    ever reaches a message (spec 6.2)."""
+    check_rows_frozen(rows_path)
+    rows = load_split(rows_path)
+    labels = load_split(test_path) if test_path.is_file() else []
+    by_id = {r.get("id"): r for r in labels}
+    for r in rows:
+        lab = by_id.get(r["id"])
+        if lab is None:
+            raise GuardError(f"row {r['id']} is missing from {test_path.name}")
+        if (lab.get("areas_hash"), lab.get("seq")) != (r["areas_hash"], r["seq"]):
+            raise GuardError(f"row {r['id']}: areas_hash/seq differ from the frozen rows")
+        if "gold" not in lab:
+            raise GuardError(f"row {r['id']} has no gold field")
+        g = lab["gold"]
+        ok = g is None or (isinstance(g, str) and g.strip())
+        ok = ok or (isinstance(g, list) and g and all(isinstance(x, str) and x for x in g))
+        if not ok:
+            raise GuardError(f"row {r['id']}: gold must be a name, a list of names or null")
+        if lab.get("osm_base") != index_osm_base:
+            raise GuardError(
+                f"row {r['id']}: osm_base {lab.get('osm_base')} differs from the extract's "
+                f"{index_osm_base}"
+            )
+    extra = [str(i) for i in by_id if i not in {r["id"] for r in rows}]
+    if extra or len(labels) != len(rows):
+        raise GuardError(f"{test_path.name} has rows not in the frozen rows: {', '.join(extra)}")
+    golds = [lab["gold"] for lab in labels]
+    return {
+        "rows": len(labels),
+        "null": sum(g is None for g in golds),
+        "non_null": sum(g is not None for g in golds),
+        "lists": sum(isinstance(g, list) for g in golds),
+        "notes": sum(bool(lab.get("note")) for lab in labels),
+    }
+
+
+def review_sample(test_rows: list[dict], n: int = 25, seed: int = SEED_V2) -> list[dict]:
+    """`n` rows for the owner's review (spec 6.3): every list gold and `two roads` note first
+    (when they fit), then round-robin over (town, null / non-null) strata. Sorted by id."""
+    rng = random.Random(seed)
+    rows = sorted(test_rows, key=lambda r: r["id"])
+    special = [
+        r
+        for r in rows
+        if isinstance(r.get("gold"), list) or "two roads" in (r.get("note") or "").lower()
+    ]
+    picked = special[:n] if len(special) <= n else rng.sample(special, n)
+    ids = {r["id"] for r in picked}
+    strata: dict[tuple[str, bool], list[dict]] = {}
+    for r in rows:
+        if r["id"] not in ids:
+            strata.setdefault((r.get("town_psgc") or "?", r.get("gold") is None), []).append(r)
+    for pool in strata.values():
+        rng.shuffle(pool)
+    keys = sorted(strata)
+    rng.shuffle(keys)
+    while len(picked) < n and any(strata[k] for k in keys):
+        for k in keys:
+            if strata[k] and len(picked) < n:
+                picked.append(strata[k].pop())
+    return sorted(picked, key=lambda r: r["id"])
+
+
+def format_review(rows: list[dict], index: StreetIndex | None, boundaries: dict) -> str:
+    """`data/streets/label-review.md`: each sampled row with its gold, note and the in-scope
+    candidate names, for the owner (spec 6.3)."""
+    from outages.streets.candidates import in_scope
+
+    out = [
+        "# Street test labels — owner review",
+        "",
+        f"{len(rows)} rows. For each: is `gold` the OSM name VECO means (GUIDE v2)? Write a",
+        "correction under the row (`correct: <new gold>` or `correct: null`), or tell the session",
+        "the row id and the new gold.",
+        "",
+    ]
+    for r in rows:
+        g = r.get("gold")
+        gold = "null" if g is None else json.dumps(g, ensure_ascii=False)
+        out += [
+            f"## {r['id']} — {_town_name(r.get('town_psgc') or '?')}",
+            "",
+            f"- VECO name: **{r['name']}**",
+            f"- gold: **{gold}**" + (f" — note: {r['note']}" if r.get("note") else ""),
+            "- area text:",
+            "",
+            *[f"  > {line}" for line in (r.get("areas_raw") or "").splitlines()],
+            "",
+            f"- in-scope OSM names, the {REVIEW_CANDIDATES} closest to VECO's name"
+            " (primary [tags] (ways)):",
+        ]
+        cands = in_scope(r, index, boundaries) if index else []
+        key = street_key(r["name"])
+        ranked = sorted(
+            cands,
+            key=lambda c: (
+                -max(
+                    difflib.SequenceMatcher(None, key, street_key(v)).ratio()
+                    for v in c["tags"].values()
+                )
+            ),
+        )
+        for c in ranked[:REVIEW_CANDIDATES]:
+            tags = " ".join(f"{k}={v}" for k, v in c["tags"].items())
+            out.append(f"  - {c['primary']} [{tags}] ({c['ways']})")
+        if not cands:
+            out.append("  - (none)")
+        elif len(cands) > REVIEW_CANDIDATES:
+            out.append(f"  - … {len(cands) - REVIEW_CANDIDATES} more in scope")
+        out.append("")
+    return "\n".join(out)
