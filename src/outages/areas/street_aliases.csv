@@ -1,3 +1,17 @@
 town_psgc,veco_key,osm_name,source,model,prompt_version,decided
 702250000,bugos street,Burgos Street,manual,,,
 702219000,diversion road,Diversion Road,manual,,,
+730600000,cebu transcentral highway,Cebu-Balamban Transcentral Highway,qwen,qwen3:14b,2,2026-11-13
+730600000,d jakosalem street,Dionisio Jakosalem Street,qwen,qwen3:14b,2,2026-11-13
+702219000,cebu north coastal road,Cebu North Road,qwen,qwen3:14b,2,2026-11-13
+702227000,cebu north coastal road,Cebu North Road,qwen,qwen3:14b,2,2026-11-13
+731300000,m l quezon street,Manuel L. Quezon Avenue,qwen,qwen3:14b,2,2026-11-13
+730600000,a minoza street,Miñoza Street,qwen,qwen3:14b,2,2026-11-13
+730600000,bonbon sudlon 2 barangay road,Bonbon-Sudlon Road,qwen,qwen3:14b,2,2026-11-13
+730600000,natalio b bacalso avenue,Natalio Bacalso Avenue,qwen,qwen3:14b,2,2026-11-13
+702250000,rabaya street,Rafael Rabaya Street,qwen,qwen3:14b,2,2026-11-13
+702250000,jose rizal street,Rizal Street,qwen,qwen3:14b,2,2026-11-13
+702250000,r rabaya street,Rafael Rabaya Street,qwen,qwen3:14b,2,2026-11-13
+730600000,gabuya street,L. Gabuya Street,owner,,,2026-11-13
+730600000,n bacalso avenue,Natalio Bacalso Avenue,qwen,qwen3:14b,2,2026-11-13
+730600000,aznar road,Aznar Street,qwen,qwen3:14b,2,2026-11-13
