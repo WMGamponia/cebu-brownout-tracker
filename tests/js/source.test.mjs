@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { makeSource, snapshotLabel } from "../../src/outages/map/static/js/source.js";
+import { makeSource, refetchAllowed, snapshotLabel } from "../../src/outages/map/static/js/source.js";
 import { shiftDate } from "../../src/outages/map/static/js/timeline.js";
 
 function weeksFrom(first, last) {
@@ -119,4 +119,13 @@ test("test_snapshot_ignores_live_params", () => {
 test("snapshotLabel: Manila wall time whatever the zone", () => {
   assert.equal(snapshotLabel("2026-11-12T20:05:11+08:00"), "Thu 12 Nov 2026, 20:05");
   assert.equal(snapshotLabel("2026-11-12T16:05:11Z"), "Fri 13 Nov 2026, 00:05");
+});
+
+test("refetchAllowed: never on a snapshot page, even before snapshot.json has loaded", () => {
+  const live = makeSource("live", null);
+  const snap = makeSource("snapshot", SNAP);
+  assert.equal(refetchAllowed("live", live), true);
+  assert.equal(refetchAllowed(undefined, live), true);
+  assert.equal(refetchAllowed("snapshot", live), false); // the placeholder source while loading
+  assert.equal(refetchAllowed("snapshot", snap), false);
 });
