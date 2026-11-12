@@ -10,6 +10,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 ## Status
 
 **Current phase:** Phase 6 — Ship it, **build next with `prompts/phase6-build.md`** on `phase6-ship`. Phases 1–5 merged to `main` (PRs #1–#5); street drawing off by its gate.
+**History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
