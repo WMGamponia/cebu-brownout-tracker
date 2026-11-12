@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from outages.__main__ import main
@@ -504,3 +506,60 @@ def test_stats_command_offline(capsys, monkeypatch, tmp_path):
     assert hashlib.sha256(p.read_bytes()).hexdigest() == before
     assert main(["stats", "--from", "2026-11-30", "--to", "2026-11-01"]) == 2
     assert "must not be after" in capsys.readouterr().err
+
+
+def test_no_console_handler_without_stderr(monkeypatch, tmp_path):
+    """Under pythonw `sys.stderr` is None: file log only (Phase 6 spec 4.5)."""
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    from outages import __main__ as cli
+
+    monkeypatch.setattr(sys, "stderr", None)
+    handlers = cli._setup_logging(cli.Paths(tmp_path))
+    try:
+        assert handlers and all(isinstance(h, RotatingFileHandler) for h in handlers)
+        logging.getLogger("outages").info("no console here")
+    finally:
+        for h in handlers:
+            cli.log.removeHandler(h)
+            h.close()
+    log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
+    assert "no console here" in log
+
+
+@pytest.mark.parametrize(
+    "argv", [["serve"], ["bot"], ["check"], ["backfill"], ["alerts", "--send"]]
+)
+def test_locked_commands_exit_3_when_held(
+    argv, capsys, monkeypatch, tmp_path, no_tg_env, held_lock
+):
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    h = held_lock(tmp_path / "data" / "serve.lock")
+    assert main(argv) == 3
+    err = capsys.readouterr().err
+    assert f"serve is already running (pid {h.pid}); stop it first" in err
+
+
+def test_read_only_commands_ignore_lock(capsys, monkeypatch, tmp_path, no_tg_env, held_lock):
+    from outages import db
+
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    db.connect(tmp_path / "data" / "outages.db").close()
+    held_lock(tmp_path / "data" / "serve.lock")
+    assert main(["alerts", "--dry-run"]) == 0
+    assert main(["report"]) == 0
+    assert "already running" not in capsys.readouterr().err
+
+
+def test_lock_released_after_command(capsys, monkeypatch, tmp_path, no_tg_env):
+    from outages.lock import acquire
+
+    no_network(monkeypatch)
+    no_telegram(monkeypatch)
+    assert main(["alerts", "--send"]) == 1  # no token: fails after taking the lock
+    with acquire(tmp_path / "data" / "serve.lock"):
+        pass

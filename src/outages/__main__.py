@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from outages import bot, db, evaluate, gazetteer_build, pipeline, report, scheduler
+from outages import bot, db, evaluate, gazetteer_build, lock, pipeline, report, scheduler
 from outages.alerts import run as alerts_run
 from outages.alerts import store as alerts_store
 from outages.areas import store as areas_store
@@ -66,6 +66,10 @@ COMMANDS = {
     "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
 }
 LAN_WARNING = "map is reachable from your network; there is no login"
+# Commands that write the DB on a schedule or talk to Telegram take the single-instance lock
+# (Phase 6 spec 4.4); `alerts` only with --send.
+LOCKED_COMMANDS = ("serve", "bot", "check", "backfill")
+LOCK_NAME = "serve.lock"
 
 log = logging.getLogger("outages")
 
@@ -433,13 +437,15 @@ def _gazetteer(paths: Paths) -> int:
 def _setup_logging(paths: Paths) -> list[logging.Handler]:
     paths.logs.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    console = logging.StreamHandler(sys.stderr)
-    console.setFormatter(fmt)
     file = RotatingFileHandler(
         paths.logs / "outages.log", maxBytes=1_000_000, backupCount=5, encoding="utf-8"
     )
     file.setFormatter(fmt)
-    handlers: list[logging.Handler] = [console, file]
+    handlers: list[logging.Handler] = [file]
+    if sys.stderr is not None:  # None under pythonw (no console): file log only
+        console = logging.StreamHandler(sys.stderr)
+        console.setFormatter(fmt)
+        handlers.insert(0, console)
     for h in handlers:
         log.addHandler(h)
     log.setLevel(logging.INFO)
@@ -625,7 +631,26 @@ def _report(paths: Paths, conn) -> int:
     return 0
 
 
+def needs_lock(args: argparse.Namespace) -> bool:
+    return args.command in LOCKED_COMMANDS or (
+        args.command == "alerts" and getattr(args, "send", False)
+    )
+
+
 def _run(args: argparse.Namespace, paths: Paths) -> int:
+    if not needs_lock(args):
+        return _dispatch(args, paths)
+    paths.data.mkdir(parents=True, exist_ok=True)
+    try:
+        held = lock.acquire(paths.data / LOCK_NAME)
+    except lock.LockHeld as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 3
+    with held:
+        return _dispatch(args, paths)
+
+
+def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
     command = args.command
     if command == "gazetteer":
         return _gazetteer(paths)
@@ -700,7 +725,7 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one command; return 0 ok, 1 failures, 2 usage."""
+    """Run one command; return 0 ok, 1 failures, 2 usage, 3 another instance holds the lock."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
