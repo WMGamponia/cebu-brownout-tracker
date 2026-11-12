@@ -73,6 +73,13 @@ export function makeSource(mode, snap) {
   return mode === "snapshot" ? snapshotSource(snap) : liveSource();
 }
 
+/** Whether the page may refetch its data: never on a snapshot page (`mode` is the page's
+ *  <html data-mode>), including while snapshot.json is still loading and `src` is the live
+ *  placeholder; otherwise as the source says. */
+export function refetchAllowed(mode, src) {
+  return mode !== "snapshot" && src.refetch;
+}
+
 /** "Thu 12 Nov 2026, 20:05" in Manila. */
 export function snapshotLabel(iso) {
   const m = manila(parseIso(iso));

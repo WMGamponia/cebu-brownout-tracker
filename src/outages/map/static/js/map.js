@@ -20,7 +20,7 @@ import {
   shiftDate,
 } from "./timeline.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
-import { makeSource } from "./source.js";
+import { makeSource, refetchAllowed } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
 import { addTiles } from "./tiles.js";
@@ -531,15 +531,15 @@ $("days").addEventListener("keydown", (e) => {
   select(days[i], state.hour);
   $("days").children[i].focus();
 });
-// A snapshot never refetches: its data and its "now" are fixed.
+// A snapshot never refetches (its data and its "now" are fixed), not even while snapshot.json loads.
 document.addEventListener("visibilitychange", () => {
-  if (!src.refetch) return;
+  if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
 });
 // A tab left open (a wall display) never changes visibility: refetch it too, and let the
 // old-data warning appear when runs are missed.
 setInterval(() => {
-  if (!src.refetch) return;
+  if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
   else if (state.doc) renderTopbar();
 }, 5 * 60 * 1000);
