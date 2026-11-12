@@ -11,7 +11,17 @@ from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from outages import bot, db, evaluate, gazetteer_build, lock, pipeline, report, scheduler
+from outages import (
+    bot,
+    db,
+    evaluate,
+    gazetteer_build,
+    lock,
+    pipeline,
+    report,
+    scheduler,
+    snapshot,
+)
 from outages.alerts import run as alerts_run
 from outages.alerts import store as alerts_store
 from outages.areas import store as areas_store
@@ -28,17 +38,19 @@ from outages.config import (
     OVERPASS_SPACING_S,
     OVERPASS_URL,
     RUN_TIMES,
+    STALE_CHECK_H,
     VECO_TOWNS,
     Paths,
     TelegramSettings,
+    dotenv_get,
     telegram_settings,
 )
 from outages.fetch import Fetcher
 from outages.history import load as history_load
 from outages.history import stats as history_stats
 from outages.map import server as map_server
-from outages.map.app import create_app
-from outages.map.build import BoundariesError, load_boundaries
+from outages.map.app import NOT_MIGRATED, NOT_READY, create_app
+from outages.map.build import BoundariesError, load_boundaries, schema_ready
 from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
 from outages.osm import extract as streets_index
@@ -64,6 +76,7 @@ COMMANDS = {
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
     "stats": "history stats for a date range (read-only; no VECO fetch): --from, --to",
     "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
+    "snapshot": "static demo snapshot for GitHub Pages (offline, read-only)",
 }
 LAN_WARNING = "map is reachable from your network; there is no login"
 # Commands that write the DB on a schedule or talk to Telegram take the single-instance lock
@@ -248,6 +261,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     st.add_argument("--rebuild", action="store_true", help="match: redo every street")
     st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
     st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
+    sn = parsers["snapshot"]
+    sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
+    sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
     s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
@@ -411,6 +427,77 @@ def _stats(paths: Paths, args: argparse.Namespace) -> int:
         conn.close()
     doc = history_stats.compute(rows, rng, load_gazetteer(), coverage, now)
     print(history_stats.format_text(doc), end="")
+    return 0
+
+
+def _secrets_for_scan(conn) -> tuple[list[int], str | None]:
+    """Every chat ID we know (subscribers, the allowlist, the admin) and the bot token, to scan the
+    snapshot's bytes for. Read before the guard is installed, on a connection of their own."""
+    ids = [r[0] for r in conn.execute("SELECT chat_id FROM subscribers")]
+    settings = telegram_settings()  # ValueError on a malformed chat ID list
+    if settings is not None:
+        ids += list(settings.allowed)
+        if settings.admin_chat_id is not None:
+            ids.append(settings.admin_chat_id)
+    return ids, dotenv_get("TELEGRAM_BOT_TOKEN")
+
+
+def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
+    """Offline and read-only (Phase 6 spec 4.1); builds no fetcher, Overpass or Telegram client.
+    Exit 0 ok; 1 build failure or leak; 2 old data, bad folder or DB not ready."""
+    if not paths.db.is_file():
+        print(f"error: {NOT_READY}", file=sys.stderr)
+        return 2
+    conn = db.connect_ro(paths.db)
+    try:
+        if not schema_ready(conn):
+            print(f"error: {NOT_READY}", file=sys.stderr)
+            return 2
+        if not db.is_current(conn):
+            print(f"error: {NOT_MIGRATED}", file=sys.stderr)
+            return 2
+        last = db.get_meta(conn, "last_check_at")
+        try:
+            chat_ids, token = _secrets_for_scan(conn)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+    finally:
+        conn.close()
+    taken = utcnow().astimezone(MANILA).replace(microsecond=0)
+    age_h = None if last is None else (taken - datetime.fromisoformat(last)).total_seconds() / 3600
+    if not args.allow_old and (age_h is None or age_h > STALE_CHECK_H):
+        what = "data has never been checked" if age_h is None else f"data is {int(age_h)} h old"
+        print(f"error: {what}; run check first or pass --allow-old", file=sys.stderr)
+        return 2
+    problem = snapshot.check_out_dir(args.out)
+    if problem:
+        print(f"error: {problem}", file=sys.stderr)
+        return 2
+    conn = db.connect_ro(paths.db)
+    try:
+        conn.execute("PRAGMA busy_timeout=30000")  # wait out a scheduled run's write
+        snapshot.guard(conn)
+        files = snapshot.build_files(conn, load_gazetteer(), load_boundaries(), taken, last)
+    except Exception as e:
+        log.exception("snapshot: build failed")
+        print(f"error: snapshot not written: {e}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    leak = snapshot.find_leak(files, chat_ids, token)
+    if leak:
+        print(f"error: snapshot not written: the output contains a {leak}", file=sys.stderr)
+        return 1
+    written, removed = snapshot.write(args.out, files)
+    weeks = sum(1 for k in files if k.startswith("weeks/"))
+    ranges = [
+        k.removeprefix("stats/").removesuffix(".json") for k in files if k.startswith("stats/")
+    ]
+    size = sum(len(b) for b in files.values())
+    print(f"taken_at {taken.isoformat()}; last_check_at {snapshot.manila_iso(last) or 'never'}")
+    print(f"{weeks} weeks written, {removed} old file(s) removed; ranges: {', '.join(ranges)}")
+    print(f"{written} files, {size / 1_000_000:.1f} MB; written: {args.out}")
     return 0
 
 
@@ -666,6 +753,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
         return _streets(paths, args)
     if command == "stats":
         return _stats(paths, args)
+    if command == "snapshot":
+        return _snapshot(paths, args)
     if command == "eval":
         if args.suite == "streets":
             if args.action == "sample":

@@ -41,6 +41,10 @@ MAP_HOST = "127.0.0.1"
 MAP_PORT = 8765
 STALE_CHECK_H = 15  # runs are 14 h apart at most; older data means a run was missed
 
+# Phase 6: the static demo snapshot links back to these.
+PUBLIC_REPO_URL = "https://github.com/WMGamponia/cebu-brownout-tracker"
+VECO_HOME = "https://www.visayanelectric.com/"
+
 OLLAMA_URL = "http://localhost:11434"
 QWEN_MODEL = "qwen3:14b"
 HAIKU_MODEL = "claude-haiku-5-5"
