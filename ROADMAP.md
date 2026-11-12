@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Phase 6 — Ship it, **brainstorm next with `prompts/phase6.md`.** Phase 5 (streets, history, multi-user) built on `phase5-streets-history`; street drawing off by its gate. Phases 1–4 merged to `main` (PRs #1–#4); Phase 5 merges with the owner's OK of 2026-11-12.
+**Current phase:** Phase 6 — Ship it, **build next with `prompts/phase6-build.md`** on `phase6-ship`. Phases 1–5 merged to `main` (PRs #1–#5); street drawing off by its gate.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -122,6 +122,15 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 - **2026-11-12** — **Phase 5 build complete (Task 12).** The owner, away from the PC, asked me to restart `serve`: the old process was stopped and `serve` now runs in the Claude app's Terminal tab. **Real DB, read-only (hash `0c581bdf…` unchanged):** default map document 148,459 bytes, 15 outages, 30 street mentions all `drawing_off`, every outage's street count = its entities; Cebu South Road's 17 stored matches, 1,389 line nodes, none outside the listed barangays + 150 m; week picker → "History: 5–11 Nov 2026"; `/history` equals `stats` (Guadalupe 250.5 h; worst months Aug, Jul, Feb 2026); left out 19 + counted 1,069 + cancelled 119 + removed 0 = 1,207 = the outages in range; desktop and 375 px screenshots. **Live Telegram test** (second account): `/start` → admin Approve → `/add` (2 barangays) → `/forget` left no subscriber, subscription or ledger row; a second `/forget` 8 s later was treated as an unknown chat and stored `stranger:<id>`: fixed test-first (`/forget` from any non-blocked chat deletes and stores nothing), `serve` restarted, `/forget` ×2 → no cell in any table holds that chat ID. **One fresh whole-branch review** (most capable model): 0 critical, 2 important, 6 minor; both important fixed test-first: (1) a partial refetch (`streets fetch --towns`) didn't trigger re-matching, because rows were versioned by the oldest town's `osm_base` (now the newest town fetch); (2) a failed welcome send dropped the admin's join request (admin request first; one failed send no longer drops the rest). 6 minors deferred (Known issues / PR). 818 Python + 32 JS tests; ruff clean. README: streets (fetch/match/review, ODbL), history, joining and privacy, admin commands. `prompts/phase6.md` written.
 
+- **2026-11-12** — **Phase 5 merged** (PR #5).
+- **2026-11-12** — **Phase 6 brainstorm done; spec and plan approved (native execution).** Spec: `docs/superpowers/specs/2026-11-12-phase6-ship-design.md`; plan: `docs/superpowers/plans/2026-11-12-phase6-ship.md` (10 tasks); build prompt `prompts/phase6-build.md`. Branch `phase6-ship` from `main` at `689dba9`. Decisions (owner, 2026-11-12):
+  - **The code goes public in a new repo with a rewritten history** (default `WMGamponia/cebu-brownout-tracker`), MIT; this repo stays private and is archived. Found while designing: Pages on a free plan needs a public repo, and the old history exposes the work email on 95 of 100 commits, the owner's own barangay in one ROADMAP line, and 12 whole VECO pages (17 MB of fixtures). Flipping this repo public was rejected: GitHub keeps `refs/pull/1…5/head`, which users can't delete, so a force-push would leave the old commits reachable. One `git filter-repo` pass (one-off tool) mailmaps both addresses to the GitHub noreply address, rewords the line and trims every fixture version; checked in a scratch clone before anything is pushed.
+  - **The demo is a portfolio snapshot, refreshed by hand:** `python -m outages snapshot --out site` (offline, read-only, refuses data > 15 h old without `--allow-old`) writes 53 weekly map documents (same format), 4 stats ranges (last 12 months, 2024, 2025, 2026 to date), the pages in snapshot mode and `LICENSES.md`; an orphan `gh-pages` worktree at `site/`; every push reviewed. Measured on the real DB (read-only): ~8.3 MB of week files, 28 KB of 12-month stats. A SQLite authorizer blocks the subscriber and alert tables, and a byte scan for chat IDs and the bot token stops the write.
+  - **Same pages, one data source:** `source.js` maps every URL and "now" to the live server or the snapshot folder; the snapshot pins time to `taken_at` and says "Snapshot of …, not live".
+  - **OSM tiles kept:** the OSMF tile policy (re-read 2026-11-12) allows low-traffic interactive use with visible attribution and no restrictive `Referrer-Policy`; tile URL in one place plus "Report a map issue".
+  - **Streets v2 is its own later phase** (≥ 150-row street eval, LLM alias suggester); drawing stays off.
+  - **Start-at-login:** `scripts/install-task.ps1` (the owner runs it): a logon task with `pythonw`, restart on failure, plus an optional wake task at 05:58 / 19:58. A `data/serve.lock` OS lock makes a second `serve`/`bot`/`check`/`backfill`/`alerts --send` exit 3. Found: under `pythonw` the console log handler would fail on every line (no stderr).
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
@@ -194,6 +203,10 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 ## Phase 6 — Ship it
 - [ ] README: what it does, architecture, eval results, screenshots/GIF, how to run, start-at-login guide.
 - [ ] Static demo snapshot (GeoJSON + map) on GitHub Pages.
+
+## Streets v2 (after Phase 6)
+- [ ] Fresh street test split of ≥ 150 rows (distinct from the 80 labelled), gold = the OSM `name` tag; same bar (precision ≥ 0.95 over ≥ 20 drawn), run once.
+- [ ] Offline LLM alias suggester (OSM names in scope only; dev and unlabelled mentions only; owner approves each into `street_aliases.csv`; aliases frozen before the test run).
 
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.
