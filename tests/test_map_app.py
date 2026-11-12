@@ -167,3 +167,64 @@ def test_page_js_has_no_html_sinks():
         ):
             assert bad not in text, f"{js.name}: {bad}"
         assert not re.search(r"\.href\s*=", text), f"{js.name}: assigns href directly"
+
+
+def _schema3(tmp_path) -> Path:
+    path = tmp_path / "s3.db"
+    c = sqlite3.connect(path)
+    for n, sql in db._migrations():
+        if n <= 3:
+            c.executescript(
+                f"BEGIN;\n{sql}\nINSERT INTO schema_version (version) VALUES ({n});\nCOMMIT;"
+            )
+    c.close()
+    return path
+
+
+def test_stats_json_ok(db_path):
+    r = _client(db_path).get("/stats.json?from=2026-11-01&to=2026-11-30")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.headers["cache-control"] == "no-store"
+    doc = r.json()
+    assert doc["range"] == {"from": "2026-11-01", "to": "2026-11-30"}
+    assert doc["barangays"]["730600040"]["hours"] > 0
+    d = _client(db_path).get("/stats.json").json()
+    assert d["range"] == {"from": "2025-11-13", "to": "2026-11-12"}
+
+
+@pytest.mark.parametrize(
+    "query", ["from=2026-02-30", "to=yesterday", "from=2026-11-12&to=2026-11-11", "from=2026-1-1"]
+)
+def test_stats_json_bad_range_422(db_path, query):
+    r = _client(db_path).get(f"/stats.json?{query}")
+    assert r.status_code == 422
+    assert "error" in r.json()
+
+
+def test_stats_json_schema3_503(tmp_path):
+    path = _schema3(tmp_path)
+    r = _client(path).get("/stats.json")
+    assert r.status_code == 503
+    assert "migrations" in r.json()["error"]
+    assert _client(path).get("/outages.geojson").status_code == 200  # the map still works
+
+
+def test_boundaries_geojson(db_path):
+    r = _client(db_path).get("/boundaries.geojson")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/geo+json")
+    assert "max-age" in r.headers["cache-control"]
+    assert r.json() == boundaries()
+
+
+def test_stats_and_boundaries_leave_db_unchanged(db_path):
+    before = _sha(db_path)
+    c = _client(db_path)
+    for route in (
+        "/stats.json",
+        "/stats.json?from=2026-11-01&to=2026-11-30",
+        "/boundaries.geojson",
+    ):
+        assert c.get(route).status_code == 200
+    assert _sha(db_path) == before

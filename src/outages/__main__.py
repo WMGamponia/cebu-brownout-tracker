@@ -34,9 +34,12 @@ from outages.config import (
     telegram_settings,
 )
 from outages.fetch import Fetcher
+from outages.history import load as history_load
+from outages.history import stats as history_stats
 from outages.map import server as map_server
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
+from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
 from outages.osm import extract as streets_index
 from outages.osm import overpass
@@ -59,6 +62,7 @@ COMMANDS = {
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
+    "stats": "history stats for a date range (read-only; no VECO fetch): --from, --to",
     "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
 }
 LAN_WARNING = "map is reachable from your network; there is no login"
@@ -223,6 +227,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     m = parsers["map"]
     m.add_argument("--host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
     m.add_argument("--port", type=int, default=MAP_PORT)
+    sp = parsers["stats"]
+    sp.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: to − 364 days)")
+    sp.add_argument("--to", help="YYYY-MM-DD (default: today, Manila)")
     st = parsers["streets"]
     st.add_argument("action", nargs="?", choices=("fetch", "match"))
     st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
@@ -372,6 +379,27 @@ def _streets_review(paths: Paths) -> int:
         sugg = "; ".join(i.suggestions) if i.suggestions else "-"
         print(f"{i.count:>4}  {i.name}  ->  {sugg}")
     print(f"{len(items)} not_found names; accepted suggestions go in {ALIASES_PATH} by hand")
+    return 0
+
+
+def _stats(paths: Paths, args: argparse.Namespace) -> int:
+    """Read-only; prints the same numbers as /stats.json."""
+    now = utcnow()
+    try:
+        rng = history_stats.parse_range(args.from_, args.to, now)
+    except WindowError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    conn = db.connect_ro(paths.db)
+    try:
+        if not db.is_current(conn):
+            print("error: run `streets match` first (DB not migrated)", file=sys.stderr)
+            return 1
+        rows, coverage = history_load.load_rows(conn, rng)
+    finally:
+        conn.close()
+    doc = history_stats.compute(rows, rng, load_gazetteer(), coverage, now)
+    print(history_stats.format_text(doc), end="")
     return 0
 
 
@@ -603,6 +631,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _map(paths, args)
     if command == "streets":
         return _streets(paths, args)
+    if command == "stats":
+        return _stats(paths, args)
     if command == "eval":
         if args.suite == "streets":
             if args.action == "sample":

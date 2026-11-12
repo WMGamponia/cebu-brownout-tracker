@@ -1,0 +1,162 @@
+{
+ "range": {
+  "from": "2025-11-13",
+  "to": "2026-11-12"
+ },
+ "coverage": {
+  "first_outage": "2026-11-12",
+  "posts": 2,
+  "posts_parsed": 1
+ },
+ "barangays": {
+  "730600022": {
+   "hours": 3.5,
+   "outages": 1,
+   "ambiguous_hours": 0.0,
+   "last": {
+    "start": "2026-11-12T08:30:00+08:00",
+    "id": 2
+   }
+  },
+  "730600040": {
+   "hours": 11.0,
+   "outages": 2,
+   "ambiguous_hours": 0.0,
+   "last": {
+    "start": "2026-11-12T22:00:00+08:00",
+    "id": 4
+   }
+  },
+  "730600060": {
+   "hours": 9.0,
+   "outages": 1,
+   "ambiguous_hours": 0.0,
+   "last": {
+    "start": "2026-11-12T08:00:00+08:00",
+    "id": 1
+   }
+  }
+ },
+ "top": [
+  {
+   "psgc": "730600040",
+   "name": "Lahug",
+   "town": "Cebu City",
+   "hours": 11.0,
+   "outages": 2
+  },
+  {
+   "psgc": "730600060",
+   "name": "Tisa",
+   "town": "Cebu City",
+   "hours": 9.0,
+   "outages": 1
+  },
+  {
+   "psgc": "730600022",
+   "name": "Santo Niño",
+   "town": "Cebu City",
+   "hours": 3.5,
+   "outages": 1
+  }
+ ],
+ "duration": {
+  "mean_h": 6.5,
+  "median_h": 7.0,
+  "n": 3
+ },
+ "months": [
+  {
+   "month": "2025-11",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2025-12",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-01",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-02",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-03",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-04",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-05",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-06",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-07",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-08",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-09",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-10",
+   "hours": 0.0,
+   "outages": 0
+  },
+  {
+   "month": "2026-11",
+   "hours": 14.5,
+   "outages": 3
+  }
+ ],
+ "worst_months": [
+  "2026-11"
+ ],
+ "towns": [
+  {
+   "town": "Cebu City",
+   "hours": 14.5,
+   "outages": 3
+  }
+ ],
+ "counts": {
+  "counted": 3,
+  "cancelled": 1,
+  "removed": 0,
+  "stale": 0
+ },
+ "left_out": {
+  "count": 0,
+  "hours": 0.0,
+  "by_reason": {
+   "other_town": 0,
+   "unmatched": 0,
+   "not_parsed": 0,
+   "no_barangay": 0
+  }
+ },
+ "generated_at": "2026-11-12T10:00:00+08:00"
+}

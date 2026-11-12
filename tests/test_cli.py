@@ -472,3 +472,28 @@ def test_streets_match_and_review_offline(capsys, monkeypatch, tmp_path):
     assert main(["streets", "--review"]) == 0
     out = capsys.readouterr().out
     assert "Salinas Dr." in out
+
+
+def test_stats_command_offline(capsys, monkeypatch, tmp_path):
+    import hashlib
+
+    from map_world import populate
+
+    from outages import __main__ as cli
+    from outages import db
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.setattr(cli, "make_telegram", lambda t: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.chdir(tmp_path)
+    p = tmp_path / "data" / "outages.db"
+    c = db.connect(p)
+    populate(c)
+    c.close()
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert main(["stats", "--from", "2026-11-01", "--to", "2026-11-30"]) == 0
+    out = capsys.readouterr().out
+    assert "History 2026-11-01 to 2026-11-30" in out and "left out" in out
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert main(["stats", "--from", "2026-11-30", "--to", "2026-11-01"]) == 2
+    assert "must not be after" in capsys.readouterr().err
