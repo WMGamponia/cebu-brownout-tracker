@@ -13,6 +13,8 @@ dependencies = [
     "selectolax>=1.0",
     "apscheduler>=3.11,<4",
     "tzdata>=2026.1",
+    "fastapi>=0.162.5",
+    "uvicorn>=0.54.0",
 ]
 
 [project.optional-dependencies]
@@ -26,7 +28,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-outages = ["migrations/*.sql", "areas/*.csv"]
+outages = ["migrations/*.sql", "areas/*.csv", "areas/*.geojson", "map/static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -36,6 +38,8 @@ markers = [
     "live_telegram: sends a real Telegram message; run with -m live_telegram",
 ]
 addopts = "-m 'not live and not llm and not live_telegram'"
+# Starlette 1.x prefers httpx2 for TestClient; spec 2 keeps TestClient on our httpx.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 
 [tool.ruff]
 line-length = 100

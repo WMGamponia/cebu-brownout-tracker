@@ -1,0 +1,173 @@
+/* Cebu Brownout Map (Phase 4 spec 4.6). Barangay styles live in map.js (Leaflet paths). */
+:root {
+  --bg: #ffffff;
+  --fg: #1d2125;
+  --muted: #5f6b76;
+  --line: #d8dde2;
+  --soft: #f4f6f8;
+  --accent: #c2410c;
+  --active-fill: #f28c28;
+  --active-line: #c2410c;
+  --warn-bg: #fff4e5;
+  --warn-fg: #7a3e00;
+  --panel-w: 360px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--fg);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: var(--bg); }
+body { display: flex; flex-direction: column; }
+[hidden] { display: none !important; }
+button { font: inherit; cursor: pointer; }
+
+#topbar { padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+h1 { font-size: 1.1rem; margin: 0; }
+.asof { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.warn {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.9rem;
+}
+.warn a { color: inherit; }
+#stale-links a { margin-left: 6px; }
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  background: #fde8e8;
+  color: #8a1c1c;
+}
+
+#controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--soft);
+}
+#days { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
+#days button {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+#days button[aria-selected="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+.hour-row { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; }
+#hour { flex: 1; min-width: 120px; accent-color: var(--accent); }
+#hour-label { font-variant-numeric: tabular-nums; min-width: 7.5em; }
+#play {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+.toggles { display: flex; align-items: center; gap: 12px; }
+#panel-toggle, #panel-close { display: none; }
+
+main { flex: 1; display: flex; min-height: 0; position: relative; }
+#map { flex: 1; min-height: 300px; background: #eef1f3; }
+#panel {
+  width: var(--panel-w);
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+  padding: 8px 16px 16px;
+  font-size: 0.92rem;
+}
+#panel h2 { font-size: 1rem; margin: 12px 0 8px; }
+.muted { color: var(--muted); }
+.credits { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--line); margin-top: 12px; }
+
+.items { list-style: none; padding: 0; margin: 0; }
+.items > li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.items .when { font-weight: 600; }
+.items .veco-text { margin: 4px 0; }
+.items .reason { color: var(--warn-fg); }
+
+.legend { list-style: none; padding: 0; margin: 0; }
+.legend li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.legend-lead { font-weight: 600; }
+.sw { width: 18px; height: 14px; border-radius: 3px; flex: none; }
+.sw-active { background: rgba(242, 140, 40, 0.45); border: 2px solid var(--active-line); }
+.sw-cancelled { background: rgba(189, 189, 189, 0.5); border: 2px dashed #757575; }
+.sw-day { border: 2px solid #f5a25d; }
+.sw-none { border: 1px solid #a7adb3; }
+.sw-meco { background: rgba(158, 158, 158, 0.4); border: 1px solid #8a8a8a; }
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.badge-additional { background: #e0ecff; color: #1d4ed8; }
+.badge-cancelled { background: #eceff1; color: #455a64; text-decoration: line-through; }
+
+/* Popups */
+.pop { max-width: 300px; font-size: 0.9rem; }
+.pop h3 { margin: 0; font-size: 1rem; }
+.pop .town { margin: 0 0 6px; color: var(--muted); }
+.pop .outage { padding: 6px 0; border-top: 1px solid var(--line); }
+.pop .outage.active { border-left: 4px solid var(--active-fill); padding-left: 8px; }
+.pop .outage.active .when::after { content: " · now"; color: var(--accent); font-weight: 600; }
+.pop .when { font-weight: 600; }
+.pop p { margin: 3px 0; }
+.pop .places { color: var(--fg); }
+.pop .more { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+.pop .caveat { color: var(--warn-fg); }
+.pop .empty { color: var(--muted); }
+
+/* Phone: the side panel becomes a drawer over the map. */
+@media (max-width: 767px) {
+  #topbar, #controls { padding-left: 12px; padding-right: 12px; }
+  h1 { font-size: 1rem; }
+  #panel-toggle, #panel-close { display: inline-block; }
+  #panel-toggle {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 4px 10px;
+  }
+  #panel {
+    position: absolute;
+    inset: auto 0 0 0;
+    width: auto;
+    max-height: 70%;
+    background: var(--bg);
+    border-left: none;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transform: translateY(100%);
+    transition: transform 0.2s ease;
+    visibility: hidden;
+  }
+  #panel.open { transform: none; visibility: visible; }
+  #panel-close {
+    position: sticky;
+    top: 0;
+    float: right;
+    border: none;
+    background: var(--bg);
+    font-size: 1.4rem;
+    line-height: 1;
+  }
+}

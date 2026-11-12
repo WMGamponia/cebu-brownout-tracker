@@ -47,3 +47,19 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q --cov=outages --cov-report=term
+
+  js:
+    name: JS time logic (node --test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The page must ignore the browser's zone: run under two zones far from Manila.
+      - run: node --test "tests/js/*.test.mjs"
+        env:
+          TZ: America/New_York
+      - run: node --test "tests/js/*.test.mjs"
+        env:
+          TZ: Asia/Tokyo

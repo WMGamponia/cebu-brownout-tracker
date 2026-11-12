@@ -1,0 +1,6 @@
+{"type":"FeatureCollection","attribution":"Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026","features":[
+{"type":"Feature","id":"730600001","properties":{"psgc":"730600001","name":"Apas","town":"Cebu City","town_psgc":"730600000","covered":true},"geometry":{"type":"MultiPolygon","coordinates":[[[[123.7,10.3],[123.71,10.31],[123.720001,10.3],[123.7,10.3]]],[[[123.8,10.4],[123.81,10.41],[123.82,10.4],[123.8,10.4]]]]}},
+{"type":"Feature","id":"730600002","properties":{"psgc":"730600002","name":"Tisa","town":"Cebu City","town_psgc":"730600000","covered":true},"geometry":{"type":"Polygon","coordinates":[[[123.123457,10.987654],[123.2,10.9],[123.3,10.8],[123.123457,10.987654]]]}},
+{"type":"Feature","id":"702232005","properties":{"psgc":"702232005","name":"Tungkop","town":"Minglanilla","town_psgc":"702232000","covered":true},"geometry":{"type":"Polygon","coordinates":[[[123.123457,10.987654],[123.2,10.9],[123.3,10.8],[123.123457,10.987654]]]}},
+{"type":"Feature","id":"702223001","properties":{"psgc":"702223001","name":"Alegria","town":"Cordova","town_psgc":"702223000","covered":false},"geometry":{"type":"Polygon","coordinates":[[[123.123457,10.987654],[123.2,10.9],[123.3,10.8],[123.123457,10.987654]]]}}
+]}
