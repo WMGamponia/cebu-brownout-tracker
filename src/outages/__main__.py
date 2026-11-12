@@ -59,10 +59,11 @@ from outages.osm import extract as streets_index
 from outages.osm import overpass
 from outages.streets import candidates as street_candidates
 from outages.streets import evaluate as streets_eval
+from outages.streets import queue as street_queue
 from outages.streets import review as streets_review
 from outages.streets import store as streets_store
 from outages.streets import suggest as street_suggest
-from outages.streets.match import ALIASES_PATH
+from outages.streets.match import ALIASES_PATH, REJECTS_PATH
 from outages.streets.normalize import street_key as street_keys
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
@@ -266,13 +267,15 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sp.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: to − 364 days)")
     sp.add_argument("--to", help="YYYY-MM-DD (default: today, Manila)")
     st = parsers["streets"]
-    st.add_argument("action", nargs="?", choices=("fetch", "match", "candidates"))
+    st.add_argument("action", nargs="?", choices=("fetch", "match", "candidates", "suggest"))
     st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
     st.add_argument("--towns", help="fetch: only these towns (comma-separated names)")
     st.add_argument("--rebuild", action="store_true", help="match: redo every street")
     st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
     st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
     st.add_argument("--rows", type=Path, help="candidates: a rows .jsonl (labelling helper)")
+    st.add_argument("--limit", type=int, help="suggest: at most N new groups")
+    st.add_argument("--apply", action="store_true", help="suggest: apply the queue's decisions")
     sn = parsers["snapshot"]
     sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
@@ -537,8 +540,89 @@ def _streets_review(paths: Paths) -> int:
         conn.close()
     for i in items:
         sugg = "; ".join(i.suggestions) if i.suggestions else "-"
-        print(f"{i.count:>4}  {i.name}  ->  {sugg}")
+        print(f"{i.count:>4}  {i.name}  [{i.town_psgc or '?'}]  ->  {sugg}")
     print(f"{len(items)} not_found names; accepted suggestions go in {ALIASES_PATH} by hand")
+    return 0
+
+
+def _street_world(paths: Paths):
+    """(index, read-only conn) for suggest/apply, or an error message."""
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        return None, None, "no OSM extract; run `streets fetch` first"
+    if not paths.db.is_file():
+        return None, None, f"no database at {paths.db}"
+    conn = db.connect_ro(paths.db)
+    has = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='street_matches'"
+    ).fetchone()
+    if not has or not db.is_current(conn):
+        conn.close()
+        return None, None, "run `streets match` first"
+    return index, conn, None
+
+
+def _streets_suggest(paths: Paths, args: argparse.Namespace) -> int:
+    """Spec 7.1-7.6: new groups to the queue. Only localhost Ollama is contacted."""
+    index, conn, err = _street_world(paths)
+    if err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    try:
+        s = street_suggest.run(
+            conn,
+            index,
+            load_boundaries(),
+            make_street_picker(paths),
+            streets_eval.EVAL_DIR,
+            paths.data,
+            utcnow(),
+            limit=args.limit,
+            rejects_path=REJECTS_PATH,
+        )
+    except (LLMUnavailable, street_queue.QueueBusy) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    print(f"new {s.new}; picked {s.picked}; invalid {s.invalid}; no candidates {s.no_candidates}")
+    print(
+        f"queue: {street_suggest.queue_path(paths.data)} (decide at /streets/review or in the CSV)"
+    )
+    return 0
+
+
+def _streets_apply(paths: Paths) -> int:
+    """Spec 7.7: decided rows to street_aliases.csv (with provenance) or the rejects file."""
+    index, conn, err = _street_world(paths)
+    if err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    try:
+        s = street_suggest.apply(
+            street_suggest.queue_path(paths.data),
+            ALIASES_PATH,
+            REJECTS_PATH,
+            index,
+            load_boundaries(),
+            conn,
+            utcnow().astimezone(MANILA).date(),
+        )
+    except (street_queue.QueueError, street_queue.QueueBusy) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    n_dec = sum(s.decided_by_source.values())
+    print(f"decided {n_dec + len(s.refused)}; refused {len(s.refused)}; rejected {s.rejected}")
+    acc = ", ".join(f"{k} {v}" for k, v in sorted(s.accepted_by_source.items())) or "none"
+    print(f"accepted by source: {acc}")
+    for src, n in sorted(s.decided_by_source.items()):
+        took = s.took_pick_by_source.get(src, 0)
+        print(f"acceptance rate {src}: {took}/{n} ({took / n:.0%})")
+    for line in s.refused:
+        print(f"refused: {line}")
+    print("next: python -m outages streets match --dry-run")
     return 0
 
 
@@ -655,13 +739,18 @@ def _streets_candidates(paths: Paths, args: argparse.Namespace) -> int:
 def _streets(paths: Paths, args: argparse.Namespace) -> int:
     if args.action == "candidates":
         return _streets_candidates(paths, args)
+    if args.action == "suggest":
+        return _streets_apply(paths) if args.apply else _streets_suggest(paths, args)
     if args.review:
         return _streets_review(paths)
     if args.action == "fetch":
         return _streets_fetch(paths, args)
     if args.action == "match":
         return _streets_match(paths, args)
-    raise SystemExit("error: usage: streets fetch [--yes] | streets match | streets --review")
+    raise SystemExit(
+        "error: usage: streets fetch [--yes] | streets match | streets suggest [--apply]"
+        " | streets --review"
+    )
 
 
 def _gazetteer(paths: Paths) -> int:

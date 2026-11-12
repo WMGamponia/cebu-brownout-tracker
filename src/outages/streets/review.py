@@ -20,22 +20,27 @@ class ReviewItem:
     name: str
     count: int
     suggestions: list[str]
+    town_psgc: str | None = None
 
 
 def review(
     conn: sqlite3.Connection, index: StreetIndex | None, boundaries: dict
 ) -> list[ReviewItem]:
+    """Grouped by (town, key), like the suggester: one street key can be two roads in two
+    towns."""
     rows = conn.execute(
         "SELECT e.areas_hash, e.name FROM street_matches m JOIN area_entities e"
         " ON e.areas_hash = m.areas_hash AND e.seq = m.seq"
         " WHERE m.status = 'not_found' ORDER BY e.areas_hash, e.seq"
     ).fetchall()
     inputs = scope_inputs(conn, sorted({r[0] for r in rows}))
-    groups: dict[str, list[tuple[str, str]]] = {}
+    groups: dict[tuple[str | None, str], list[tuple[str, str]]] = {}
     for h, name in rows:
-        groups.setdefault(street_key(name), []).append((h, name))
+        brgys, towns = inputs.get(h, ([], []))
+        town = next(iter(search_towns(brgys, towns, boundaries)), None)
+        groups.setdefault((town, street_key(name)), []).append((h, name))
     items = []
-    for key, mentions in groups.items():
+    for (town, key), mentions in groups.items():
         h, name = mentions[0]
         suggestions: list[str] = []
         if index is not None and h in inputs:
@@ -48,5 +53,5 @@ def review(
                     by_key.setdefault(street_key(n), n)
                 close = difflib.get_close_matches(key, list(by_key), n=3, cutoff=0.75)
                 suggestions = [by_key[k] for k in close]
-        items.append(ReviewItem(name, len(mentions), suggestions))
-    return sorted(items, key=lambda i: (-i.count, i.name))
+        items.append(ReviewItem(name, len(mentions), suggestions, town))
+    return sorted(items, key=lambda i: (-i.count, i.name, i.town_psgc or ""))

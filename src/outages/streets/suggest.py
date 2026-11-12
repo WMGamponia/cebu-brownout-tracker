@@ -3,26 +3,31 @@ scope, ask a picker for the closest, queue the pick for the owner (Streets v2 sp
 
 from __future__ import annotations
 
+import csv
 import difflib
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import time
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
 
+from outages import config
 from outages.areas.llm import LLMUnavailable
-from outages.config import LLM_TIMEOUT_S, OLLAMA_URL, QWEN_MODEL
+from outages.config import LLM_TIMEOUT_S, OLLAMA_URL, QWEN_MODEL, VECO_TOWNS
 from outages.osm.extract import StreetIndex
-from outages.streets.evaluate import TEST_ROWS, street_rows
-from outages.streets.match import scope_for, search_towns
+from outages.streets import queue
+from outages.streets.evaluate import INPUT_LOG_NAME, TEST_ROWS, street_rows
+from outages.streets.match import REJECTS_PATH, load_rejects, scope_for, search_towns
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
+from outages.streets.store import scope_inputs
 
 log = logging.getLogger("outages.streets.suggest")
 
@@ -305,3 +310,209 @@ class QwenPicker:
         if timed_out:
             raise self._unavailable(f"timed out twice after {LLM_TIMEOUT_S} s")
         return Pick("invalid", None, "")
+
+    def check(self) -> None:
+        """Raise LLMUnavailable unless Ollama answers, before a run writes anything."""
+        try:
+            r = self.client.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        except httpx.HTTPError as e:
+            raise self._unavailable(type(e).__name__) from None
+        if r.status_code != 200:
+            raise self._unavailable(f"HTTP {r.status_code}")
+
+
+# --- run and apply (spec 7.1, 7.6-7.7) ------------------------------------------------------
+
+QUEUE_NAME = "alias_queue.csv"
+ALIAS_COLUMNS = (
+    "town_psgc",
+    "veco_key",
+    "osm_name",
+    "source",
+    "model",
+    "prompt_version",
+    "decided",
+)
+REJECT_COLUMNS = ("town_psgc", "veco_key", "decided")
+TOP_CANDIDATES = 5
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    new: int
+    picked: int
+    invalid: int
+    no_candidates: int
+
+
+@dataclass(frozen=True)
+class ApplySummary:
+    accepted_by_source: dict[str, int]
+    rejected: int
+    refused: list[str]
+    decided_by_source: dict[str, int]  # by the queue row's pick_source: the acceptance-rate base
+    took_pick_by_source: dict[str, int]  # `y` or the pick's own name
+
+
+def queue_path(data_dir: Path) -> Path:
+    return data_dir / "streets" / QUEUE_NAME
+
+
+def _town_names() -> dict[str, str]:
+    return {v: k for k, v in VECO_TOWNS.items()}
+
+
+def run(
+    conn: sqlite3.Connection,
+    index: StreetIndex,
+    boundaries: dict,
+    picker,
+    eval_dir: Path,
+    data_dir: Path,
+    now: datetime,
+    limit: int | None = None,
+    budget_s: float | None = None,
+    primary: str | None = None,
+    rejects_path: Path = REJECTS_PATH,
+) -> RunSummary:
+    """New groups only (not in the queue, not rejected, test rows removed); both arms pick,
+    the primary fills `pick`. Ollama down raises before anything is written."""
+    primary = primary or config.STREET_SUGGEST_PRIMARY
+    picker.check()
+    qpath = queue_path(data_dir)
+    existing = queue.read(qpath)
+    skip = {(r["town_psgc"], r["veco_key"]) for r in existing} | load_rejects(rejects_path)
+    todo = groups(conn, load_test_ids(eval_dir), skip)
+    if limit is not None:
+        todo = todo[:limit]
+    hashes = sorted({h for g in todo for h, _ in sorted(g.mentions)[:SCOPE_MENTIONS]})
+    inputs = scope_inputs(conn, hashes)
+    towns = _town_names()
+    start = time.monotonic()
+    rows: list[dict] = []
+    log_path = data_dir / "streets" / INPUT_LOG_NAME
+    for g in todo:
+        if budget_s is not None and time.monotonic() - start >= budget_s:
+            break
+        cands = candidates(g, index, boundaries, inputs)
+        if cands:  # logged before the model sees it, so a crash can't hide a mention
+            log_inputs(log_path, g, now)
+        q, d = picker.pick(g, cands), difflib_pick(g, cands)
+        first, other = (q, d) if primary == "qwen" else (d, q)
+        rows.append(
+            {
+                "town_psgc": g.town_psgc,
+                "town": towns.get(g.town_psgc, g.town_psgc),
+                "veco_key": g.key,
+                "veco_name": g.veco_name,
+                "mentions": str(len(g.mentions)),
+                "pick": first.pick or "",
+                "pick_source": primary if first.pick else "",
+                "other_pick": other.pick or "",
+                "candidates": queue.SEP.join(cands[:TOP_CANDIDATES]),
+                "reason": q.reason if q.status == "ok" else "",
+                "status": first.status if cands else "no_candidates",
+                "decision": "",
+            }
+        )
+    if rows:
+        queue.write(qpath, queue.merge(existing, rows))
+    return RunSummary(
+        new=len(rows),
+        picked=sum(bool(r["pick"]) for r in rows),
+        invalid=sum(r["status"] == "invalid" for r in rows),
+        no_candidates=sum(r["status"] == "no_candidates" for r in rows),
+    )
+
+
+def _read_csv(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _write_csv(path: Path, columns: tuple[str, ...], rows: list[dict]) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
+        w.writeheader()
+        w.writerows({c: r.get(c) or "" for c in columns} for r in rows)
+    os.replace(tmp, path)
+
+
+def apply(
+    queue_file: Path,
+    aliases_path: Path,
+    rejects_path: Path,
+    index: StreetIndex,
+    boundaries: dict,
+    conn: sqlite3.Connection,
+    today: date,
+) -> ApplySummary:
+    """Decided queue rows → `street_aliases.csv` (with provenance) or the rejects file.
+    A decision that isn't `y`/`n`/an in-scope name, or whose group is gone, is refused and
+    stays in the queue. Raises queue.QueueError on an unreadable queue (nothing applied)."""
+    rows = queue.read(queue_file)
+    by_group = {(g.town_psgc, g.key): g for g in groups(conn, set(), set())}
+    hashes = sorted({h for g in by_group.values() for h, _ in sorted(g.mentions)[:SCOPE_MENTIONS]})
+    inputs = scope_inputs(conn, hashes)
+    aliases = _read_csv(aliases_path)
+    for a in aliases:
+        a["source"] = a.get("source") or "manual"
+    rejects = _read_csv(rejects_path)
+    accepted: Counter[str] = Counter()
+    decided: Counter[str] = Counter()
+    took: Counter[str] = Counter()
+    refused: list[str] = []
+    keep: list[dict] = []
+    n_rejected = 0
+    stamp = today.isoformat()
+    for r in rows:
+        d = r["decision"]
+        label = f"{r['town'] or r['town_psgc']} {r['veco_key']!r}"
+        if not d:
+            keep.append(r)
+            continue
+        src = r["pick_source"] or "none"
+        if d == "n":
+            rejects.append(
+                {"town_psgc": r["town_psgc"], "veco_key": r["veco_key"], "decided": stamp}
+            )
+            decided[src] += 1
+            n_rejected += 1
+            continue
+        name = r["pick"] if d == "y" else d
+        g = by_group.get((r["town_psgc"], r["veco_key"]))
+        if not name:
+            refused.append(f"{label}: `y` but nothing was picked")
+        elif g is None:
+            refused.append(f"{label}: no not_found mentions left for this name")
+        else:
+            in_scope = {street_key(n): n for n in candidates(g, index, boundaries, inputs, k=10**6)}
+            if street_key(name) not in in_scope or (d != "y" and d not in in_scope.values()):
+                refused.append(f"{label}: {d!r} is not y, n or a street name in its scope")
+                g = None
+        if g is None or not name:
+            keep.append(r)
+            continue
+        is_pick = name == r["pick"]
+        source = r["pick_source"] if is_pick and r["pick_source"] else "owner"
+        aliases.append(
+            {
+                "town_psgc": r["town_psgc"],
+                "veco_key": r["veco_key"],
+                "osm_name": name,
+                "source": source,
+                "model": QWEN_MODEL if source == "qwen" else "",
+                "prompt_version": STREET_PROMPT_VERSION if source == "qwen" else "",
+                "decided": stamp,
+            }
+        )
+        accepted[source] += 1
+        decided[src] += 1
+        took[src] += is_pick
+    _write_csv(aliases_path, ALIAS_COLUMNS, aliases)
+    _write_csv(rejects_path, REJECT_COLUMNS, rejects)
+    queue.write(queue_file, keep)
+    return ApplySummary(dict(accepted), n_rejected, refused, dict(decided), dict(took))
