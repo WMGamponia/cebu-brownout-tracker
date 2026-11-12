@@ -34,9 +34,8 @@ def groups(
 ) -> list[Group]:
     """`not_found` street mentions grouped by (town, key), test rows and `skip` pairs left
     out, most mentions first, then key."""
-    not_found = set(
-        conn.execute("SELECT areas_hash, seq FROM street_matches WHERE status = 'not_found'")
-    )
+    sql = "SELECT areas_hash, seq FROM street_matches WHERE status = 'not_found'"
+    not_found = {(h, s) for h, s in conn.execute(sql)}
     by: dict[tuple[str, str], list] = {}
     for r in street_rows(conn):
         if (r.areas_hash, r.seq) not in not_found or (r.areas_hash, r.seq) in test_ids:
