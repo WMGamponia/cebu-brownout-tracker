@@ -116,6 +116,23 @@ export function checkAgeHours(lastCheckIso, nowMs) {
   return (nowMs - parseIso(lastCheckIso)) / HOUR_MS;
 }
 
+/** `YYYY-MM-DD` moved by `days` whole days (for the week picker). */
+export function shiftDate(dateStr, days) {
+  return manila(dayStartMs(dateStr) + days * 24 * HOUR_MS).date;
+}
+
+/** "History: 3–9 Nov 2025"; months or years named on both ends only when they differ. */
+export function historyLabel(days) {
+  const a = new Date(dayStartMs(days[0]) + OFFSET_MS);
+  const b = new Date(dayStartMs(days[days.length - 1]) + OFFSET_MS);
+  const [ad, am, ay] = [a.getUTCDate(), MON[a.getUTCMonth()], a.getUTCFullYear()];
+  const [bd, bm, by] = [b.getUTCDate(), MON[b.getUTCMonth()], b.getUTCFullYear()];
+  if (days.length === 1 || days[0] === days[days.length - 1]) return `History: ${ad} ${am} ${ay}`;
+  if (ay !== by) return `History: ${ad} ${am} ${ay} – ${bd} ${bm} ${by}`;
+  if (am !== bm) return `History: ${ad} ${am} – ${bd} ${bm} ${by}`;
+  return `History: ${ad}–${bd} ${bm} ${by}`;
+}
+
 /** The URL if it is an https link on VECO's own site, else null. */
 export function safePostUrl(url) {
   if (typeof url !== "string" || !url.startsWith(VECO)) return null;

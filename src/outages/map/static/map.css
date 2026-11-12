@@ -171,3 +171,14 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
     line-height: 1;
   }
 }
+
+/* Phase 5: week picker, history banner, street lines in the legend */
+.week-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.week-row input[type="date"] { font: inherit; padding: 2px 4px; }
+.week-row .history-link { margin-left: auto; }
+.history { background: #e8f0fe; color: #1a3d7c; padding: 4px 8px; margin: 4px 0 0; border-radius: 4px; }
+.ln { display: inline-block; width: 22px; height: 0; margin-right: 6px; vertical-align: middle; }
+.ln-active { border-top: 5px solid #9a3412; }
+.ln-cancelled { border-top: 4px dashed #616161; }
+.ln-faint { border-top: 2px solid rgba(194, 65, 12, 0.35); }
+.streets ul.reasons { margin: 2px 0 4px 16px; padding: 0; }

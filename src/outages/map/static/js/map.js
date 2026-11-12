@@ -10,23 +10,27 @@ import {
   checkAgeHours,
   dayLabel,
   defaultSelection,
+  historyLabel,
   hourLabel,
   manila,
   needsRefetch,
   onDay,
   rangeLabel,
   safePostUrl,
+  shiftDate,
 } from "./timeline.js";
+import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
 
 // Relative, so the Phase 6 snapshot is this page + that file. The page's own ?from=&days= (other
 // weeks) are passed on; the server validates them.
-const DATA_URL = (() => {
+// Read on every load, so the week picker can change them with history.replaceState.
+function dataUrl() {
   const page = new URLSearchParams(location.search);
   const q = new URLSearchParams();
   for (const k of ["from", "days"]) if (page.has(k)) q.set(k, page.get(k));
   return q.toString() ? `outages.geojson?${q}` : "outages.geojson";
-})();
+}
 const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
 
@@ -37,6 +41,16 @@ const STYLES = {
   none: { color: "#a7adb3", weight: 0.5, dashArray: null, fillColor: "#ffffff", fillOpacity: 0 },
   meco: { color: "#8a8a8a", weight: 0.5, dashArray: null, fillColor: "#9e9e9e", fillOpacity: 0.4 },
 };
+
+// Lines on top of shading (Phase 5 spec 4.7). A barangay a drawn active line runs through keeps
+// its fill, lighter; it is never unshaded.
+const LINE_STYLES = {
+  active: { color: "#9a3412", weight: 5, opacity: 0.95, dashArray: null },
+  active_cancelled: { color: "#616161", weight: 4, opacity: 0.9, dashArray: "6 6" },
+  faint: { color: "#c2410c", weight: 2, opacity: 0.35, dashArray: null },
+};
+const LINE_ORDER = { faint: 0, active_cancelled: 1, active: 2 };
+const LIGHT_FILL = 0.22;
 
 const $ = (id) => document.getElementById(id);
 
@@ -73,7 +87,13 @@ const state = {
   layer: null,
   openLayer: null,
   fitted: false,
+  showStreets: true,
+  streetLayer: null,
+  linesIn: new Map(), // psgc -> Set of outage ids with a drawn line inside that barangay
 };
+
+const drawing = () => Boolean(state.doc && state.doc.meta.osm && state.doc.meta.osm.drawing);
+const streetsShown = () => drawing() && state.showStreets;
 
 // --- map ---------------------------------------------------------------------------------------
 
@@ -109,7 +129,17 @@ function featureState(props) {
 }
 
 function styleFor(feature) {
-  return { ...STYLES[featureState(feature.properties)], fill: true, opacity: 1 };
+  const props = feature.properties;
+  const st = featureState(props);
+  const style = { ...STYLES[st], fill: true, opacity: 1 };
+  if (st === "active" && streetsShown()) {
+    const ids = state.linesIn.get(props.psgc);
+    const lit = visibleOutages(props.outage_ids).some(
+      ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInHour(o, state.day, state.hour),
+    );
+    if (lit) style.fillOpacity = LIGHT_FILL;
+  }
+  return style;
 }
 
 function popupContent(props) {
@@ -147,8 +177,76 @@ function outageBlock(o, props, isActive) {
       }),
     );
   }
+  const streets = streetsBlock(o);
+  if (streets) block.append(streets);
   block.append(el("p", {}, [postLink(o.post)]));
   return block;
+}
+
+/** "Streets drawn: k of n" and the others with the reason. Nothing when drawing is off: the
+ *  places line already names the streets, and there are no lines to explain. */
+function streetsBlock(o) {
+  const { drawn, total } = drawnCount(o);
+  if (!total || !drawing()) return null;
+  const box = el("div", { class: "streets" }, [el("p", { text: `Streets drawn: ${drawn} of ${total}` })]);
+  const items = o.streets.not_drawn.map((s) => el("li", { text: `${s.name}: ${whyText(s.why)}` }));
+  if (items.length) box.append(el("ul", { class: "reasons" }, items));
+  return box;
+}
+
+const bare = (name) => String(name || "").replace(/\.$/, "").trim();
+
+function streetPopup(id, s) {
+  const o = state.doc.outages[id];
+  const box = el("div", { class: "pop" }, [el("h3", { text: s.name })]);
+  if (s.osm_name && bare(s.osm_name) !== bare(s.name)) {
+    box.append(el("p", { class: "muted", text: `OSM: ${s.osm_name}` }));
+  }
+  box.append(outageBlock(o, { psgc: null }, activeInHour(o, state.day, state.hour)));
+  return box;
+}
+
+function linePoints(lines) {
+  return lines.map((line) => line.map(([x, y]) => [y, x]));
+}
+
+function indexLines() {
+  state.linesIn = new Map();
+  for (const f of state.doc.features) {
+    for (const id of f.properties.outage_ids) {
+      const o = state.doc.outages[String(id)];
+      if (!o || !o.streets) continue;
+      if (o.streets.drawn.some((s) => linesInGeometry(s.lines, f.geometry))) {
+        if (!state.linesIn.has(f.properties.psgc)) state.linesIn.set(f.properties.psgc, new Set());
+        state.linesIn.get(f.properties.psgc).add(String(id));
+      }
+    }
+  }
+}
+
+function drawStreets() {
+  if (!state.streetLayer) state.streetLayer = L.layerGroup().addTo(map);
+  state.streetLayer.clearLayers();
+  if (!streetsShown()) return;
+  const lines = [];
+  for (const [id, o] of byStart(Object.entries(state.doc.outages))) {
+    const ls = lineState(o, state.day, state.hour, state.showCancelled);
+    if (ls === "hidden" || !o.streets) continue;
+    for (const s of o.streets.drawn) lines.push([LINE_ORDER[ls], ls, id, s]);
+  }
+  lines.sort((a, b) => a[0] - b[0]);
+  for (const [, ls, id, s] of lines) {
+    const pl = L.polyline(linePoints(s.lines), { ...LINE_STYLES[ls], interactive: true });
+    pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
+    pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
+    state.streetLayer.addLayer(pl);
+  }
+}
+
+function zoomToLines(o) {
+  const pts = o.streets.drawn.flatMap((s) => linePoints(s.lines).flat());
+  if (!pts.length) return;
+  map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 17 });
 }
 
 function placesLine(entities) {
@@ -214,7 +312,20 @@ function renderTopbar() {
   $("asof").textContent = asOf ? `Data as of ${asOf}` : "No check has run yet";
   const age = checkAgeHours(meta.last_check_at, Date.now());
   const warn = $("old-warning");
-  if (age === null) {
+  const past = isPastWindow(meta, Date.now());
+  $("history-banner").textContent = past ? historyLabel(meta.days) : "";
+  $("history-banner").hidden = !past;
+  $("week").value = meta.window.from;
+  $("streets-toggle").hidden = !drawing();
+  $("legend-lines").hidden = !drawing();
+  $("streets-note").textContent = drawing()
+    ? "Lines: streets VECO names, found on OpenStreetMap inside the listed barangays. " +
+      "The shading stays: VECO's lists also name sitios and buildings."
+    : "Streets and sitios are in each barangay's popup. Street lines are off: matching " +
+      "VECO's street names to the map isn't precise enough yet.";
+  if (past) {
+    warn.hidden = true; // another week: the history banner replaces the old-data warning
+  } else if (age === null) {
     warn.textContent = "No data check has run yet, so this map may be empty or out of date.";
     warn.hidden = false;
   } else if (age > STALE_AFTER_H) {
@@ -264,10 +375,17 @@ function renderUnplaced() {
   $("panel-toggle").textContent = items.length ? `Details (${items.length} not on map)` : "Details";
   const list = items.map((o) => {
     const reasons = el("ul", { class: "reasons" }, o.unplaced.map((u) => el("li", { class: "reason", text: reasonText(u) })));
+    let byStreets = null;
+    if (streetsShown() && o.streets && o.streets.drawn.length) {
+      const show = el("button", { class: "more", text: "show", attrs: { type: "button" } });
+      show.addEventListener("click", () => zoomToLines(o));
+      byStreets = el("p", { class: "muted", text: "drawn by its streets only " }, [show]);
+    }
     return el("li", {}, [
       el("p", { class: "when", text: rangeLabel(o.start, o.end) }, [badge(o.status)]),
       el("p", { class: "veco-text", text: o.areas_raw }),
       reasons,
+      byStreets,
       el("p", {}, [postLink(o.post)]),
     ]);
   });
@@ -279,6 +397,7 @@ function render() {
   renderDays();
   renderHour();
   renderUnplaced();
+  drawStreets();
   if (state.layer) state.layer.setStyle(styleFor);
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
@@ -328,7 +447,7 @@ function showBanner(text) {
 async function load() {
   let doc;
   try {
-    const r = await fetch(DATA_URL, { cache: "no-store" });
+    const r = await fetch(dataUrl(), { cache: "no-store" });
     if (!r.ok) {
       let detail = `HTTP ${r.status}`;
       try {
@@ -355,6 +474,7 @@ async function load() {
   }
   state.openLayer = null;
   map.closePopup();
+  indexLines();
   drawFeatures();
   if (!state.fitted) fitCovered();
   renderTopbar();
@@ -368,6 +488,30 @@ $("show-cancelled").addEventListener("change", (e) => {
   if (state.doc) render();
 });
 $("retry").addEventListener("click", load);
+$("show-streets").addEventListener("change", (e) => {
+  state.showStreets = e.target.checked;
+  if (state.doc) render();
+});
+
+/** Show the 7 days from `from` (null: back to the default window around today). */
+function goToWeek(from) {
+  const q = new URLSearchParams(location.search);
+  if (from) {
+    q.set("from", from);
+    q.set("days", "7");
+  } else {
+    q.delete("from");
+    q.delete("days");
+  }
+  const qs = q.toString();
+  history.replaceState(null, "", qs ? `${location.pathname}?${qs}` : location.pathname);
+  stopPlaying();
+  load();
+}
+$("week").addEventListener("change", (e) => goToWeek(e.target.value || null));
+$("week-prev").addEventListener("click", () => state.doc && goToWeek(shiftDate(state.doc.meta.window.from, -7)));
+$("week-next").addEventListener("click", () => state.doc && goToWeek(shiftDate(state.doc.meta.window.from, 7)));
+$("week-today").addEventListener("click", () => goToWeek(null));
 $("panel-toggle").addEventListener("click", () => setPanel(!$("panel").classList.contains("open")));
 $("panel-close").addEventListener("click", () => setPanel(false));
 $("days").addEventListener("keydown", (e) => {
