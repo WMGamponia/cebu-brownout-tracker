@@ -13,12 +13,15 @@ from datetime import datetime
 from pathlib import Path
 
 from outages.areas.gazetteer import Gazetteer
+from outages.config import STREETS_DRAW
 from outages.gazetteer_build import BOUNDARIES_PATH
 from outages.map.window import Window, iso
 from outages.timeparse import MANILA
 
 SCHEMA = 3
 SHADED = ("exact", "alias", "ambiguous")
+DRAWN = ("matched", "alias")
+ODBL = "Streets © OpenStreetMap contributors (ODbL)"
 ENTITY_KINDS = ("street", "sitio_purok", "subdivision", "establishment", "other")
 
 
@@ -110,6 +113,64 @@ def _entities(conn: sqlite3.Connection, hashes: list[str]) -> dict[str, dict[str
     return out
 
 
+def _street_rows(
+    conn: sqlite3.Connection, hashes: list[str]
+) -> dict[tuple[str, int], sqlite3.Row] | None:
+    """street_matches rows of these texts; None on a DB without the table (schema 3)."""
+    has = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='street_matches'"
+    ).fetchone()
+    if not has:
+        return None
+    return {
+        (r["areas_hash"], r["seq"]): r
+        for r in conn.execute(
+            "SELECT areas_hash, seq, status, osm_name, geometry_json, osm_date FROM street_matches"
+            f" WHERE areas_hash IN ({_in(len(hashes))})",
+            hashes,
+        )
+    }
+
+
+def _street_entities(conn: sqlite3.Connection, hashes: list[str]) -> dict[str, list[tuple]]:
+    out: dict[str, list[tuple]] = {}
+    for h, seq, name in conn.execute(
+        "SELECT areas_hash, seq, name FROM area_entities WHERE kind = 'street'"
+        f" AND areas_hash IN ({_in(len(hashes))}) ORDER BY areas_hash, seq",
+        hashes,
+    ):
+        out.setdefault(h, []).append((seq, name))
+    return out
+
+
+def _streets(
+    h: str | None,
+    ents: dict[str, list[tuple]],
+    matches: dict[tuple[str, int], sqlite3.Row] | None,
+    draw: bool,
+) -> dict:
+    """An outage's streets (Phase 5 spec 4.6), in VECO's order."""
+    drawn: list[dict] = []
+    not_drawn: list[dict] = []
+    for seq, name in ents.get(h, []) if h else []:
+        if not draw:
+            not_drawn.append({"name": name, "why": "drawing_off"})
+            continue
+        if matches is None:
+            not_drawn.append({"name": name, "why": "no_osm_data"})
+            continue
+        m = matches.get((h, seq))
+        if m is None:
+            not_drawn.append({"name": name, "why": "not_processed"})
+        elif m["status"] in DRAWN and m["geometry_json"]:
+            lines = json.loads(m["geometry_json"])
+            drawn.append({"name": name, "osm_name": m["osm_name"], "lines": lines})
+        else:
+            why = m["status"] if m["status"] in ("not_found", "no_osm_data") else "not_found"
+            not_drawn.append({"name": name, "why": why})
+    return {"drawn": drawn, "not_drawn": not_drawn}
+
+
 def _areas(rows: list[sqlite3.Row], towns: list[str], gaz: Gazetteer) -> tuple[list, list]:
     """(shaded barangays sorted by psgc, unplaced items in VECO's order) for one parse."""
     shaded: dict[str, dict] = {}
@@ -147,13 +208,21 @@ def _areas(rows: list[sqlite3.Row], towns: list[str], gaz: Gazetteer) -> tuple[l
 
 
 def build(
-    conn: sqlite3.Connection, gaz: Gazetteer, boundaries: dict, window: Window, now: datetime
+    conn: sqlite3.Connection,
+    gaz: Gazetteer,
+    boundaries: dict,
+    window: Window,
+    now: datetime,
+    draw: bool = STREETS_DRAW,
 ) -> dict:
     rows = _outage_rows(conn, window)
     hashes = sorted({r["areas_hash"] for r in rows if r["areas_hash"]})
     parses = _parses(conn, hashes)
     brgy_rows = _barangay_rows(conn, hashes)
     entities = _entities(conn, hashes)
+    street_ents = _street_entities(conn, hashes)
+    matches = _street_rows(conn, hashes)
+    any_drawn = False
 
     outages: dict[str, dict] = {}
     by_psgc: dict[str, set[int]] = {}
@@ -181,7 +250,9 @@ def build(
             "barangays": barangays,
             "entities": entities.get(h) or {k: [] for k in ENTITY_KINDS},
             "unplaced": unplaced,
+            "streets": _streets(h, street_ents, matches, draw),
         }
+        any_drawn = any_drawn or bool(outages[str(r["id"])]["streets"]["drawn"])
 
     features = []
     for f in boundaries["features"]:
@@ -198,6 +269,8 @@ def build(
             {"type": "Feature", "id": f["id"], "geometry": f["geometry"], "properties": props}
         )
 
+    dates = [m["osm_date"] for m in (matches or {}).values() if m["osm_date"]]
+    osm_date = max(dates) if dates else None
     removed = conn.execute(
         "SELECT count(*) FROM outages WHERE status = 'removed' AND start_at < ? AND end_at > ?",
         (iso(window.end), iso(window.start)),
@@ -210,6 +283,7 @@ def build(
         "days": [d.isoformat() for d in window.days()],
         "removed_count": removed,
         "stale_posts": [stale_posts[u] for u in sorted(stale_posts)],
-        "attribution": boundaries.get("attribution", ""),
+        "attribution": boundaries.get("attribution", "") + (f"; {ODBL}" if any_drawn else ""),
+        "osm": {"data_date": osm_date, "drawing": draw},
     }
     return {"type": "FeatureCollection", "features": features, "outages": outages, "meta": meta}

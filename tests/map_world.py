@@ -151,3 +151,44 @@ def populate(conn: sqlite3.Connection) -> None:
             "INSERT INTO meta (key, value) VALUES ('last_check_at', ?)",
             ("2026-11-12T00:00:00+00:00",),
         )
+
+
+# Phase 5: street matches over the squares (Lahug is square 1: x 123.81-123.82).
+GORORDO_LINES = [[[123.811, 10.302], [123.815, 10.302], [123.819, 10.302]]]
+ROSALES_LINES = [[[123.801, 10.305], [123.805, 10.305]], [[123.806, 10.306], [123.809, 10.306]]]
+STREETS_OSM_DATE = "2026-11-12T02:14:58Z"
+
+
+def populate_streets(conn: sqlite3.Connection) -> None:
+    """Street matches for the world: hA's Gorordo drawn and Salinas not found, hC's Escario
+    drawn by an alias, and a street on hG (no barangay) drawn by its line alone. Call after
+    `populate`."""
+    with conn:
+        conn.execute(
+            "INSERT INTO area_entities (areas_hash, seq, kind, name, extractor)"
+            " VALUES ('hG', 1, 'street', 'Cardinal Rosales Ave.', 'rules')"
+        )
+        conn.executemany(
+            "INSERT INTO street_matches (areas_hash, seq, status, osm_name, geometry_json,"
+            " osm_date) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("hA", 0, "matched", "Gorordo Avenue", json.dumps(GORORDO_LINES), STREETS_OSM_DATE),
+                ("hA", 2, "not_found", None, None, STREETS_OSM_DATE),
+                (
+                    "hC",
+                    0,
+                    "alias",
+                    "Juana Osmeña Street",
+                    json.dumps(GORORDO_LINES),
+                    STREETS_OSM_DATE,
+                ),
+                (
+                    "hG",
+                    1,
+                    "matched",
+                    "Cardinal Rosales Avenue",
+                    json.dumps(ROSALES_LINES),
+                    STREETS_OSM_DATE,
+                ),
+            ],
+        )
