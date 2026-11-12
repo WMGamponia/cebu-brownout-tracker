@@ -400,7 +400,7 @@ def handle(
         return []
     if cmd == "/privacy":
         return [Reply(chat_id, PRIVACY)]
-    if cmd == "/forget" and status is not None:
+    if cmd == "/forget":  # any chat but a blocked one; never leaves a trace (live test fix)
         return _forget(conn, chat_id)
     if chat_id == admin_chat_id and cmd in ("/pending", "/users", "/revoke"):
         return _on_admin(cmd, arg, conn, admin_chat_id, now)

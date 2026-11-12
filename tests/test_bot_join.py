@@ -334,3 +334,32 @@ def test_poll_forever_syncs_allowlist(tmp_path):
     c = db.connect(p)
     assert store.get_subscriber(c, ADMIN).status == "approved"
     c.close()
+
+
+def _cells_with(conn, chat_id):
+    return [
+        (t, v)
+        for (t,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        for row in conn.execute(f"SELECT * FROM {t}")
+        for v in row
+        if v == chat_id or (isinstance(v, str) and str(chat_id) in v)
+    ]
+
+
+def test_second_forget_leaves_no_trace(conn):
+    """Live test, 2026-11-12: a second /forget right after the first was treated as a
+    stranger's message and stored stranger:<chat_id>."""
+    bot = Bot(conn)
+    bot(msg("/start"))
+    bot(cb(f"ap:{ANA}"))
+    assert [r.text for r in bot(msg("/forget"))] == ["Deleted. /start to ask again."]
+    assert [r.text for r in bot(msg("/forget"))] == ["Deleted. /start to ask again."]
+    assert _cells_with(conn, ANA) == []
+
+
+def test_forget_from_unknown_chat_clears_its_notes(conn):
+    bot = Bot(conn)
+    bot(msg("hello"))  # the one hint stores stranger:<id>
+    assert _cells_with(conn, ANA)
+    assert [r.text for r in bot(msg("/forget"))] == ["Deleted. /start to ask again."]
+    assert _cells_with(conn, ANA) == []
