@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-mode="snapshot">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cebu Brownout Map</title>
+  <link rel="stylesheet" href="static/vendor/leaflet-1.9.4/leaflet.css">
+  <link rel="stylesheet" href="static/map.css">
+  <script src="static/vendor/leaflet-1.9.4/leaflet.js"></script>
+  <script type="module" src="static/js/map.js"></script>
+</head>
+<body>
+  <header id="topbar">
+    <div class="title-row">
+      <h1>Cebu Brownout Map</h1>
+      <p id="asof" class="asof">Loading…</p>
+    </div>
+    <p id="snapshot-banner" class="snapshot" hidden></p>
+    <p id="history-banner" class="history" hidden></p>
+    <p id="week-missing" class="warn" hidden>This week isn't in the snapshot; showing the snapshot week.</p>
+    <p id="old-warning" class="warn" hidden></p>
+    <div id="stale" class="warn" hidden>
+      <span>VECO updated this post and we couldn't read the update; this is from the earlier version.</span>
+      <span id="stale-links"></span>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" role="alert" hidden>
+    <span id="banner-text"></span>
+    <button id="retry" type="button">Retry</button>
+  </div>
+
+  <nav id="controls" aria-label="Week, day and hour">
+    <div class="week-row">
+      <button id="week-prev" type="button" aria-label="Previous week">◀</button>
+      <label>Week of <input id="week" type="date"></label>
+      <button id="week-next" type="button" aria-label="Next week">▶</button>
+      <button id="week-today" type="button">Today</button>
+      <a class="history-link" href="history.html">History</a>
+    </div>
+    <div id="days" role="tablist" aria-label="Day"></div>
+    <div class="hour-row">
+      <button id="play" type="button" aria-label="Play">▶</button>
+      <input id="hour" type="range" min="0" max="23" step="1" value="0" aria-label="Hour">
+      <output id="hour-label" for="hour"></output>
+    </div>
+    <div class="toggles">
+      <label><input type="checkbox" id="show-cancelled" checked> Show cancelled</label>
+      <label id="streets-toggle" hidden><input type="checkbox" id="show-streets" checked> Show streets</label>
+      <button id="panel-toggle" type="button" aria-controls="panel" aria-expanded="false">Details</button>
+    </div>
+  </nav>
+
+  <main>
+    <div id="map" role="region" aria-label="Map of barangays"></div>
+    <aside id="panel" aria-label="Details">
+      <button id="panel-close" type="button" aria-label="Close details">×</button>
+      <section>
+        <h2 id="unplaced-title">Not on the map</h2>
+        <ol id="unplaced" class="items"></ol>
+        <p id="removed" class="muted" hidden></p>
+      </section>
+      <section>
+        <h2>Legend</h2>
+        <p class="legend-lead">Shaded: parts of these barangays may be affected.</p>
+        <ul class="legend">
+          <li><span class="sw sw-active"></span>Outage in this hour (scheduled or additional)</li>
+          <li><span class="sw sw-cancelled"></span>Only a cancelled outage in this hour</li>
+          <li><span class="sw sw-day"></span>Outage this day, not in this hour</li>
+          <li><span class="sw sw-none"></span>Nothing this day</li>
+          <li><span class="sw sw-meco"></span>MECO area, not covered</li>
+        </ul>
+        <ul id="legend-lines" class="legend" hidden>
+          <li><span class="ln ln-active"></span>Street named for an outage in this hour</li>
+          <li><span class="ln ln-cancelled"></span>Street of a cancelled outage in this hour</li>
+          <li><span class="ln ln-faint"></span>Street with an outage this day, not in this hour</li>
+        </ul>
+        <p id="streets-note" class="muted">Streets and sitios are in each barangay's popup.</p>
+      </section>
+      <section class="credits">
+        <p id="attribution"></p>
+        <p>Map tiles © OpenStreetMap contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>). Map library: Leaflet (BSD-2-Clause).</p>
+        <p>Data: VECO's scheduled power interruption posts.</p>
+        <p id="snapshot-credits" hidden></p>
+      </section>
+    </aside>
+  </main>
+</body>
+</html>
