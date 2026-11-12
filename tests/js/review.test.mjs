@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { keyFor, messageFor, nextIndex } from "../../src/outages/map/review_static/reviewlogic.js";
+import {
+  keyFor,
+  lineStyle,
+  messageFor,
+  nextIndex,
+  selectedName,
+} from "../../src/outages/map/review_static/reviewlogic.js";
 
 const items = (flags) => flags.map((decided, i) => ({ id: i, decided }));
 
@@ -53,4 +59,18 @@ test("messageFor: 403 asks to reload", () => {
   assert.equal(messageFor(409), "Already decided or queue busy; moving on");
   assert.equal(messageFor(422), "Not a valid choice");
   assert.match(messageFor(500), /500/);
+});
+
+test("selectedName: the clicked street, else the pick", () => {
+  assert.equal(selectedName(null, "A Street"), "A Street");
+  assert.equal(selectedName("B Street", "A Street"), "B Street");
+  assert.equal(selectedName(null, ""), null);
+});
+
+test("lineStyle: only the selected street is bold", () => {
+  const on = lineStyle("B Street", "B Street");
+  const off = lineStyle("A Street", "B Street");
+  assert.ok(on.weight > off.weight);
+  assert.notEqual(on.color, off.color);
+  assert.deepEqual(lineStyle("A Street", null), off);
 });

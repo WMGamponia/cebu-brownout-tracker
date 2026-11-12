@@ -3,7 +3,13 @@
 // textContent only.
 /* global L */
 import { addTiles } from "/static/js/tiles.js";
-import { keyFor, messageFor, nextIndex } from "/streets/review/static/reviewlogic.js";
+import {
+  keyFor,
+  lineStyle,
+  messageFor,
+  nextIndex,
+  selectedName,
+} from "/streets/review/static/reviewlogic.js";
 
 const BASE = "/streets/review";
 const token = document.querySelector('meta[name="review-token"]').content;
@@ -12,6 +18,7 @@ const $ = (id) => document.getElementById(id);
 const map = L.map("map", { zoomControl: true }).setView([10.32, 123.9], 12);
 addTiles(L, map);
 const layers = L.layerGroup().addTo(map);
+const lines = new Map(); // candidate name -> its polyline
 let bufferLayer = null;
 let bufferM = 150;
 
@@ -49,12 +56,22 @@ function li(parent, child) {
   return el;
 }
 
+function restyle() {
+  // The selected street is bold and on top; every other candidate thin.
+  const sel = selectedName(chosen, current && current.pick);
+  for (const [name, line] of lines) {
+    line.setStyle(lineStyle(name, sel));
+    if (name === sel) line.bringToFront();
+  }
+}
+
 function choose(name) {
   chosen = current && name === current.pick ? null : name;
+  const target = selectedName(chosen, current && current.pick);
   for (const b of $("candidates").querySelectorAll("button")) {
-    b.classList.toggle("chosen", b.dataset.name === (chosen || (current && current.pick)));
+    b.classList.toggle("chosen", b.dataset.name === target);
   }
-  const target = chosen || (current && current.pick);
+  restyle();
   $("yes").textContent = "";
   $("yes").append(target ? `Yes: ${target} ` : "Yes ");
   const k = document.createElement("kbd");
@@ -76,20 +93,17 @@ function draw(doc) {
   });
   bufferLayer.addTo(layers);
   scope.addTo(layers);
-  const others = doc.candidates.filter((c) => !c.is_pick);
-  const pick = doc.candidates.filter((c) => c.is_pick);
-  for (const c of [...others, ...pick]) {
+  lines.clear();
+  for (const c of doc.candidates) {
     if (!c.lines.length) continue;
     const latlngs = c.lines.map((line) => line.map(([lon, lat]) => [lat, lon]));
-    const line = L.polyline(latlngs, {
-      color: c.is_pick ? "#c2185b" : "#1565c0",
-      weight: c.is_pick ? 6 : 3,
-      opacity: c.is_pick ? 0.95 : 0.8,
-    });
-    line.bindTooltip(c.name, { permanent: !c.is_pick, sticky: c.is_pick, className: "street-label" });
+    const line = L.polyline(latlngs, lineStyle(c.name, selectedName(null, doc.pick)));
+    line.bindTooltip(c.name, { permanent: true, className: "street-label" });
     line.on("click", () => choose(c.name));
     line.addTo(layers);
+    lines.set(c.name, line);
   }
+  restyle();
   const b = scope.getBounds();
   if (b.isValid()) map.fitBounds(b, { padding: [24, 24] });
 }

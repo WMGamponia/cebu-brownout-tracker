@@ -30,3 +30,16 @@ const MESSAGES = {
 export function messageFor(status) {
   return MESSAGES[status] || `Something went wrong (HTTP ${status})`;
 }
+
+/** The street the Yes button would accept: the one clicked, else the pick; null if neither. */
+export function selectedName(chosen, pick) {
+  return chosen || pick || null;
+}
+
+const SELECTED = { color: "#c2185b", weight: 6, opacity: 0.95 };
+const OTHER = { color: "#1565c0", weight: 3, opacity: 0.8 };
+
+/** Leaflet style for a candidate's line: bold for the selected street, thin otherwise. */
+export function lineStyle(name, selected) {
+  return { ...(name === selected ? SELECTED : OTHER) };
+}
