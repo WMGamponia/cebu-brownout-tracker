@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Phase 5 — Streets, history, multi-user, **spec and plan approved on `phase5-streets-history` (native execution); build starts with `prompts/phase5-build.md`.** Phase 4 built on `phase4-map`; PR #4 waits for the owner's OK. Phases 1–3 merged to `main` (PRs #1, #2, #3).
+**Current phase:** Phase 6 — Ship it, **brainstorm next with `prompts/phase6.md`.** Phase 5 (streets, history, multi-user) built on `phase5-streets-history`; street drawing off by its gate. Phases 1–3 merged to `main` (PRs #1, #2, #3); Phase 4 (PR #4) and Phase 5 merge with the owner's OK of 2026-11-12.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -120,6 +120,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 - **2026-11-12** — **Phase 5 build, stops 5–6 (Tasks 7–11 done).** Owner OK'd the gate result; backup `data/outages.db.bak-2026-11-12`, migration 004 and `streets match` on the real DB: 5,032 rows (matched 2,349, alias 14, not_found 2,669), the subscriber kept `approved`. Map document: each outage's `streets` (drawn / not drawn with the reason) and `meta.osm`; with the gate off every street is `drawing_off` and the page shows no lines. Page: street lines (bold in the hour, faint the rest of the day, grey dashed cancelled; the barangays they run through keep a lighter fill), week picker with a "History: …" banner, `/history` (5-bin quantile choropleth, top 10, durations, towns, months, counts and left-out reasons) from `/stats.json`; `stats` CLI (real DB, read-only: 1,069 counted outages, Guadalupe most affected at 250.5 h, 19 left out). Bot: approve-to-join with admin buttons, `/pending`, `/users`, `/revoke`, `/privacy`, `/forget`; alerts only to approved chats, ≥ 50 ms apart; an alert recorded after a `/forget` is skipped. Browser checks on a scratch fixture DB. 814 Python + 32 JS tests. **Waiting for the owner to restart `serve` on this branch, then the real-DB check and the live join → approve → `/add` → `/forget` test.**
 
+- **2026-11-12** — **Phase 5 build complete (Task 12).** The owner, away from the PC, asked me to restart `serve`: the old process was stopped and `serve` now runs in the Claude app's Terminal tab. **Real DB, read-only (hash `0c581bdf…` unchanged):** default map document 148,459 bytes, 15 outages, 30 street mentions all `drawing_off`, every outage's street count = its entities; Cebu South Road's 17 stored matches, 1,389 line nodes, none outside the listed barangays + 150 m; week picker → "History: 5–11 Nov 2026"; `/history` equals `stats` (Guadalupe 250.5 h; worst months Aug, Jul, Feb 2026); left out 19 + counted 1,069 + cancelled 119 + removed 0 = 1,207 = the outages in range; desktop and 375 px screenshots. **Live Telegram test** (second account): `/start` → admin Approve → `/add` (2 barangays) → `/forget` left no subscriber, subscription or ledger row; a second `/forget` 8 s later was treated as an unknown chat and stored `stranger:<id>`: fixed test-first (`/forget` from any non-blocked chat deletes and stores nothing), `serve` restarted, `/forget` ×2 → no cell in any table holds that chat ID. **One fresh whole-branch review** (most capable model): 0 critical, 2 important, 6 minor; both important fixed test-first: (1) a partial refetch (`streets fetch --towns`) didn't trigger re-matching, because rows were versioned by the oldest town's `osm_base` (now the newest town fetch); (2) a failed welcome send dropped the admin's join request (admin request first; one failed send no longer drops the rest). 6 minors deferred (Known issues / PR). 818 Python + 32 JS tests; ruff clean. README: streets (fetch/match/review, ODbL), history, joining and privacy, admin commands. `prompts/phase6.md` written.
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.
@@ -131,11 +133,20 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.
   - `testing` (2) and `Mandaue City DCA Brokerage…` (1): no barangay at all.
 - **Map limits (Phase 4, accepted):** a whole barangay is shaded for "portion of" (streets only in the popup until Phase 5); medium-resolution polygons are coarse (~9 vertices), so edges between barangays are approximate; OSM tiles are fine for one person's local use, but a public Phase 6 demo must re-check the tile policy or use another provider.
-- **36 outages name places but no barangay** (e.g. "Cebu Business Park", "South Reclamation Area"): the map lists them under "Not on the map"; alerts can't reach them. Phase 5 streets may place some.
+- **36 outages name places but no barangay** (e.g. "Cebu Business Park", "South Reclamation Area"): the map lists them under "Not on the map"; alerts can't reach them. Street lines could show some of them ("drawn by its streets only"), but drawing is off.
+- **Street drawing is off (Phase 5 gate).** The frozen 50-row test split drew 13 rows at precision 0.923; the bar was 0.95 over ≥ 20 drawn rows. A 50-row split yields too few drawn rows to ever meet it (~40 % of VECO's street names are in OSM); turning drawing on needs a fresh split of ≥ 150 rows labelled with gold = the OSM `name` tag (two labels used an `alt_name`), the same bar, run once. `street_matches` is filled (2,363 of 5,032 mentions would be drawn), so the switch is `STREETS_DRAW` once the evidence is there.
+- **OSM coverage of Cebu side streets is uneven:** 2,669 of 5,032 street mentions have no OSM way of that name near their barangays. `streets --review` suggests aliases; none are applied automatically.
+- **ODbL:** the extract and any derived street lines stay in `data/`. A public Phase 6 snapshot that draws lines must carry the ODbL notice and offer the derived data.
+- **A future week in the picker is bannered "History: …"** (the banner keys on "today isn't in this window").
+- **Deferred from the Phase 5 review (minor):** the per-chat rate limit also applies to the admin chat (clearing 20 requests in a minute mutes it for 10 min); `/revoke` on an allowlisted chat is undone at the next start; with schema 4 but no extract the map says "street matching not run yet" rather than "street data not downloaded" (unseen while drawing is off); `/stats.json` with a year like 9999 answers 500, not 422; the pending reply is once per calendar day, not a rolling 24 h; a `/forget` during an alert run can still receive that run's message (no row is kept).
+- **A declined chat can't `/forget` itself** (spec: blocked chats get silence; the row keeps the chat ID so the bot stays silent). Removing it takes a manual SQL delete.
 - **Leaflet's LICENSE is reconstructed** (the 1.9.4 release zip has none; see `vendor/leaflet-1.9.4/SOURCE.txt`); replace it with the repository's file at tag v1.9.4.
 - **On Windows a second listener on 0.0.0.0:8765 may not stop the map binding 127.0.0.1:8765** (no `SO_EXCLUSIVEADDRUSE`), so that clash isn't reported.
 
 ### Lessons for later phases
+- **Size a pre-registered gate's test set from the expected hit rate.** Phase 5 required ≥ 20 drawn rows from a 50-row split where only ~40 % of names exist in OSM: ~13 drawn was the likely outcome before a single rule was written. Compute the expected count first.
+- **Write the labelling convention for multi-named things before labelling.** OSM roads carry `name`, `alt_name`, `official_name`; two labels used the alt name and turned right lines into "wrong" ones.
+- **Live tests find what unit tests don't.** The second account's double `/forget` left a trace no test had imagined; it now has one.
 - **VECO's text is hand-typed and every rule meets a typo.** Run every parser change over all stored versions (read-only dry run) before `reparse`: here it caught a silently skipped heading that tests on fixtures never would.
 - **Cross-check against something independent.** The slug's week caught month typos the heading alone could not; the duration label catches AM/PM slips but can't fix them.
 - **Fail loudly, but know what failure keeps.** A failed re-parse leaves the old outages stored, wrong dates included. Never present stale data as current: Phase 3 alerts from such a post carry a caveat and the post link (owner, 2026-11-11; holding them back would mean silence).
@@ -176,9 +187,9 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - [x] Barangay shading (~~soft fill for "portion of"~~ → one "may be affected" style: "portion of" is on 3,022 of 3,025 lines, so a soft/full split would never carry information), day tabs, hourly slider, play button, defaults to now (Manila), cancelled greyed and toggleable, popup with time, purpose, streets, link to post. → plus a "Not on the map" list (wrong town, typo, no barangay, not parsed), removed count, old-data warning past 15 h, stale-post caveat.
 
 ## Phase 5 — Streets, history, multi-user
-- [ ] Street highlighting via Overpass inside the barangay polygon, fallback to shading.
-- [ ] History mode (pick a past week) and range heatmap of outage hours per barangay; stats (most-affected barangays, average duration, worst months).
-- [ ] Multi-user subscriptions.
+- [x] Street highlighting via Overpass inside the barangay polygon, fallback to shading. → one hand-run Overpass extract per town (`streets fetch`), rules + aliases matcher, lines clipped to the listed barangays + 150 m on top of the shading; **drawing off** by the pre-registered gate (test precision 0.923 over 13 drawn rows; bar 0.95 over ≥ 20), so the shading and the street names in words remain.
+- [x] History mode (pick a past week) and range heatmap of outage hours per barangay; stats (most-affected barangays, average duration, worst months). → week picker on the map; `/history` (union outage-hours per barangay, 5 quantile bins) and `stats`; cancelled, removed, stale and left-out outages counted with reasons.
+- [x] Multi-user subscriptions. → approve-to-join with admin buttons; `/privacy`, `/forget`; admin `/pending`, `/users`, `/revoke`; limits.
 
 ## Phase 6 — Ship it
 - [ ] README: what it does, architecture, eval results, screenshots/GIF, how to run, start-at-login guide.
@@ -198,6 +209,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 | Storage | SQLite via stdlib `sqlite3`, numbered migrations |
 | Scheduling | APScheduler in the `serve` process |
 | Areas | Rules + PSGC gazetteer; streets by rules or local Qwen (Ollama), whichever the eval picks; Claude Haiku optional in the eval |
-| Alerts | Telegram Bot API over httpx (long polling) |
-| Map | FastAPI + uvicorn (thread in `serve`), Leaflet 1.9.4 vendored + OSM tiles, vanilla JS (`node --test` in CI) |
+| Alerts | Telegram Bot API over httpx (long polling); approve-to-join for strangers |
+| Map | FastAPI + uvicorn (thread in `serve`), Leaflet 1.9.4 vendored + OSM tiles, vanilla JS (`node --test` in CI); `/history` with inline SVG |
+| Streets | One Overpass extract per town over httpx (by hand, ODbL, kept in `data/osm/`); pure-Python geometry; rules + town-scoped aliases, gated by a frozen eval |
+| History | Union-of-intervals hours per barangay, computed per request (pure Python) |
 | Quality | pytest, ruff, GitHub Actions |
