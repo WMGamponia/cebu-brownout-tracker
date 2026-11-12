@@ -54,6 +54,10 @@ ENTITY_EXTRACTOR = os.environ.get("OUTAGES_ENTITY_EXTRACTOR", "rules")
 # Streets v2 spec 7.5: the arm with the higher dev accuracy fills the queue's `pick`;
 # a tie → difflib.
 STREET_SUGGEST_PRIMARY = "qwen"
+# Spec 7.8: after each serve run, new street groups go to the queue, bounded per run.
+STREETS_SUGGEST_AUTO = True
+SUGGEST_BUDGET_GROUPS = 20
+SUGGEST_BUDGET_S = 300
 
 
 @dataclass(frozen=True)

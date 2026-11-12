@@ -41,6 +41,7 @@ from outages.config import (
     OVERPASS_URL,
     RUN_TIMES,
     STALE_CHECK_H,
+    STREETS_SUGGEST_AUTO,
     VECO_TOWNS,
     Paths,
     TelegramSettings,
@@ -282,6 +283,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
+    s.add_argument(
+        "--no-suggest", action="store_true", help="no automatic street suggestions after runs"
+    )
     s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
     s.add_argument("--map-port", type=int, default=MAP_PORT)
 
@@ -808,33 +812,65 @@ def _check(paths: Paths) -> bool:
         conn.close()
 
 
-def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bool = True) -> None:
+def _scheduled_run(
+    paths: Paths, settings: TelegramSettings | None, do_check: bool = True, suggest: bool = True
+) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check)
+        _run_once(paths, settings, do_check, suggest)
 
 
-def _run_once(paths: Paths, settings: TelegramSettings | None, do_check: bool) -> None:
+def _run_once(
+    paths: Paths, settings: TelegramSettings | None, do_check: bool, suggest: bool = True
+) -> None:
     check_ok = _check(paths) if do_check else True
-    if settings is None:
+    if settings is not None:
+        conn = db.connect(paths.db)
+        client = make_telegram(settings.token)
+        try:
+            alerts_run.alert_run(
+                conn,
+                TelegramNotifier(client),
+                utcnow(),
+                load_gazetteer(),
+                settings.admin_chat_id,
+                check_ok,
+            )
+        except Exception:
+            log.exception("alert run failed")
+        finally:
+            client.close()
+            conn.close()
+    if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
+        try:
+            _suggest_hook(paths, settings)
+        except Exception:
+            log.exception("street suggestions failed; alerts are unaffected")
+
+
+def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
+    """Bounded new street suggestions; one admin note per (Manila day, count) when rows came."""
+    now = utcnow()
+    s = street_suggest.suggest_new(paths, now)
+    if s is None or s.new == 0 or settings is None:
         return
+    key = f"suggest:{now.astimezone(MANILA):%Y-%m-%d}:{s.new}"
+    text = f"{s.new} new street suggestions waiting (data/streets/alias_queue.csv)"
     conn = db.connect(paths.db)
-    client = make_telegram(settings.token)
     try:
-        alerts_run.alert_run(
-            conn,
-            TelegramNotifier(client),
-            utcnow(),
-            load_gazetteer(),
-            settings.admin_chat_id,
-            check_ok,
-        )
-    except Exception:
-        log.exception("alert run failed")
+        if alerts_store.note_sent(conn, key):
+            return
+        client = make_telegram(settings.token)
+        try:
+            note = alerts_run.Note((key,), text)
+            alerts_run.deliver_notes(
+                conn, TelegramNotifier(client), settings.admin_chat_id, [note], now
+            )
+        finally:
+            client.close()
     finally:
-        client.close()
         conn.close()
 
 
@@ -947,11 +983,12 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     _start_map(paths, args, settings)
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
+    suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up)
+        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            scheduler.build(lambda: _scheduled_run(paths, settings)).start()
+            scheduler.build(lambda: _scheduled_run(paths, settings, suggest=suggest)).start()
     finally:
         stop.set()
     return 0

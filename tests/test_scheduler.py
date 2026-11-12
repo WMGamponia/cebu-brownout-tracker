@@ -138,7 +138,7 @@ def test_serve_without_token_checks_only(home, monkeypatch, caplog):
     _last_check(home, 13)
     calls: list = []
     monkeypatch.setattr(
-        cli, "_scheduled_run", lambda p, s, do_check=True: calls.append((s, do_check))
+        cli, "_scheduled_run", lambda p, s, do_check=True, **k: calls.append((s, do_check))
     )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
     monkeypatch.setattr(cli.bot, "poll_forever", lambda *a, **k: pytest.fail("bot started"))
@@ -150,7 +150,9 @@ def test_serve_without_token_checks_only(home, monkeypatch, caplog):
 def test_serve_without_token_recent_check_does_nothing_on_start(home, monkeypatch):
     _last_check(home, 2)
     calls: list = []
-    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True: calls.append(do_check))
+    monkeypatch.setattr(
+        cli, "_scheduled_run", lambda p, s, do_check=True, **k: calls.append(do_check)
+    )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
     assert cli.main(["serve"]) == 0
     assert calls == ["start"]
@@ -173,7 +175,9 @@ def test_serve_starts_bot_thread_and_catch_up(home, monkeypatch):
     calls: list = []
     monkeypatch.setattr(cli.bot, "poll_forever", fake_poll)
     monkeypatch.setattr(
-        cli, "_scheduled_run", lambda p, s, do_check=True: calls.append((s is not None, do_check))
+        cli,
+        "_scheduled_run",
+        lambda p, s, do_check=True, **k: calls.append((s is not None, do_check)),
     )
 
     def start(self):
@@ -193,7 +197,9 @@ def test_serve_recent_check_still_runs_alerts(home, monkeypatch):
     mock_telegram(monkeypatch)
     monkeypatch.setattr(cli.bot, "poll_forever", lambda *a, **k: None)
     calls: list = []
-    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True: calls.append(do_check))
+    monkeypatch.setattr(
+        cli, "_scheduled_run", lambda p, s, do_check=True, **k: calls.append(do_check)
+    )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
     assert cli.main(["serve"]) == 0
     assert calls == [False, "start"]
@@ -204,7 +210,7 @@ def test_serve_recent_check_still_runs_alerts(home, monkeypatch):
 
 def _quiet_serve(monkeypatch) -> list:
     calls: list = []
-    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True: calls.append("run"))
+    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True, **k: calls.append("run"))
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: calls.append("start"))
     monkeypatch.setattr(cli.bot, "poll_forever", lambda *a, **k: None)
     return calls
@@ -314,3 +320,102 @@ def test_map_unexpected_startup_error_keeps_alerts(home, monkeypatch, caplog):
         assert cli.main(["serve"]) == 0
     assert calls == ["start"]
     assert "has no attribute" in caplog.text
+
+
+# --- Streets v2: automatic suggestions after each run (spec 7.8) -------------------------------
+
+
+def _record_suggest(monkeypatch, order: list, summary=None):
+    def fake(paths, now, **kw):
+        order.append("suggest")
+        return summary
+
+    monkeypatch.setattr(cli.street_suggest, "suggest_new", fake)
+
+
+def test_hook_runs_after_alerts(home, monkeypatch):
+    order: list = []
+    mock_telegram(monkeypatch)
+    monkeypatch.setattr(cli.alerts_run, "alert_run", lambda *a, **k: order.append("alerts"))
+    _record_suggest(monkeypatch, order)
+    cli._scheduled_run(home, SETTINGS, do_check=False)
+    assert order == ["alerts", "suggest"]
+
+
+def test_hook_runs_after_failed_alerts_and_without_settings(home, monkeypatch):
+    order: list = []
+    mock_telegram(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("alert run broke")
+
+    monkeypatch.setattr(cli.alerts_run, "alert_run", boom)
+    _record_suggest(monkeypatch, order)
+    cli._scheduled_run(home, SETTINGS, do_check=False)
+    cli._scheduled_run(home, None, do_check=False)
+    assert order == ["suggest", "suggest"]
+
+
+def test_no_suggest_flag_and_switch(home, monkeypatch):
+    order: list = []
+    mock_telegram(monkeypatch)
+    monkeypatch.setattr(cli.alerts_run, "alert_run", lambda *a, **k: None)
+    _record_suggest(monkeypatch, order)
+    cli._scheduled_run(home, SETTINGS, do_check=False, suggest=False)
+    assert order == []
+    seen: list = []
+    monkeypatch.setattr(
+        cli, "_scheduled_run", lambda p, s, do_check=True, suggest=True: seen.append(suggest)
+    )
+    monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
+    _last_check(home, 20)  # catch-up run on start
+    assert cli.main(["serve", "--no-map", "--no-suggest"]) == 0
+    monkeypatch.setattr(cli, "STREETS_SUGGEST_AUTO", False)
+    assert cli.main(["serve", "--no-map"]) == 0
+    monkeypatch.setattr(cli, "STREETS_SUGGEST_AUTO", True)
+    assert cli.main(["serve", "--no-map"]) == 0
+    assert seen == [False, False, True]
+
+
+def test_hook_swallows_exceptions(home, monkeypatch, caplog):
+    def boom(paths, now, **kw):
+        raise RuntimeError("suggester broke")
+
+    monkeypatch.setattr(cli.street_suggest, "suggest_new", boom)
+    cli._scheduled_run(home, None, do_check=False)  # never raises into the scheduler
+    assert "suggester broke" in caplog.text
+
+
+def test_hook_admin_note_once(home, monkeypatch):
+    from outages.streets.suggest import RunSummary
+
+    sent: list = []
+
+    def handler(request):
+        sent.append(request.content.decode())
+        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+    monkeypatch.setattr(
+        cli, "make_telegram", lambda t: TelegramClient(t, transport=httpx.MockTransport(handler))
+    )
+    monkeypatch.setattr(cli.alerts_run, "alert_run", lambda *a, **k: None)
+    _record_suggest(monkeypatch, [], RunSummary(new=3, picked=2, invalid=0, no_candidates=1))
+    cli._scheduled_run(home, SETTINGS, do_check=False)
+    cli._scheduled_run(home, SETTINGS, do_check=False)
+    assert len(sent) == 1
+    assert "3 new street suggestions waiting (data/streets/alias_queue.csv)" in sent[0]
+    conn = db.connect(home.db)
+    from outages.alerts import store as alerts_store
+
+    assert alerts_store.note_sent(conn, f"suggest:{NOW:%Y-%m-%d}:3")
+    conn.close()
+
+
+def test_hook_no_note_when_nothing_new(home, monkeypatch):
+    from outages.streets.suggest import RunSummary
+
+    mock_telegram(monkeypatch)
+    monkeypatch.setattr(cli.alerts_run, "alert_run", lambda *a, **k: None)
+    _record_suggest(monkeypatch, [], RunSummary(new=0, picked=0, invalid=0, no_candidates=0))
+    monkeypatch.setattr(cli.alerts_run, "deliver_notes", lambda *a, **k: pytest.fail("noted"))
+    cli._scheduled_run(home, SETTINGS, do_check=False)

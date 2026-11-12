@@ -435,3 +435,79 @@ def test_suggest_cli_then_apply(capsys, monkeypatch, cli_world):
     assert main(["streets", "suggest", "--apply"]) == 0
     out = capsys.readouterr().out
     assert f"rejected {len(rows)}" in out and "streets match --dry-run" in out
+
+
+# --- serve hook: suggest_new (spec 7.8) ---------------------------------------------------
+
+
+@pytest.fixture
+def hook_home(tmp_path):
+    """A Paths root with the map world DB, the OSM world extract and a frozen test split."""
+    from osm_world import write
+
+    from outages.config import OSM_DIR_NAME, Paths
+
+    paths = Paths(tmp_path)
+    paths.data.mkdir()
+    names = [(f"h{x}", 10 + i, f"Zeta {i:02d} Lane") for i, x in enumerate("A" * 30)]
+    _conn(paths.data, names).close()
+    (paths.data / "o.db").rename(paths.db)
+    write(paths.data / OSM_DIR_NAME)
+    ev = tmp_path / "evals" / "streets"
+    ev.mkdir(parents=True)
+    (ev / "FROZEN").write_text("x\n", encoding="utf-8")
+    return paths
+
+
+def _hook(paths, picker, **kw):
+    from outages.streets.suggest import suggest_new
+
+    return suggest_new(paths, NOW, picker=picker, boundaries=boundaries(), **kw)
+
+
+def test_hook_budget(hook_home):
+    s = _hook(hook_home, FakeQwen())
+    assert s.new == 20  # SUGGEST_BUDGET_GROUPS
+    assert len(queue.read(hook_home.data / "streets" / "alias_queue.csv")) == 20
+    assert _hook(hook_home, FakeQwen()).new == 10  # the rest, next run
+
+
+def test_hook_time_budget(hook_home, monkeypatch):
+    from outages.streets import suggest
+
+    ticks = iter(range(0, 10_000, 100))  # each group "takes" 100 s
+    monkeypatch.setattr(suggest.time, "monotonic", lambda: next(ticks))
+    assert _hook(hook_home, FakeQwen()).new == 2  # start 0; checks at 100, 200 pass, 300 stops
+
+
+def test_hook_inert_before_frozen(hook_home, caplog):
+    (hook_home.root / "evals" / "streets" / "FROZEN").unlink()
+    q = FakeQwen()
+    assert _hook(hook_home, q) is None
+    assert q.calls == 0 and "FROZEN" in caplog.text
+    assert not (hook_home.data / "streets").exists()
+
+
+def test_hook_inert_without_extract(hook_home, caplog):
+    import shutil
+
+    from outages.config import OSM_DIR_NAME
+
+    shutil.rmtree(hook_home.data / OSM_DIR_NAME)
+    assert _hook(hook_home, FakeQwen()) is None
+    assert "extract" in caplog.text
+
+
+def test_hook_ollama_down_skips(hook_home, caplog):
+    assert _hook(hook_home, FakeQwen(down=True)) is None
+    assert "Ollama" in caplog.text
+    assert not (hook_home.data / "streets").exists()
+
+
+def test_hook_swallows_picker_errors(hook_home, caplog):
+    class Broken(FakeQwen):
+        def pick(self, g, cands):
+            raise RuntimeError("picker broke")
+
+    assert _hook(hook_home, Broken()) is None
+    assert "picker broke" in caplog.text

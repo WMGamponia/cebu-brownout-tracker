@@ -19,12 +19,22 @@ from pathlib import Path
 
 import httpx
 
-from outages import config
+from outages import config, db
 from outages.areas.llm import LLMUnavailable
-from outages.config import LLM_TIMEOUT_S, OLLAMA_URL, QWEN_MODEL, VECO_TOWNS
+from outages.config import (
+    LLM_TIMEOUT_S,
+    OLLAMA_URL,
+    OSM_DIR_NAME,
+    QWEN_MODEL,
+    SUGGEST_BUDGET_GROUPS,
+    SUGGEST_BUDGET_S,
+    VECO_TOWNS,
+    Paths,
+)
+from outages.map.build import load_boundaries
 from outages.osm.extract import StreetIndex
 from outages.streets import queue
-from outages.streets.evaluate import INPUT_LOG_NAME, TEST_ROWS, street_rows
+from outages.streets.evaluate import EVAL_DIR, INPUT_LOG_NAME, TEST_ROWS, street_rows
 from outages.streets.match import REJECTS_PATH, load_rejects, scope_for, search_towns
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 from outages.streets.store import scope_inputs
@@ -516,3 +526,70 @@ def apply(
     _write_csv(rejects_path, REJECT_COLUMNS, rejects)
     queue.write(queue_file, keep)
     return ApplySummary(dict(accepted), n_rejected, refused, dict(decided), dict(took))
+
+
+# --- serve hook (spec 7.8) ------------------------------------------------------------------
+
+
+def suggest_new(
+    paths: Paths,
+    now: datetime,
+    picker=None,
+    boundaries: dict | None = None,
+    budget_groups: int = SUGGEST_BUDGET_GROUPS,
+    budget_s: float = SUGGEST_BUDGET_S,
+) -> RunSummary | None:
+    """New groups to the queue after a serve run, at most `budget_groups` or `budget_s`.
+
+    None (one log line) when inert: the test split isn't frozen, no extract, no
+    `street_matches`, or Ollama is down. Never raises."""
+    try:
+        if not (paths.root / EVAL_DIR / "FROZEN").is_file():
+            log.info("street suggestions: inert until %s/FROZEN exists", EVAL_DIR.as_posix())
+            return None
+        index = StreetIndex.load(paths.data / OSM_DIR_NAME)
+        if index is None:
+            log.info("street suggestions: no OSM extract; skipped")
+            return None
+        if not paths.db.is_file():
+            log.info("street suggestions: no database; skipped")
+            return None
+        conn = db.connect_ro(paths.db)
+        try:
+            has = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='street_matches'"
+            ).fetchone()
+            if not has:
+                log.info("street suggestions: no street_matches; skipped")
+                return None
+            if picker is None:
+                picker = QwenPicker(open_cache(paths.data / "streets" / "llm_cache.db"))
+            if boundaries is None:
+                boundaries = load_boundaries()
+            s = run(
+                conn,
+                index,
+                boundaries,
+                picker,
+                paths.root / EVAL_DIR,
+                paths.data,
+                now,
+                limit=budget_groups,
+                budget_s=budget_s,
+            )
+        finally:
+            conn.close()
+    except LLMUnavailable as e:
+        log.info("street suggestions: skipped (%s)", e)
+        return None
+    except Exception:
+        log.exception("street suggestions: failed; alerts are unaffected")
+        return None
+    log.info(
+        "street suggestions: new %d, picked %d, invalid %d, no candidates %d",
+        s.new,
+        s.picked,
+        s.invalid,
+        s.no_candidates,
+    )
+    return s
