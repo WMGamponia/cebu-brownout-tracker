@@ -115,3 +115,16 @@ def test_report_alerts_line(home):
         f"alerts: 1 subscribers, 0 sent; unparsed areas: {upcoming} upcoming outages"
     )
     conn.close()
+
+
+def test_report_streets_line(home):
+    conn = db.connect(home.db)
+    assert report.streets_line(conn) == "streets: no matches yet (run `streets match`)"
+    conn.executemany(
+        "INSERT INTO street_matches (areas_hash, seq, status) VALUES (?, ?, ?)",
+        [("a", 0, "matched"), ("a", 1, "not_found"), ("b", 0, "matched"), ("c", 0, "alias")],
+    )
+    assert report.streets_line(conn) == (
+        "streets: 4 mentions (matched 2, alias 1, not_found 1, no_osm_data 0)"
+    )
+    conn.close()

@@ -38,8 +38,12 @@ from outages.map import server as map_server
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
 from outages.notify import TelegramNotifier
+from outages.osm import extract as streets_index
 from outages.osm import overpass
 from outages.streets import evaluate as streets_eval
+from outages.streets import review as streets_review
+from outages.streets import store as streets_store
+from outages.streets.match import ALIASES_PATH
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -332,9 +336,52 @@ def _streets_fetch(paths: Paths, args: argparse.Namespace) -> int:
     return 0 if not summary.failed else 1
 
 
+def _streets_match(paths: Paths, args: argparse.Namespace) -> int:
+    """Offline. A dry run opens the DB read-only (works before migration 004)."""
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("warning: no OSM extract (run `streets fetch`); every street is no_osm_data")
+    boundaries = load_boundaries()
+    conn = db.connect_ro(paths.db) if args.dry_run else db.connect(paths.db)
+    try:
+        s = streets_store.run_match(
+            conn, index, boundaries, rebuild=args.rebuild, dry_run=args.dry_run
+        )
+    finally:
+        conn.close()
+    parts = ", ".join(f"{k} {v}" for k, v in s.by_status.items()) or "nothing to match"
+    if args.dry_run:
+        print(f"dry run (nothing written): {parts}")
+    else:
+        print(f"written {s.written}: {parts}")
+    return 0
+
+
+def _streets_review(paths: Paths) -> int:
+    conn = db.connect_ro(paths.db)
+    try:
+        if not db.is_current(conn):
+            print("error: run `streets match` first (DB not migrated)", file=sys.stderr)
+            return 1
+        items = streets_review.review(
+            conn, streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME), load_boundaries()
+        )
+    finally:
+        conn.close()
+    for i in items:
+        sugg = "; ".join(i.suggestions) if i.suggestions else "-"
+        print(f"{i.count:>4}  {i.name}  ->  {sugg}")
+    print(f"{len(items)} not_found names; accepted suggestions go in {ALIASES_PATH} by hand")
+    return 0
+
+
 def _streets(paths: Paths, args: argparse.Namespace) -> int:
+    if args.review:
+        return _streets_review(paths)
     if args.action == "fetch":
         return _streets_fetch(paths, args)
+    if args.action == "match":
+        return _streets_match(paths, args)
     raise SystemExit("error: usage: streets fetch [--yes] | streets match | streets --review")
 
 
@@ -377,7 +424,9 @@ def _check(paths: Paths) -> bool:
     conn = db.connect(paths.db)
     fetcher = make_fetcher()
     try:
-        s = pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
+        s = pipeline.check(
+            conn, fetcher, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+        )
         _summary("check", s)
         return s.errors == 0
     except Exception:
@@ -524,7 +573,13 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
 
 
 def _report(paths: Paths, conn) -> int:
-    lines = "\n".join((report.areas_line(conn), report.alerts_line(conn, utcnow())))
+    lines = "\n".join(
+        (
+            report.areas_line(conn),
+            report.streets_line(conn),
+            report.alerts_line(conn, utcnow()),
+        )
+    )
     text = report.format_table(report.build(conn), report.duplicates(conn), areas=lines)
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f"report-{utcnow():%Y-%m-%d}.txt"
@@ -580,7 +635,10 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
             return _report(paths, conn)
         if command == "reparse":
             return _summary(
-                "reparse", pipeline.reparse(conn, utcnow(), extractor_from_config(conn))
+                "reparse",
+                pipeline.reparse(
+                    conn, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+                ),
             )
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
@@ -592,7 +650,10 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
                 return _summary(command, pipeline.backfill(conn, fetcher, utcnow()))
             assert command == "check"
             return _summary(
-                command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
+                command,
+                pipeline.check(
+                    conn, fetcher, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+                ),
             )
         finally:
             fetcher.close()

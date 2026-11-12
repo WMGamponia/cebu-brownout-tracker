@@ -88,6 +88,18 @@ def areas_line(conn: sqlite3.Connection) -> str:
     return f"Areas: {sum(counts.values())} barangay rows ({parts}); review queue {queue} names"
 
 
+def streets_line(conn: sqlite3.Connection) -> str:
+    """One line on Phase 5 street matches by status."""
+    counts = dict(
+        conn.execute("SELECT status, count(*) FROM street_matches GROUP BY status").fetchall()
+    )
+    if not counts:
+        return "streets: no matches yet (run `streets match`)"
+    kinds = ("matched", "alias", "not_found", "no_osm_data")
+    parts = ", ".join(f"{k} {counts.get(k, 0)}" for k in kinds)
+    return f"streets: {sum(counts.values())} mentions ({parts})"
+
+
 def alerts_line(conn: sqlite3.Connection, now: datetime | None = None) -> str:
     """One line on Phase 3 alerts: active subscribers, ledger rows, unparsed upcoming areas."""
     from outages.alerts.run import unparsed_upcoming

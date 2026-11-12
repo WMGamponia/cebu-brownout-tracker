@@ -439,3 +439,36 @@ def test_streets_fetch_towns_by_name(capsys, monkeypatch, tmp_path):
     assert seen["towns"] == ["730600000", "702232000"]
     assert main(["streets", "fetch", "--towns", "Atlantis"]) == 2
     assert "unknown town" in capsys.readouterr().err
+
+
+def test_streets_match_and_review_offline(capsys, monkeypatch, tmp_path):
+    import hashlib
+
+    from map_world import populate
+    from osm_world import write
+
+    from outages import __main__ as cli
+    from outages import db
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.setattr(cli, "make_telegram", lambda t: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.chdir(tmp_path)
+    from map_world import boundaries
+
+    monkeypatch.setattr(cli, "load_boundaries", lambda: boundaries())
+    p = tmp_path / "data" / "outages.db"
+    c = db.connect(p)
+    populate(c)
+    c.close()
+    write(tmp_path / "data" / "osm")
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert main(["streets", "match", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "dry run" in out and "matched 2" in out and "not_found 1" in out
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert main(["streets", "match"]) == 0
+    assert "written 3" in capsys.readouterr().out
+    assert main(["streets", "--review"]) == 0
+    out = capsys.readouterr().out
+    assert "Salinas Dr." in out

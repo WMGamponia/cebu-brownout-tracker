@@ -217,3 +217,48 @@ def test_reparse_of_newer_failed_version_logs_changes(conn, monkeypatch):
     pipeline.reparse(conn, NOW)
     assert _changes(conn) == ["time_changed"]
     assert conn.execute("SELECT parse_status FROM posts").fetchone()[0] == "ok"
+
+
+def test_check_runs_streets_after_areas_only_with_extract(conn, monkeypatch, tmp_path):
+    from outages.streets import store as streets_store
+
+    calls = []
+    monkeypatch.setattr(pipeline, "areas_step", lambda c, now, ex: calls.append("areas"))
+    real_run = streets_store.run_match
+
+    def spy(c, index, bnd, **kw):
+        calls.append(("streets", index is not None))
+        return real_run(c, index, bnd, **kw)
+
+    monkeypatch.setattr(streets_store, "run_match", spy)
+    pages = {SITEMAP_URL: sitemap()}
+    osm = tmp_path / "osm"
+    pipeline.check(conn, Site(pages).fetcher(), NOW, osm_dir=osm)
+    assert calls == ["areas"]  # no manifest: streets skipped
+    from osm_world import write
+
+    write(osm)
+    calls.clear()
+    pipeline.check(conn, Site(pages).fetcher(), NOW, osm_dir=osm)
+    assert calls == ["areas", ("streets", True)]
+    calls.clear()
+    pipeline.reparse(conn, NOW, osm_dir=osm)
+    assert calls == ["areas", ("streets", True)]
+    calls.clear()
+    pipeline.check(conn, Site(pages).fetcher(), NOW)  # no osm_dir: Phase 4 behaviour
+    assert calls == ["areas"]
+
+
+def test_streets_step_failure_does_not_fail_check(conn, monkeypatch, tmp_path, caplog):
+    from osm_world import write
+
+    from outages.streets import store as streets_store
+
+    def boom(*a, **kw):
+        raise RuntimeError("bad extract")
+
+    monkeypatch.setattr(streets_store, "run_match", boom)
+    osm = write(tmp_path / "osm")
+    s = pipeline.check(conn, Site({SITEMAP_URL: sitemap()}).fetcher(), NOW, osm_dir=osm)
+    assert s.errors == 0
+    assert "streets step failed" in caplog.text
