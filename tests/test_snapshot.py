@@ -203,7 +203,7 @@ def test_licenses_text(conn, world):
         "Leaflet",
         "BSD-2-Clause",
         "© OpenStreetMap contributors",
-        "sees their IP",
+        "which see your IP address",
         "ODbL",
     ):
         assert needle in text, needle

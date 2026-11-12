@@ -212,15 +212,16 @@ it stays in `data/` (never committed).
 `serve` runs the checks, alerts, bot and map; it should start when you log in and survive sleep.
 
 ```powershell
-powershell -NoProfile -File scripts\install-task.ps1 -WhatIf   # see what it would register
-powershell -NoProfile -File scripts\install-task.ps1           # install (as administrator if it says so)
-powershell -NoProfile -File scripts\install-task.ps1 -Uninstall
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -WhatIf   # see what it would register
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1           # install (as administrator if it says so)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -Uninstall
 ```
 
 - **"OutageTracker serve"** starts `.venv\Scripts\pythonw.exe -m outages serve` at logon (no
   console; the log is `data\logs\outages.log`), restarts it up to 3 times a minute apart, and
   never starts a second copy.
-- **"OutageTracker wake"** wakes the PC at 05:58 and 19:58 for the 06:00 / 20:00 runs. Turn on
+- **"OutageTracker wake"** wakes the PC at 05:58 and 19:58 and keeps it awake for 15 minutes
+  for the 06:00 / 20:00 runs (`serve` also keeps it awake until each run ends). Turn on
   **Allow wake timers** in your power plan (Control Panel → Power Options → advanced settings →
   Sleep). `-NoWake` skips it (a laptop asleep in a bag won't wake anyway).
 - A `serve` started in a terminal while the task runs exits 3: the lock allows one.

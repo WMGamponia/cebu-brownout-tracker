@@ -7,8 +7,9 @@
     "OutageTracker serve"  at logon: .venv\Scripts\pythonw.exe -m outages serve in the project
                            root; no time limit, restart 3 x 1 min on failure, start when
                            available, run on battery, never a second instance.
-    "OutageTracker wake"   daily 05:58 and 19:58, wakes the computer (cmd.exe /c exit 0), so the
-                           06:00 / 20:00 runs happen on a sleeping PC. Skipped with -NoWake.
+    "OutageTracker wake"   daily 05:58 and 19:58, wakes the computer and keeps it awake for
+                           15 min (pythonw -c "...power.hold(900)"), so the 06:00 / 20:00 runs
+                           happen on a sleeping PC. Skipped with -NoWake.
   serve itself refuses to run twice (data\serve.lock), so a terminal run alongside is harmless.
   Wake timers must be allowed in the power plan ("Allow wake timers").
 
@@ -19,9 +20,9 @@
   Remove both tasks.
 
 .EXAMPLE
-  powershell -NoProfile -File scripts\install-task.ps1 -WhatIf
-  powershell -NoProfile -File scripts\install-task.ps1
-  powershell -NoProfile -File scripts\install-task.ps1 -Uninstall
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -WhatIf
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -Uninstall
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -86,16 +87,20 @@ try {
     if ($NoWake) {
         Write-Host "skipped: $WakeTask (-NoWake)"
     } else {
-        $wakeAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c exit 0"
+        # A timer wake with no user input sleeps again after ~2 min (the unattended sleep
+        # timeout): hold the PC awake for 15 min, past the start of the run. serve then keeps
+        # it awake until each run ends.
+        $wakeAction = New-ScheduledTaskAction -Execute $pythonw `
+            -Argument "-c `"import outages.power as p; p.hold(900)`"" -WorkingDirectory $Root
         $wakeTriggers = @(
             (New-ScheduledTaskTrigger -Daily -At "05:58"),
             (New-ScheduledTaskTrigger -Daily -At "19:58")
         )
         $wakeSettings = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries `
             -DontStopIfGoingOnBatteries -StartWhenAvailable `
-            -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+            -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
         Register-OutageTask $WakeTask $wakeAction $wakeTriggers $wakeSettings $principal `
-            "Wakes the PC two minutes before the Cebu Brownout Tracker's 06:00 and 20:00 runs."
+            "Wakes the PC at 05:58 and 19:58 and keeps it awake 15 min for the Cebu Brownout Tracker's runs."
     }
     exit 0
 } catch {

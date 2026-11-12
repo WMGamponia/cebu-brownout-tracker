@@ -18,6 +18,7 @@ from outages import (
     gazetteer_build,
     lock,
     pipeline,
+    power,
     report,
     scheduler,
     snapshot,
@@ -568,7 +569,12 @@ def _check(paths: Paths) -> bool:
 def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bool = True) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
-    raises into the scheduler."""
+    raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
+    with power.keep_awake():
+        _run_once(paths, settings, do_check)
+
+
+def _run_once(paths: Paths, settings: TelegramSettings | None, do_check: bool) -> None:
     check_ok = _check(paths) if do_check else True
     if settings is None:
         return
