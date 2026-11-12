@@ -307,3 +307,82 @@ def test_eval_run_streets_cli_offline(capsys, monkeypatch, tmp_path):
     _write_split(tmp_path / "evals" / "streets", "dev.jsonl", [])
     assert main(["eval", "run", "--suite", "streets"]) == 1  # no extract yet
     assert "streets fetch" in capsys.readouterr().err
+
+
+def test_score_list_gold():
+    rows = [{"areas_hash": "a", "seq": 0, "gold": ["Natalio Bacalso Avenue", "Cebu South Road"]}]
+    s = score(rows, {("a", 0): _m("matched", "Cebu South Road")})
+    assert s["drawn"] == 1 and s["correct"] == 1
+    assert s["coverage"] == 1.0
+
+
+def test_gold_keys():
+    from outages.streets.evaluate import gold_keys
+
+    assert gold_keys(None) == set()
+    assert gold_keys("Gorordo Ave.") == {"gorordo avenue"}
+    assert gold_keys(["A St.", "B Road"]) == {"a street", "b road"}
+
+
+def test_score_breakdowns():
+    rows = [
+        {"areas_hash": "a", "seq": 0, "gold": "X Street", "town_psgc": "730600000"},
+        {"areas_hash": "b", "seq": 0, "gold": "Y Street", "town_psgc": "730600000"},
+        {"areas_hash": "c", "seq": 0, "gold": "Z Street", "town_psgc": "702227000"},
+        {"areas_hash": "d", "seq": 0, "gold": None},
+    ]
+    matches = {
+        ("a", 0): _m("matched", "X Street"),
+        ("b", 0): _m("matched", "Y St."),
+        ("c", 0): _m("alias", "W Street"),
+        ("d", 0): _m("not_found"),
+    }
+    s = score(rows, matches)
+    assert s["by_drawn_status"] == {
+        "matched": {"drawn": 2, "correct": 2},
+        "alias": {"drawn": 1, "correct": 0},
+    }
+    assert s["by_town"] == {
+        "730600000": {"drawn": 2, "correct": 2},
+        "702227000": {"drawn": 1, "correct": 0},
+        "?": {"drawn": 0, "correct": 0},
+    }
+    lo, hi = s["interval"]
+    assert 0 < lo < 2 / 3 < hi < 1
+
+
+def test_wilson():
+    from outages.streets.evaluate import wilson
+
+    lo, hi = wilson(57, 60)
+    assert lo == pytest.approx(0.862, abs=1e-3)
+    assert hi == pytest.approx(0.983, abs=1e-3)
+    assert wilson(0, 0) is None
+
+
+def test_run_refuses_osm_base_mismatch(tmp_path):
+    from datetime import UTC, datetime
+
+    from map_world import LAHUG, boundaries
+    from osm_world import OSM_BASE, write
+
+    from outages.evaluate import EvalError
+    from outages.streets.evaluate import run_streets
+
+    row = {
+        "id": "dev-01",
+        "areas_hash": "a",
+        "seq": 0,
+        "name": "Gorordo Avenue",
+        "towns": ["Cebu City"],
+        "barangays": [LAHUG],
+        "gold": "Gorordo Avenue",
+        "osm_base": "2026-01-01T00:00:00Z",
+    }
+    d = tmp_path / "evals"
+    _write_split(d, "dev.jsonl", [row])
+    with pytest.raises(EvalError) as e:
+        run_streets(
+            "dev", d, write(tmp_path / "osm"), boundaries(), datetime(2026, 11, 12, tzinfo=UTC)
+        )
+    assert "2026-01-01T00:00:00Z" in str(e.value) and OSM_BASE in str(e.value)

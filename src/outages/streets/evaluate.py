@@ -7,6 +7,7 @@ labelled. Splits, freezing and the frozen check are `outages.evaluate`'s.
 from __future__ import annotations
 
 import json
+import math
 import random
 import sqlite3
 from collections import Counter
@@ -161,10 +162,49 @@ def sample_streets(rows: list[StreetRow], seed: int = SEED) -> tuple[list[dict],
     )
 
 
+class GuardError(EvalError):
+    """A refusal (spec 10): a guard failed or labels don't fit; the CLI exits 2."""
+
+
+def gold_keys(gold: str | list[str] | None) -> set[str]:
+    """Gold may be one name, a list (a road renamed inside the scope) or null (GUIDE v2)."""
+    if gold is None:
+        return set()
+    names = [gold] if isinstance(gold, str) else gold
+    return {k for k in (street_key(n) for n in names) if k}
+
+
+def is_correct(gold: str | list[str] | None, osm_name: str | None) -> bool:
+    return bool(osm_name) and street_key(osm_name) in gold_keys(gold)
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95 % Wilson score interval for k successes in n."""
+    if n == 0:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return (c - h, c + h)
+
+
+def check_osm_base(rows: list[dict], index_osm_base: str | None) -> None:
+    """Labels name the extract they were made against; refuse any other (spec 5.2)."""
+    for r in rows:
+        if "osm_base" in r and r["osm_base"] != index_osm_base:
+            raise GuardError(
+                f"row {r.get('id')} was labelled against osm_base {r['osm_base']}, but the "
+                f"extract is {index_osm_base}; labels and extract must match"
+            )
+
+
 def score(rows: list[dict], matches: dict) -> dict:
     """Precision = correctly drawn / drawn; coverage = correctly drawn / rows with a gold name
-    (spec 5.3). A drawn row is correct when its OSM name's key equals the gold's key."""
+    (spec 5.3). A drawn row is correct when its OSM name's key is among the gold keys."""
     by_status: Counter[str] = Counter()
+    by_drawn = {k: {"drawn": 0, "correct": 0} for k in DRAWN}
+    by_town: dict[str, dict[str, int]] = {}
     drawn = correct = with_gold = 0
     for row in rows:
         m = matches.get((row["areas_hash"], row["seq"]))
@@ -172,10 +212,14 @@ def score(rows: list[dict], matches: dict) -> dict:
         by_status[status] += 1
         gold = row.get("gold")
         with_gold += gold is not None
+        town = by_town.setdefault(row.get("town_psgc") or "?", {"drawn": 0, "correct": 0})
         if status in DRAWN:
+            ok = is_correct(gold, m.osm_name)
             drawn += 1
-            if gold is not None and m.osm_name and street_key(m.osm_name) == street_key(gold):
-                correct += 1
+            correct += ok
+            for bucket in (by_drawn[status], town):
+                bucket["drawn"] += 1
+                bucket["correct"] += ok
     return {
         "precision": correct / drawn if drawn else None,
         "coverage": correct / with_gold if with_gold else 0.0,
@@ -183,11 +227,29 @@ def score(rows: list[dict], matches: dict) -> dict:
         "correct": correct,
         "with_gold": with_gold,
         "by_status": dict(by_status),
+        "by_drawn_status": by_drawn,
+        "by_town": by_town,
+        "interval": wilson(correct, drawn),
     }
 
 
 def _pct(x: float | None) -> str:
     return "n/a" if x is None else f"{x:.3f}"
+
+
+def _interval(iv: tuple[float, float] | None) -> str:
+    return "n/a" if iv is None else f"[{iv[0]:.3f}, {iv[1]:.3f}]"
+
+
+def _gold_text(gold: str | list[str] | None) -> str:
+    if gold is None:
+        return "—"
+    return gold if isinstance(gold, str) else " / ".join(gold)
+
+
+def _town_name(psgc: str) -> str:
+    names = {v: k for k, v in VECO_TOWNS.items()}
+    return names.get(psgc, psgc)
 
 
 def run_streets(
@@ -203,6 +265,7 @@ def run_streets(
     if index is None:
         raise EvalError(f"no OSM extract in {osm_dir}; run `streets fetch` first")
     rows = load_split(path)
+    check_osm_base(rows, index.osm_base)
     aliases = load_aliases()
     matches = {}
     lines = [
@@ -220,20 +283,29 @@ def run_streets(
         )
         matches[(r["areas_hash"], r["seq"])] = m
         drawn = m.status in DRAWN
-        ok = (
-            drawn
-            and r["gold"] is not None
-            and street_key(m.osm_name or "") == street_key(r["gold"])
-        ) or (not drawn and r["gold"] is None)
+        ok = (drawn and is_correct(r["gold"], m.osm_name)) or (not drawn and r["gold"] is None)
         mark = "✓" if ok else ("✗ wrong line" if drawn else "· missed")
         table.append(
-            f"| {r['id']} | {r['name']} | {r['gold'] or '—'} | {m.status} | {m.osm_name or '—'}"
+            f"| {r['id']} | {r['name']} | {_gold_text(r['gold'])} | {m.status}"
+            f" | {m.osm_name or '—'}"
             f" | {mark} |"
         )
     s = score(rows, matches)
     lines += [
         f"- **precision** {_pct(s['precision'])} ({s['correct']} of {s['drawn']} drawn)",
+        f"- 95 % Wilson interval on precision: {_interval(s['interval'])}",
         f"- **coverage** {_pct(s['coverage'])} ({s['correct']} of {s['with_gold']} with gold)",
+        "- drawn by status: "
+        + ", ".join(f"{k} {v['correct']}/{v['drawn']}" for k, v in s["by_drawn_status"].items()),
+        "- drawn by town: "
+        + (
+            ", ".join(
+                f"{_town_name(t)} {v['correct']}/{v['drawn']}"
+                for t, v in sorted(s["by_town"].items())
+                if v["drawn"]
+            )
+            or "none"
+        ),
         f"- by status: {', '.join(f'{k} {v}' for k, v in sorted(s['by_status'].items()))}",
         f"- gate (spec 5.4, test split only): precision ≥ 0.95 with ≥ 20 drawn → "
         f"{'on' if gate(s) else 'off'}",

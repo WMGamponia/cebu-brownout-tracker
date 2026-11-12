@@ -12,6 +12,9 @@ from outages.streets.geo import Point, Scope
 from outages.streets.normalize import street_key
 
 NAME_KEYS = ("name", "alt_name", "old_name", "official_name", "short_name")
+# The one name a way is known by, for the matcher's `osm_name` and for gold (Streets v2 GUIDE
+# rule 2): its `name`, else the first present of these.
+PRIMARY_ORDER = ("name", "official_name", "alt_name", "old_name", "short_name")
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,10 @@ class Way:
     names: dict[str, str]  # name tag -> value
     coords: list[Point]
     town_psgc: str
+
+
+def primary_name(way: Way) -> str | None:
+    return next((way.names[k] for k in PRIMARY_ORDER if way.names.get(k)), None)
 
 
 class StreetIndex:

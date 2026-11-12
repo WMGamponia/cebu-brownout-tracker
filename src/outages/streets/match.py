@@ -11,7 +11,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from outages.osm.extract import StreetIndex
+from outages.osm.extract import StreetIndex, primary_name
 from outages.streets.geo import Point, Scope, clip, polygons_of
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 
@@ -101,7 +101,7 @@ def match_street(
             runs = clip(way.coords, scope)
             if runs:
                 lines += runs
-                names[way.names.get("name", "")] += 1
+                names[primary_name(way) or ""] += 1
     if not lines:
         return NOT_FOUND
     osm_name = min(names, key=lambda n: (-names[n], n))
