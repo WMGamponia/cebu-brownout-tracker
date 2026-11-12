@@ -4,7 +4,9 @@
 /* global L */
 
 import { binOf, legendLabels, monthBars, quantileEdges } from "./bins.js";
+import { makeSource } from "./source.js";
 import { manila, mondayOf, parseIso } from "./timeline.js";
+import { addTiles } from "./tiles.js";
 
 const COLORS = ["#ffffff", "#fee8c8", "#fdbb84", "#fc8d59", "#e34a33", "#b30000"];
 const MECO = "#9e9e9e";
@@ -42,15 +44,12 @@ function dateLabel(dateStr) {
 }
 
 const state = { doc: null, boundaries: null, layer: null, edges: [], fitted: false };
+// The live server's /stats.json, or a snapshot's stats/<range>.json (Phase 6 spec 4.3).
+let src = makeSource("live", null);
 
 const map = L.map("map", { attributionControl: true });
 map.attributionControl.setPrefix(false);
-const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 19,
-  attribution: "© OpenStreetMap contributors",
-});
-tiles.on("tileerror", () => {});
-tiles.addTo(map);
+addTiles(L, map);
 map.setView([10.32, 123.9], 11);
 
 function hoursOf(psgc) {
@@ -223,12 +222,9 @@ async function getJson(url) {
 }
 
 async function load() {
-  const page = new URLSearchParams(location.search);
-  const q = new URLSearchParams();
-  for (const k of ["from", "to"]) if (page.get(k)) q.set(k, page.get(k));
   try {
     const [doc, boundaries] = await Promise.all([
-      getJson(q.toString() ? `stats.json?${q}` : "stats.json"),
+      getJson(src.statsUrl(new URLSearchParams(location.search))),
       state.boundaries ? Promise.resolve(state.boundaries) : getJson("boundaries.geojson"),
     ]);
     state.doc = doc;

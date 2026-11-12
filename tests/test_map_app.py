@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 from pathlib import Path
 
@@ -147,7 +148,10 @@ def test_page_assets_served(db_path):
         assert c.get(path).status_code == 200, path
     page = c.get("/").text
     assert 'src="static/js/map.js"' in page  # relative, so a static snapshot works too
-    assert "http://" not in page and "https://" not in page  # nothing loaded from outside
+    # nothing loaded from outside (plain <a> links, like "Report a map issue", are not loads)
+    loads = re.findall(r'<(?:script|link|img)\b[^>]*(?:src|href)="([^"]*)"', page)
+    assert loads and not [u for u in loads if "://" in u or u.startswith("//")]
+    assert "http://" not in page
 
 
 def test_page_js_has_no_html_sinks():
