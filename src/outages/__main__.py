@@ -24,7 +24,11 @@ from outages.config import (
     ENTITY_EXTRACTOR,
     MAP_HOST,
     MAP_PORT,
+    OSM_DIR_NAME,
+    OVERPASS_SPACING_S,
+    OVERPASS_URL,
     RUN_TIMES,
+    VECO_TOWNS,
     Paths,
     TelegramSettings,
     telegram_settings,
@@ -34,6 +38,7 @@ from outages.map import server as map_server
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
 from outages.notify import TelegramNotifier
+from outages.osm import overpass
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -49,6 +54,7 @@ COMMANDS = {
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
+    "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
 }
 LAN_WARNING = "map is reachable from your network; there is no login"
 
@@ -211,6 +217,12 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     m = parsers["map"]
     m.add_argument("--host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
     m.add_argument("--port", type=int, default=MAP_PORT)
+    st = parsers["streets"]
+    st.add_argument("action", nargs="?", choices=("fetch", "match"))
+    st.add_argument("--yes", action="store_true", help="fetch: make the 8 Overpass requests")
+    st.add_argument("--rebuild", action="store_true", help="match: redo every street")
+    st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
+    st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
     s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
@@ -247,6 +259,49 @@ def _eval_run(paths: Paths, args: argparse.Namespace) -> int:
     print(out.read_text(encoding="utf-8"), end="")
     print(f"written: {out}")
     return 0
+
+
+def _streets_fetch(paths: Paths, args: argparse.Namespace) -> int:
+    """Without --yes: print the 8 requests and exit 2, building no client (spec 4.2)."""
+    try:
+        boundaries = load_boundaries()
+        plan = [
+            (name, psgc, overpass.town_bbox(boundaries, psgc)) for name, psgc in VECO_TOWNS.items()
+        ]
+    except (BoundariesError, overpass.FetchError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if not args.yes:
+        print(f"streets fetch will make {len(plan)} requests to {OVERPASS_URL},")
+        print(f"one at a time, {OVERPASS_SPACING_S} s apart (bbox S,W,N,E):")
+        for name, psgc, bbox in plan:
+            print(f"  {name:<14} {psgc}  {','.join(str(x) for x in bbox)}")
+        print("Rerun with --yes to fetch. The extract is ODbL and stays in data/osm/.")
+        return 2
+    out_dir = paths.data / OSM_DIR_NAME
+    client = overpass.make_client()
+    try:
+        summary = overpass.fetch_all(client, boundaries, out_dir, utcnow())
+    finally:
+        client.close()
+    manifest = overpass.load_manifest(out_dir) or {"towns": {}}
+    for name, psgc, _ in plan:
+        if psgc in summary.ok:
+            f = overpass.town_file(out_dir, psgc)
+            ways = manifest["towns"][psgc]["ways"]
+            print(f"  {name:<14} {ways} ways, {f.stat().st_size:,} bytes")
+        else:
+            print(f"  {name:<14} FAILED: {summary.failed.get(psgc, '?')}")
+    print(f"osm_base {manifest.get('osm_base')}; written: {out_dir}")
+    if summary.stopped:
+        print("error: stopped after Overpass back-off; rerun later", file=sys.stderr)
+    return 0 if not summary.failed else 1
+
+
+def _streets(paths: Paths, args: argparse.Namespace) -> int:
+    if args.action == "fetch":
+        return _streets_fetch(paths, args)
+    raise SystemExit("error: usage: streets fetch [--yes] | streets match | streets --review")
 
 
 def _gazetteer(paths: Paths) -> int:
@@ -457,6 +512,8 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _bot(paths)
     if command == "map":
         return _map(paths, args)
+    if command == "streets":
+        return _streets(paths, args)
     if command == "eval":
         if args.action == "sample":
             return _eval_sample(paths, args.seed)

@@ -112,6 +112,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **No new dependencies** (pure-Python geometry, inline SVG charts, `difflib`).
   - Found while designing (real DB, read-only): 5,032 street mentions, 1,899 distinct after normalisation (1,050 seen once); Cebu South Road alone 141, so whole-road lines would light up 30+ km; only 47 % of street mentions come from an outage with one placed barangay; 2,794 counted outages, mean 6.6 h.
 
+- **2026-11-12** — **Phase 5 build, stop 1 (Tasks 1–3 done).** Migration 004 (`street_matches`; `subscribers.status/requested_at/decided_at`, existing rows `approved`), Phase 5 config; `streets/normalize.py` (`street_key`, generic keys) and pure `streets/geo.py` (buffered scope, clip); `osm/overpass.py` + `streets fetch` (prints the 8 requests and exits 2 without `--yes`; 429/504 back off 30 s / 120 s then stop; a `remark` runtime error, bad JSON or 0 ways fails that town and keeps its old file). 705 tests. **Waiting for the owner's OK for the 8 Overpass requests.**
+
 ### Known issues
 - **1 post fails on purpose** (owner, 2026-11-11): Dec 14–20 2025 has `8:00 AM to 9:00 PM (1hr)`, which could be 8–9 AM or 8–9 PM. Its 20 outages from the first backfill stay stored as they were (spec §6.2), including that one at 8 AM–9 PM.
 - **Weekday mismatches inside the week stay warnings** (`October 7, 2025 (Monday)`, `October 13, 2025 (Sunday)`): no way to tell whether the date or the weekday is the typo.

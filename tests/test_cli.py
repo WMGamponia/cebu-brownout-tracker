@@ -357,3 +357,57 @@ def test_map_command_ctrl_c_is_a_clean_stop(monkeypatch, tmp_path, capsys):
     assert main(["map"]) == 0
     err = capsys.readouterr().err
     assert "resume" not in err and "error" not in err
+
+
+def no_overpass(monkeypatch):
+    """Fail if a command builds the Overpass client."""
+    from outages.osm import overpass
+
+    def boom(**kw):
+        raise AssertionError("this command must not build an Overpass client")
+
+    monkeypatch.setattr(overpass, "make_client", boom)
+
+
+def test_streets_fetch_without_yes_builds_no_client(capsys, monkeypatch, tmp_path):
+    from outages.config import VECO_TOWNS
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    assert main(["streets", "fetch"]) == 2
+    out = capsys.readouterr().out
+    for town in VECO_TOWNS:
+        assert town in out
+    assert "--yes" in out
+    assert "overpass-api.de" in out
+    assert not (tmp_path / "data" / "osm").exists()
+
+
+def test_streets_fetch_yes_reports(capsys, monkeypatch, tmp_path):
+    from outages.osm import overpass
+
+    no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(overpass, "make_client", lambda **kw: FakeClient())
+
+    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None):
+        out_dir.mkdir(parents=True)
+        (out_dir / "manifest.json").write_text(
+            '{"osm_base": "2026-11-12T03:00:00Z", "towns": {"730600000": {"ways": 5}}}',
+            encoding="utf-8",
+        )
+        (out_dir / "streets-730600000.json").write_text("{}", encoding="utf-8")
+        return overpass.FetchSummary(ok=["730600000"], failed={"731300000": "0 ways"})
+
+    monkeypatch.setattr(overpass, "fetch_all", fake_fetch_all)
+    assert main(["streets", "fetch", "--yes"]) == 1  # one town failed
+    out = capsys.readouterr().out
+    assert "Cebu City" in out and "5 ways" in out
+    assert "Mandaue City" in out and "0 ways" in out
+    assert "2026-11-12T03:00:00Z" in out
