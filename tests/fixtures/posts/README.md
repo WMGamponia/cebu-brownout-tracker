@@ -1,7 +1,11 @@
 # Fixture posts
 
-Real VECO service interruption posts, saved as fetched (whole page, UTF-8) with User-Agent
-`CebuBrownoutTracker/0.1`, one request at a time, ≥ 5 s apart. Tests never fetch them again.
+Real VECO service interruption posts, trimmed by `scripts/trim_fixture.py` to the title and the
+post's content cell (the parts the parser reads, plus the header byline that a hash test edits);
+every other attribute, script and style is dropped, and the script refuses to write a file whose
+trimmed page extracts to different lines or a different text hash. They are excerpts kept for the
+parser tests; the posts are VECO's. The full pages were fetched as below (UTF-8, User-Agent
+`CebuBrownoutTracker/0.1`, one request at a time, ≥ 5 s apart). Tests never fetch them again.
 `../sitemap/blog-posts-sitemap.xml` was fetched 2026-11-10T15:40:17Z: 552 posts, **151** slugs
 containing `interruption`.
 
