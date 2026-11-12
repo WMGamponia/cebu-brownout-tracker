@@ -114,6 +114,7 @@ For each `area_entities` row with `kind = 'street'`:
 3. **Key:** `street_key(name)`; if `street_aliases.csv` has (town, key) for any town in scope, use its `osm_name`'s key and status `alias`.
 4. **Candidates:** OSM ways in the scope's towns whose any-name key equals the key, and that have ≥ 2 nodes inside the scope.
 5. **Result:** candidates → `matched` (or `alias`), `osm_name` = the most common `name` among them, geometry = all their clipped runs; none → `not_found`.
+6. **Generic names are never drawn:** a key in `GENERIC_STREET_KEYS` (`road`, `main road`, `barangay road`, `national road`, `national highway`, `highway`, `provincial road`, `city road`, `access road`, `diversion road`) is `not_found` without lookup, even if OSM has a way of that name in scope (it would usually be a different road). An alias can still map one.
 
 `run_match(conn, index, gaz, rebuild)` writes rows for every `areas_hash` with street entities lacking a row (or all with `--rebuild`), one transaction per 500 hashes; `osm_date` = manifest `osm_base`. `check`/`reparse` call it after `areas` when an extract exists. `--dry-run` prints counts and writes nothing.
 
@@ -125,10 +126,10 @@ Each outage in `outages` gains:
 "streets": {
   "drawn":     [{"name": "Cebu South Road.", "osm_name": "Cebu South Road",
                  "lines": [[[123.84, 10.26], …], …]}],
-  "not_drawn": [{"name": "Tiltilon Baranggay Road", "why": "not_found"}]   // not_found | no_osm_data | drawing_off
+  "not_drawn": [{"name": "Tiltilon Baranggay Road", "why": "not_found"}]   // not_found | no_osm_data | not_processed | drawing_off
 }
 ```
-`meta.osm = {"data_date": "2026-11-…" | null, "drawing": true | false}`; `meta.attribution` adds "Streets © OpenStreetMap contributors (ODbL)" when any line is drawn. `drawing` follows `config.STREETS_DRAW` (set by the gate, §5.4). Drawing off → every street in `not_drawn` with `why: "drawing_off"`. Schema 3 DB (no `street_matches`) → every street `no_osm_data`; the map still works. Coordinates rounded to 5 decimals. The real-DB check records the default document's size.
+`meta.osm = {"data_date": "2026-11-…" | null, "drawing": true | false}`; `meta.attribution` adds "Streets © OpenStreetMap contributors (ODbL)" when any line is drawn. `drawing` follows `config.STREETS_DRAW` (set by the gate, §5.4). Drawing off → every street in `not_drawn` with `why: "drawing_off"`. A street entity with no `street_matches` row (match not run since the areas step) → `why: "not_processed"` (page: "street matching not run yet"). Schema 3 DB (no `street_matches`) → every street `no_osm_data`; the map still works. Coordinates rounded to 5 decimals. The real-DB check records the default document's size.
 
 ### 4.7 The map page
 - **Lines** for the selected day/hour (logic in pure `streets.js`): active scheduled/additional → bold orange; active cancelled (shown) → grey dashed; same day, other hour → thin faint; other days → not drawn. Toggle "Show streets", on by default (hidden when `meta.osm.drawing` is false).
@@ -177,7 +178,7 @@ An outage counts toward the range by the part of its interval inside `[from 00:0
 **CLI `stats [--from --to]`:** prints the same numbers as text; read-only.
 
 ### 4.9 Multi-user bot
-- **Statuses:** `pending`, `approved`, `blocked`. Chats in `TELEGRAM_ALLOWED_CHAT_IDS` are treated as approved whatever the row says. Alert runs select `active = 1 AND status = 'approved'` (or allowlisted).
+- **Statuses:** `pending`, `approved`, `blocked`. Chats in `TELEGRAM_ALLOWED_CHAT_IDS` are treated as approved by the bot, and the bot writes `status = 'approved'` for any of their existing rows when it starts (`store.sync_allowlist`), so alert runs select only `active = 1 AND status = 'approved'` from the DB.
 - **Private chats only:** a non-private chat gets one "This bot works in private chats only." (once per chat, in `admin_notes_sent`), then silence.
 - **`/start` from an unknown chat:** create `pending` with `requested_at` and `display_name` = first name; reply with the welcome (runs on one person's computer, alerts can be late or missed; stores chat ID, first name, barangays; `/privacy`, `/forget`); send the admin chat "Join request: <first name> (@username, chat <id>)" with Approve / Deny buttons (`ap:<chat_id>`, `dn:<chat_id>`).
 - **Callbacks `ap:`/`dn:`** are honoured only from `TELEGRAM_ADMIN_CHAT_ID`. Approve → `approved`, `decided_at`, user told "You're in. Try /add <barangay>." Deny → `blocked`, `display_name` cleared, one "Not approved." reply.
@@ -190,7 +191,7 @@ An outage counts toward the range by the part of its interval inside `[from 00:0
 
 ## 5. Eval (`evals/streets/`)
 ### 5.1 Sample
-`eval streets sample --seed 20261112` draws **80 street mentions** (distinct `(areas_hash, seq)`, distinct keys) **before any match rule exists**, stratified by town (10 per VECO town) and by scope (single placed barangay vs several vs none, proportional). 30 dev, 50 test.
+`eval sample --suite streets --seed 20261112` draws **80 street mentions** (distinct `(areas_hash, seq)`, distinct keys) **before any match rule exists**, stratified by town (10 per VECO town) and by scope (single placed barangay vs several vs none, proportional). 30 dev, 50 test.
 
 ### 5.2 Labels
 Each row: the VECO name, `areas_raw`, the outage's barangays/towns, and `gold`: the OSM `name` of the way(s) VECO means, inside or near the listed barangays, or `null` (not in OSM). Labelled by Claude against the fetched extract, looking up candidates by hand (not with the matcher); `GUIDE.md` fixes the conventions (a road with different OSM names along its length takes the one inside the scope; `Barangay Road` names are `null` unless OSM has that name). The owner reviews a sample of ≥ 15; then test is frozen by hash (`FROZEN`), never opened during rule work.
@@ -209,7 +210,7 @@ Per arm (rules only): **precision** = drawn rows whose `osm_name` key equals the
 | `streets match [--rebuild] [--dry-run]` | none | §4.5. |
 | `streets --review` | none | §4.5. |
 | `stats [--from] [--to]` | none | §4.8; read-only. |
-| `eval streets sample\|run --split dev\|test` | none | §5. |
+| `eval sample\|run --suite streets [--split dev\|test]` | none | §5. `--suite` defaults to `areas`, so Phase 2's commands are unchanged. |
 | `map`, `serve`, `bot` | as before | + `/history`, `/stats.json`, `/boundaries.geojson`; join flow; admin commands. |
 
 Dispatch stays explicit; every offline command's CLI test fails if it builds the VECO fetcher, the Overpass client or a Telegram client.
