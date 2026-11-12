@@ -47,6 +47,13 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e ".[dev]"
       - run: python -m pytest -q --cov=outages --cov-report=term
+      - name: Parse scripts/install-task.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("scripts/install-task.ps1", [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs; exit 1 }
 
   js:
     name: JS time logic (node --test)
