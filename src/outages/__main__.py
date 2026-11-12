@@ -56,6 +56,7 @@ from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
 from outages.osm import extract as streets_index
 from outages.osm import overpass
+from outages.streets import candidates as street_candidates
 from outages.streets import evaluate as streets_eval
 from outages.streets import review as streets_review
 from outages.streets import store as streets_store
@@ -256,12 +257,13 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sp.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: to − 364 days)")
     sp.add_argument("--to", help="YYYY-MM-DD (default: today, Manila)")
     st = parsers["streets"]
-    st.add_argument("action", nargs="?", choices=("fetch", "match"))
+    st.add_argument("action", nargs="?", choices=("fetch", "match", "candidates"))
     st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
     st.add_argument("--towns", help="fetch: only these towns (comma-separated names)")
     st.add_argument("--rebuild", action="store_true", help="match: redo every street")
     st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
     st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
+    st.add_argument("--rows", type=Path, help="candidates: a rows .jsonl (labelling helper)")
     sn = parsers["snapshot"]
     sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
@@ -288,6 +290,14 @@ def _eval_sample(paths: Paths, seed: int) -> int:
 
 
 def _eval_sample_streets(paths: Paths, seed: int) -> int:
+    """Phase 5's sampler; refused once its split is retired to `p5/` (it would overwrite dev)."""
+    if (streets_eval.EVAL_DIR / streets_eval.P5_DIR).exists():
+        print(
+            "error: the Phase 5 street split is retired (evals/streets/p5/); "
+            "use `eval sample --suite streets-v2`",
+            file=sys.stderr,
+        )
+        return 2
     conn = db.connect_ro(paths.db)
     try:
         rows = streets_eval.street_rows(conn)
@@ -502,7 +512,27 @@ def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     return 0
 
 
+def _streets_candidates(paths: Paths, args: argparse.Namespace) -> int:
+    """Every in-scope OSM way name per row, for labelling (Streets v2 spec 6.2). Reads only the
+    rows file and the extract; prints no gold."""
+    if args.rows is None:
+        print("error: usage: streets candidates --rows <file.jsonl>", file=sys.stderr)
+        return 2
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("error: no OSM extract (run `streets fetch`)", file=sys.stderr)
+        return 1
+    boundaries = load_boundaries()
+    rows = evaluate.load_split(args.rows)
+    for r in rows:
+        print(street_candidates.format_row(r, street_candidates.in_scope(r, index, boundaries)))
+    print(f"{len(rows)} rows; osm_base {index.osm_base}")
+    return 0
+
+
 def _streets(paths: Paths, args: argparse.Namespace) -> int:
+    if args.action == "candidates":
+        return _streets_candidates(paths, args)
     if args.review:
         return _streets_review(paths)
     if args.action == "fetch":

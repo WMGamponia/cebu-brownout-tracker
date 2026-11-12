@@ -77,7 +77,7 @@ rules already at 98.9 a +5 margin could never be met, so the outcome was decided
 Barangays: P/R 100 % on the split (73 of 73), a 98.6 % match rate.
 
 **Streets (Phase 5): draw VECO's street names as lines?** On 50 frozen street mentions with gold
-= the OpenStreetMap name ([`evals/streets/results/2026-11-12-test.md`](evals/streets/results/2026-11-12-test.md)),
+= the OpenStreetMap name ([`evals/streets/p5/results/2026-11-12-test.md`](evals/streets/p5/results/2026-11-12-test.md)),
 the bar was precision ≥ 0.95 over ≥ 20 drawn rows, since a wrong line is worse than none.
 
 | drawn | precision | coverage | bar | result |

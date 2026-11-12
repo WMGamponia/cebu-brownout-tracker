@@ -22,6 +22,10 @@ from outages.streets.match import load_aliases, match_street, scope_for, search_
 from outages.streets.normalize import street_key
 
 EVAL_DIR = Path("evals") / "streets"
+P5_DIR = "p5"  # Phase 5's retired split and results (history; Streets v2 spec 4 step 2)
+TEST_ROWS = "test.rows.jsonl"  # the v2 test rows, no gold
+ROWS_FROZEN = "ROWS_FROZEN"
+ALIASES_FROZEN = "ALIASES_FROZEN"
 SEED = 20261112
 PER_TOWN = 10
 N_DEV = 30  # spec 5.1: 30 dev / 50 test (8 towns: six give 4 dev rows, two give 3)

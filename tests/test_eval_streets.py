@@ -386,3 +386,78 @@ def test_run_refuses_osm_base_mismatch(tmp_path):
             "dev", d, write(tmp_path / "osm"), boundaries(), datetime(2026, 11, 12, tzinfo=UTC)
         )
     assert "2026-01-01T00:00:00Z" in str(e.value) and OSM_BASE in str(e.value)
+
+
+def test_candidates_lists_all_name_tags(tmp_path):
+    from map_world import LAHUG, boundaries
+    from osm_world import write
+
+    from outages.osm.extract import StreetIndex
+    from outages.streets.candidates import in_scope
+
+    index = StreetIndex.load(write(tmp_path / "osm"))
+    row = {"name": "Escario St.", "towns": ["Cebu City"], "barangays": [LAHUG]}
+    cands = in_scope(row, index, boundaries())
+    by_primary = {c["primary"]: c for c in cands}
+    esc = by_primary["Juana Osmeña Street"]
+    assert esc["tags"] == {"name": "Juana Osmeña Street", "old_name": "Escario Street"}
+    assert esc["ways"] == 1
+    assert by_primary["Gorordo Avenue"]["ways"] == 2
+    assert "Salinas Drive" not in by_primary  # one node in Tisa only; Lahug is the scope
+    assert cands[0]["ways"] >= cands[-1]["ways"]
+
+
+def _cands_cli(monkeypatch, tmp_path, rows):
+    import json
+
+    from map_world import boundaries
+    from osm_world import write
+
+    from outages import __main__ as cli
+    from outages.osm import overpass
+
+    def boom(*a, **kw):
+        raise AssertionError("offline command built a network client")
+
+    monkeypatch.setattr(cli, "make_fetcher", boom)
+    monkeypatch.setattr(cli, "make_telegram", boom)
+    monkeypatch.setattr(overpass, "make_client", boom)
+    monkeypatch.setattr(cli, "load_boundaries", lambda: boundaries())
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path / "data" / "osm")
+    f = tmp_path / "rows.jsonl"
+    f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return f
+
+
+def test_candidates_cli_never_prints_gold(capsys, monkeypatch, tmp_path):
+    from map_world import LAHUG
+
+    row = {
+        "id": "t2-001",
+        "name": "Gorordo Ave",
+        "towns": ["Cebu City"],
+        "barangays": [LAHUG],
+        "gold": "SECRET",
+        "note": "SECRET NOTE",
+    }
+    f = _cands_cli(monkeypatch, tmp_path, [row])
+    assert main(["streets", "candidates", "--rows", str(f)]) == 0
+    out = capsys.readouterr().out
+    assert "t2-001" in out and "Gorordo Ave" in out and "Gorordo Avenue" in out
+    assert "old_name=Escario Street" in out
+    assert "SECRET" not in out
+
+
+def test_candidates_cli_offline(capsys, monkeypatch, tmp_path):
+    f = _cands_cli(monkeypatch, tmp_path, [])
+    assert main(["streets", "candidates", "--rows", str(f)]) == 0
+    assert main(["streets", "candidates"]) == 2  # --rows is required
+
+
+def test_p5_sampler_refused_once_retired(capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "evals" / "streets" / "p5").mkdir(parents=True)
+    assert main(["eval", "sample", "--suite", "streets"]) == 2
+    assert "retired" in capsys.readouterr().err
+    assert not (tmp_path / "evals" / "streets" / "dev.jsonl").exists()
