@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from map_world import LAHUG, NOW, boundaries, gazetteer, populate
+from map_world import LAHUG, NOW, STO_NINO, boundaries, gazetteer, populate
 from osm_world import CEBU, write
 
 from outages import db
@@ -185,6 +185,37 @@ def test_item_lines_equal_match_street(world):
     got = doc["candidates"][0]["lines"]
     assert got == [[list(p) for p in line] for line in want]
     assert got  # the pick is really drawn
+
+
+def test_item_scope_is_union_of_mentions(world):
+    """Candidates come from every mention's scope (up to 20), so the item draws that union:
+    a group whose first mention is in Sto. Niño still shows the Lahug candidate's line."""
+    c = db.connect(world["db"])
+    with c:
+        for h in ("hB", "hC"):
+            c.execute(
+                "INSERT INTO area_entities (areas_hash, seq, kind, name, extractor)"
+                " VALUES (?, 7, 'street', 'Gorrordo Avenue', 'rules')",
+                (h,),
+            )
+            c.execute(
+                "INSERT INTO street_matches (areas_hash, seq, status) VALUES (?, 7, 'not_found')",
+                (h,),
+            )
+    c.close()
+    queue.write(world["queue"], [*ROWS, _row("gorrordo avenue", mentions=2, pick="Gorordo Avenue")])
+    doc = (
+        _client(world)
+        .get("/streets/review/item", params={"town": CEBU, "key": "gorrordo avenue"})
+        .json()
+    )
+    assert {f["properties"]["psgc"] for f in doc["scope"]["features"]} == {STO_NINO, LAHUG}
+    index = StreetIndex.load(world["osm"])
+    scope = scope_for([STO_NINO, LAHUG], [CEBU], boundaries())
+    search = search_towns([STO_NINO, LAHUG], [CEBU], boundaries())
+    want = match_street("Gorordo Avenue", scope, search, index, {}).lines
+    assert doc["candidates"][0]["lines"] == [[list(p) for p in line] for line in want]
+    assert want
 
 
 def test_item_unknown_409(world):

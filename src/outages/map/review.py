@@ -22,7 +22,7 @@ from outages.osm.extract import StreetIndex
 from outages.streets import queue
 from outages.streets.match import match_street, scope_for, search_towns
 from outages.streets.store import scope_inputs
-from outages.streets.suggest import groups
+from outages.streets.suggest import SCOPE_MENTIONS, groups
 
 log = logging.getLogger(__name__)
 
@@ -112,8 +112,16 @@ def build_router(
             )
             if g is None:
                 return _error(409, "no not_found mentions left for this name")
-            h = sorted(g.mentions)[0][0]
-            brgys, towns = scope_inputs(conn, [h]).get(h, ([], []))
+            # The same mentions the candidates came from (suggest.candidates), so every
+            # candidate can be drawn: their placed barangays, else their towns.
+            hashes = [h for h, _ in sorted(g.mentions)[:SCOPE_MENTIONS]]
+            inputs = scope_inputs(conn, sorted(set(hashes)))
+        brgys: list[str] = []
+        towns: list[str] = []
+        for h in hashes:
+            b, t = inputs.get(h, ([], []))
+            brgys += [c for c in b if c not in brgys]
+            towns += [c for c in t if c not in towns]
         codes = brgys or [
             p for p, f in features.items() if f["properties"].get("town_psgc") in towns
         ]

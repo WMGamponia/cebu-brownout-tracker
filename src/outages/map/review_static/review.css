@@ -1,0 +1,74 @@
+:root {
+  --ink: #1d2433;
+  --muted: #5b6475;
+  --line: #d9dde5;
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --pick: #c2185b;
+  --other: #1565c0;
+  --scope: #2e7d32;
+  --yes: #2e7d32;
+  --no: #b71c1c;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+#layout { display: flex; height: 100%; }
+
+#map { flex: 1 1 auto; min-height: 320px; }
+
+#panel {
+  flex: 0 0 380px;
+  max-width: 380px;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+h1 { font-size: 1.05rem; margin: 0; }
+h2 { font-size: 1.35rem; margin: 0 0 4px; overflow-wrap: anywhere; }
+
+.left { color: var(--muted); margin: 2px 0 12px; }
+.label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 2px; }
+.meta { color: var(--muted); margin: 2px 0; }
+.pick { font-size: 1.15rem; font-weight: 600; color: var(--pick); margin: 0; overflow-wrap: anywhere; }
+.reason { font-style: italic; margin: 4px 0; }
+.message { background: #fff4e5; border: 1px solid #f0c27b; padding: 8px 10px; border-radius: 6px; }
+
+.buttons { display: flex; gap: 8px; margin: 14px 0 4px; }
+.buttons button { flex: 1; font: inherit; padding: 10px 8px; border-radius: 6px; border: 1px solid var(--line); background: #fff; cursor: pointer; min-height: 44px; }
+.buttons .yes { background: var(--yes); border-color: var(--yes); color: #fff; }
+.buttons .no { background: #fff; border-color: var(--no); color: var(--no); }
+.buttons button:disabled { opacity: 0.5; cursor: default; }
+kbd { font-size: 0.75em; opacity: 0.75; margin-left: 4px; }
+
+.candidates, .areas { list-style: none; padding: 0; margin: 0; }
+.candidates li { margin: 4px 0; }
+.candidates button { width: 100%; text-align: left; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; min-height: 40px; overflow-wrap: anywhere; }
+.candidates button.chosen { border-color: var(--pick); box-shadow: inset 3px 0 0 var(--pick); }
+.candidates .nolines { color: var(--muted); font-size: 0.85em; }
+.areas li { font-size: 0.85rem; color: var(--muted); background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 4px 0; overflow-wrap: anywhere; }
+
+.legend { font-size: 0.8rem; color: var(--muted); margin-top: 16px; }
+.swatch { display: inline-block; width: 14px; height: 10px; vertical-align: middle; margin: 0 2px 0 8px; border-radius: 2px; }
+.swatch.scope { background: rgba(46, 125, 50, 0.25); border: 1px solid var(--scope); }
+.swatch.buffer { border: 1px dashed var(--scope); }
+.swatch.pickline { background: var(--pick); height: 4px; }
+.swatch.other { background: var(--other); height: 2px; }
+
+.street-label { background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line); color: var(--ink); font-size: 12px; padding: 1px 5px; box-shadow: none; }
+
+@media (max-width: 600px) {
+  #layout { flex-direction: column; height: auto; }
+  #map { height: 55vh; flex: none; }
+  #panel { flex: none; max-width: none; border-left: none; border-top: 1px solid var(--line); }
+}
