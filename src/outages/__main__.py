@@ -39,6 +39,7 @@ from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
 from outages.notify import TelegramNotifier
 from outages.osm import overpass
+from outages.streets import evaluate as streets_eval
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -208,7 +209,8 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
     e.add_argument("action", choices=("sample", "run"))
-    e.add_argument("--seed", type=int, default=20261111)
+    e.add_argument("--suite", choices=("areas", "streets"), default="areas")
+    e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
     e.add_argument("--split", choices=("dev", "test"), default="dev")
     e.add_argument("--arms", default="rules")
     al = parsers["alerts"].add_mutually_exclusive_group(required=True)
@@ -243,6 +245,23 @@ def _eval_sample(paths: Paths, seed: int) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 1
     print(evaluate.format_counts(dev, test), end="")
+    return 0
+
+
+def _eval_sample_streets(paths: Paths, seed: int) -> int:
+    conn = db.connect_ro(paths.db)
+    try:
+        rows = streets_eval.street_rows(conn)
+    finally:
+        conn.close()
+    dev, test = streets_eval.sample_streets(rows, seed=seed)
+    try:
+        evaluate.write_sample(streets_eval.EVAL_DIR, dev, test)
+    except evaluate.EvalError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"{len(rows)} street mentions; sampled dev {len(dev)}, test {len(test)}")
+    print(f"written: {streets_eval.EVAL_DIR}")
     return 0
 
 
@@ -530,8 +549,12 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
     if command == "streets":
         return _streets(paths, args)
     if command == "eval":
+        if args.suite == "streets":
+            if args.action == "sample":
+                return _eval_sample_streets(paths, args.seed or streets_eval.SEED)
+            raise SystemExit("error: eval run --suite streets comes with the matcher")
         if args.action == "sample":
-            return _eval_sample(paths, args.seed)
+            return _eval_sample(paths, args.seed or 20261111)
         if args.action == "run":
             return _eval_run(paths, args)
         raise SystemExit(f"error: unknown eval action {args.action!r}")
