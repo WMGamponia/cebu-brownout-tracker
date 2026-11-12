@@ -11,9 +11,13 @@ import random
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from outages.config import VECO_TOWNS
+from outages.evaluate import EvalError, check_frozen, load_split
+from outages.osm.extract import StreetIndex
+from outages.streets.match import load_aliases, match_street, scope_for, search_towns
 from outages.streets.normalize import street_key
 
 EVAL_DIR = Path("evals") / "streets"
@@ -180,3 +184,70 @@ def score(rows: list[dict], matches: dict) -> dict:
         "with_gold": with_gold,
         "by_status": dict(by_status),
     }
+
+
+def _pct(x: float | None) -> str:
+    return "n/a" if x is None else f"{x:.3f}"
+
+
+def run_streets(
+    split: str, eval_dir: Path, osm_dir: Path, boundaries: dict, now: datetime
+) -> tuple[Path, dict]:
+    """Match every labelled row in memory (no DB, no store), score, write the report.
+
+    The test split must be frozen and unchanged (spec 5.4)."""
+    path = eval_dir / f"{split}.jsonl"
+    if split == "test":
+        check_frozen(path, eval_dir / "FROZEN")
+    index = StreetIndex.load(osm_dir)
+    if index is None:
+        raise EvalError(f"no OSM extract in {osm_dir}; run `streets fetch` first")
+    rows = load_split(path)
+    aliases = load_aliases()
+    matches = {}
+    lines = [
+        f"# Street eval — {split} — {now:%Y-%m-%d}",
+        "",
+        f"Extract osm_base {index.osm_base}; {len(aliases)} aliases; rules only.",
+        "",
+    ]
+    table = ["| id | VECO name | gold | status | OSM name | ok |", "|---|---|---|---|---|---|"]
+    for r in rows:
+        towns = [VECO_TOWNS[t] for t in r["towns"] if t in VECO_TOWNS]
+        scope = scope_for(r["barangays"], towns, boundaries)
+        m = match_street(
+            r["name"], scope, search_towns(r["barangays"], towns, boundaries), index, aliases
+        )
+        matches[(r["areas_hash"], r["seq"])] = m
+        drawn = m.status in DRAWN
+        ok = (
+            drawn
+            and r["gold"] is not None
+            and street_key(m.osm_name or "") == street_key(r["gold"])
+        ) or (not drawn and r["gold"] is None)
+        mark = "✓" if ok else ("✗ wrong line" if drawn else "· missed")
+        table.append(
+            f"| {r['id']} | {r['name']} | {r['gold'] or '—'} | {m.status} | {m.osm_name or '—'}"
+            f" | {mark} |"
+        )
+    s = score(rows, matches)
+    lines += [
+        f"- **precision** {_pct(s['precision'])} ({s['correct']} of {s['drawn']} drawn)",
+        f"- **coverage** {_pct(s['coverage'])} ({s['correct']} of {s['with_gold']} with gold)",
+        f"- by status: {', '.join(f'{k} {v}' for k, v in sorted(s['by_status'].items()))}",
+        f"- gate (spec 5.4, test split only): precision ≥ 0.95 with ≥ 20 drawn → "
+        f"{'on' if gate(s) else 'off'}",
+        "",
+        *table,
+        "",
+    ]
+    out_dir = eval_dir / "results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{now:%Y-%m-%d}-{split}.md"
+    out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    return out, s
+
+
+def gate(s: dict) -> bool:
+    """Spec 5.4: drawing on only with test precision ≥ 0.95 over ≥ 20 drawn rows."""
+    return s["precision"] is not None and s["precision"] >= 0.95 and s["drawn"] >= 20

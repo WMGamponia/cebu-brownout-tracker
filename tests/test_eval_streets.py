@@ -204,3 +204,106 @@ def test_eval_streets_offline(capsys, monkeypatch, tmp_path):
     (tmp_path / "evals" / "streets" / "FROZEN").write_text("x\n", encoding="utf-8")
     assert main(["eval", "sample", "--suite", "streets"]) == 1
     assert "frozen" in capsys.readouterr().err
+
+
+def _write_split(d, name, rows):
+    import json
+
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+
+def test_run_streets_scores_and_writes(tmp_path):
+    from datetime import UTC, datetime
+
+    from map_world import LAHUG, TISA, boundaries
+    from osm_world import write
+
+    from outages.streets.evaluate import run_streets
+
+    osm = write(tmp_path / "osm")
+    rows = [
+        {
+            "id": "dev-01",
+            "areas_hash": "a",
+            "seq": 0,
+            "name": "Cebu South Rd.",
+            "towns": ["Cebu City"],
+            "barangays": [LAHUG, TISA],
+            "gold": "Cebu South Road",
+        },
+        {
+            "id": "dev-02",
+            "areas_hash": "b",
+            "seq": 0,
+            "name": "Gorordo Avnue",
+            "towns": ["Cebu City"],
+            "barangays": [LAHUG],
+            "gold": "Gorordo Avenue",
+        },
+        {
+            "id": "dev-03",
+            "areas_hash": "c",
+            "seq": 0,
+            "name": "Brgy. Road",
+            "towns": ["Cebu City"],
+            "barangays": [TISA],
+            "gold": None,
+        },
+    ]
+    d = tmp_path / "evals"
+    _write_split(d, "dev.jsonl", rows)
+    out, s = run_streets("dev", d, osm, boundaries(), datetime(2026, 11, 12, tzinfo=UTC))
+    assert s["drawn"] == 1 and s["correct"] == 1 and s["precision"] == 1.0
+    assert s["coverage"] == 0.5
+    text = out.read_text(encoding="utf-8")
+    assert out.name == "2026-11-12-dev.md"
+    assert "precision" in text and "dev-02" in text and "not_found" in text
+
+
+def test_run_streets_test_split_must_be_frozen(tmp_path):
+    from datetime import UTC, datetime
+
+    from map_world import boundaries
+    from osm_world import write
+
+    from outages.evaluate import EvalError, freeze
+    from outages.streets.evaluate import run_streets
+
+    d = tmp_path / "evals"
+    _write_split(d, "test.jsonl", [])
+    now = datetime(2026, 11, 12, tzinfo=UTC)
+    with pytest.raises(EvalError, match="not frozen"):
+        run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
+    freeze(d / "test.jsonl", d / "FROZEN")
+    run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
+
+
+def test_run_streets_without_extract_errors(tmp_path):
+    from datetime import UTC, datetime
+
+    from map_world import boundaries
+
+    from outages.evaluate import EvalError
+    from outages.streets.evaluate import run_streets
+
+    d = tmp_path / "evals"
+    _write_split(d, "dev.jsonl", [])
+    with pytest.raises(EvalError, match="streets fetch"):
+        run_streets("dev", d, tmp_path / "none", boundaries(), datetime(2026, 11, 12, tzinfo=UTC))
+
+
+def test_eval_run_streets_cli_offline(capsys, monkeypatch, tmp_path):
+    from outages import __main__ as cli
+    from outages.osm import overpass
+
+    def boom(*a, **kw):
+        raise AssertionError("offline command built a network client")
+
+    monkeypatch.setattr(cli, "make_fetcher", boom)
+    monkeypatch.setattr(cli, "make_telegram", boom)
+    monkeypatch.setattr(overpass, "make_client", boom)
+    monkeypatch.chdir(tmp_path)
+    _write_split(tmp_path / "evals" / "streets", "dev.jsonl", [])
+    assert main(["eval", "run", "--suite", "streets"]) == 1  # no extract yet
+    assert "streets fetch" in capsys.readouterr().err

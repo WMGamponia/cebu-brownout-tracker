@@ -552,7 +552,21 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         if args.suite == "streets":
             if args.action == "sample":
                 return _eval_sample_streets(paths, args.seed or streets_eval.SEED)
-            raise SystemExit("error: eval run --suite streets comes with the matcher")
+            assert args.action == "run"
+            try:
+                out, _ = streets_eval.run_streets(
+                    args.split,
+                    streets_eval.EVAL_DIR,
+                    paths.data / OSM_DIR_NAME,
+                    load_boundaries(),
+                    utcnow(),
+                )
+            except (evaluate.EvalError, BoundariesError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            print(out.read_text(encoding="utf-8"), end="")
+            print(f"written: {out}")
+            return 0
         if args.action == "sample":
             return _eval_sample(paths, args.seed or 20261111)
         if args.action == "run":
