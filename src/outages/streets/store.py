@@ -90,7 +90,7 @@ def run_match(
     """Match street entities into `street_matches`, one transaction per 500 hashes. Rows whose
     entity is gone (or no longer a street) are deleted. A dry run writes nothing and works
     read-only, even before migration 004."""
-    osm_date = index.osm_base if index else None
+    osm_date = index.version if index else None  # the newest town fetch (migration 004)
     aliases = load_aliases()
     summary = MatchSummary()
     counts: Counter[str] = Counter()

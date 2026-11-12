@@ -363,3 +363,24 @@ def test_forget_from_unknown_chat_clears_its_notes(conn):
     assert _cells_with(conn, ANA)
     assert [r.text for r in bot(msg("/forget"))] == ["Deleted. /start to ask again."]
     assert _cells_with(conn, ANA) == []
+
+
+def test_join_request_reaches_admin_when_welcome_fails(conn):
+    """Review #2: the user blocked the bot (or the network dropped) right after /start."""
+    from outages.bot import deliver
+    from outages.telegram import TelegramError
+
+    class Client:
+        def __init__(self):
+            self.sent = []
+
+        def send_message(self, chat_id, text, reply_markup=None):
+            if chat_id == ANA:
+                raise TelegramError(403, "Forbidden: bot was blocked by the user")
+            self.sent.append(chat_id)
+
+    replies = Bot(conn)(msg("/start"))
+    assert replies[0].chat_id == ADMIN  # the admin's request goes first
+    c = Client()
+    deliver(c, replies, sleep=lambda s: None)
+    assert c.sent == [ADMIN]

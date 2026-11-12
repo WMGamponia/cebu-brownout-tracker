@@ -330,9 +330,10 @@ def _join(m: dict, conn, now: datetime, admin_chat_id: int | None) -> list[Reply
     username = frm.get("username")
     handle_ = f"@{e(username)}" if username else "no username"
     request = f"Join request: {e(name or '?')} ({handle_}, chat {chat_id})"
+    # The admin's request first: if the welcome can't be sent, the request still arrives.
     return [
-        Reply(chat_id, WELCOME),
         Reply(admin_chat_id, request, markup=_decision_buttons(chat_id)),
+        Reply(chat_id, WELCOME),
     ]
 
 
@@ -421,7 +422,8 @@ def handle(
 def deliver(
     client: TelegramClient, replies: list[Reply], sleep: Callable[[float], None] = time.sleep
 ) -> None:
-    """Send in order, messages at least `SEND_SPACING_S` apart."""
+    """Send in order, messages at least `SEND_SPACING_S` apart; a failed message is logged
+    and the rest still go."""
     sent = False
     for r in replies:
         if r.callback_id is not None:
@@ -434,7 +436,10 @@ def deliver(
         else:
             if sent:
                 sleep(SEND_SPACING_S)
-            client.send_message(r.chat_id, r.text, reply_markup=r.markup)
+            try:
+                client.send_message(r.chat_id, r.text, reply_markup=r.markup)
+            except TelegramError as err:  # one failed send never drops the rest
+                log.warning("bot: send to chat %s failed (%s)", r.chat_id, err.status)
             sent = True
 
 

@@ -120,3 +120,23 @@ def test_entity_kind_change_drops_row(world):
         conn.execute("UPDATE area_entities SET kind = 'other' WHERE areas_hash = 'hA' AND seq = 2")
     run_match(conn, index, bnd)
     assert ("hA", 2) not in _rows(conn)
+
+
+def test_partial_refetch_redoes_rows(world, tmp_path):
+    """Review #1: `streets fetch --towns X` for a town that isn't the oldest leaves osm_base
+    unchanged; the rows must still be redone (the extract's version is its newest fetch)."""
+    conn, _, bnd, _ = world
+    osm = tmp_path / "osm"
+    man_path = osm / "manifest.json"
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    for t in man["towns"].values():
+        t["fetched_at"] = "2026-11-12T03:00:00+00:00"
+    man_path.write_text(json.dumps(man), encoding="utf-8")
+    run_match(conn, StreetIndex.load(osm), bnd)
+    assert run_match(conn, StreetIndex.load(osm), bnd).written == 0
+    man["towns"]["702232000"]["fetched_at"] = "2026-11-12T05:00:00+00:00"  # refetched one town
+    man_path.write_text(json.dumps(man), encoding="utf-8")
+    index = StreetIndex.load(osm)
+    assert index.osm_base == OSM_BASE  # unchanged: the oldest town still dates the data
+    assert run_match(conn, index, bnd).written == 3
+    assert {r[3] for r in _rows(conn).values()} == {"2026-11-12T05:00:00+00:00"}

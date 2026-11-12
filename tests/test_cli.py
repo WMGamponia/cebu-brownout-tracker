@@ -269,7 +269,7 @@ def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
     assert "SECRET" not in out.out + out.err
     log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
     assert "bot: join request from chat 7" in log and "SECRET" not in log
-    assert sent_to == [7, 42]  # the welcome, then the admin's Approve / Deny request
+    assert sent_to == [42, 7]  # the admin's Approve / Deny request, then the welcome
 
 
 def test_bot_without_token_exits_1(capsys, monkeypatch, no_tg_env):

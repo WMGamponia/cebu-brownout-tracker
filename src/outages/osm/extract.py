@@ -23,8 +23,10 @@ class Way:
 
 
 class StreetIndex:
-    def __init__(self, osm_base: str | None, ways: list[Way]) -> None:
-        self.osm_base = osm_base
+    def __init__(self, osm_base: str | None, ways: list[Way], version: str | None = None):
+        self.osm_base = osm_base  # how old the OSM data is (its oldest town)
+        # Changes on every town write, so a partial refetch (`--towns`) is noticed by run_match.
+        self.version = version or osm_base
         self.ways = ways
         self._by_key: dict[tuple[str, str], list[Way]] = {}
         for w in ways:
@@ -49,7 +51,9 @@ class StreetIndex:
                 names = {k: v for k, v in w["tags"].items() if k in NAME_KEYS and v}
                 coords = [(float(x), float(y)) for x, y in w["geometry"]]
                 ways.append(Way(int(w["id"]), names, coords, psgc))
-        return cls(manifest.get("osm_base"), ways)
+        fetched = [t.get("fetched_at") for t in manifest.get("towns", {}).values()]
+        version = max((f for f in fetched if f), default=None)
+        return cls(manifest.get("osm_base"), ways, version)
 
     def ways_named(self, town_psgc: str, key: str) -> list[Way]:
         return list(self._by_key.get((town_psgc, key), []))
