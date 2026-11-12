@@ -28,7 +28,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-outages = ["migrations/*.sql", "areas/*.csv", "areas/*.geojson", "map/static/**/*"]
+outages = ["migrations/*.sql", "areas/*.csv", "areas/*.geojson", "map/static/**/*", "map/review_static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -53,6 +53,7 @@ from outages.history import stats as history_stats
 from outages.map import server as map_server
 from outages.map.app import NOT_MIGRATED, NOT_READY, create_app
 from outages.map.build import BoundariesError, load_boundaries, schema_ready
+from outages.map.review import ReviewConfig
 from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
 from outages.osm import extract as streets_index
@@ -837,9 +838,17 @@ def _run_once(paths: Paths, settings: TelegramSettings | None, do_check: bool) -
         conn.close()
 
 
-def make_map_app(paths: Paths):
-    """The map app over the real DB; raises `BoundariesError` if the boundaries won't load."""
-    return create_app(paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow())
+def make_map_app(paths: Paths, host: str = MAP_HOST):
+    """The map app over the real DB; raises `BoundariesError` if the boundaries won't load.
+    The street review routes come only with a loopback bind (Streets v2 spec 7.9)."""
+    review = (
+        ReviewConfig(street_suggest.queue_path(paths.data), paths.data / OSM_DIR_NAME)
+        if map_server.is_loopback(host)
+        else None
+    )
+    return create_app(
+        paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow(), review=review
+    )
 
 
 def _warn_if_lan(host: str) -> None:
@@ -851,7 +860,7 @@ def _map(paths: Paths, args: argparse.Namespace) -> int:
     """The map alone, in the foreground. Builds no fetcher and no Telegram client."""
     _warn_if_lan(args.host)
     try:
-        app = make_map_app(paths)
+        app = make_map_app(paths, args.host)
     except BoundariesError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -901,7 +910,7 @@ def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSetting
         return
     _warn_if_lan(args.map_host)
     try:
-        app = make_map_app(paths)
+        app = make_map_app(paths, args.map_host)
     except Exception as e:  # spec 6: nothing about the map may stop the alert runs
         _map_failed(paths, settings, f"map: not started: {e}")
         return

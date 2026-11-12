@@ -1,7 +1,9 @@
 """The map's web app: GET routes over a per-request read-only connection (spec 4.4).
 
 The surface is exactly `/`, `/history`, `/static/…`, `/outages.geojson`, `/stats.json`,
-`/boundaries.geojson` and `/healthz`: no docs UI, no CORS, no writes. A missing or old DB is a
+`/boundaries.geojson` and `/healthz`: no docs UI, no CORS, no writes. On a loopback bind the
+street review routes (`/streets/review…`, `map/review.py`) are added; they write only the
+alias queue file. A missing or old DB is a
 503 and is never created or migrated.
 """
 
@@ -23,6 +25,8 @@ from outages.areas.gazetteer import Gazetteer
 from outages.history.load import load_rows
 from outages.history.stats import compute, parse_range
 from outages.map.build import build, dumps, schema_ready
+from outages.map.review import STATIC as REVIEW_STATIC
+from outages.map.review import ReviewConfig, build_router
 from outages.map.window import WindowError, parse_window
 from outages.timeparse import MANILA
 
@@ -42,8 +46,13 @@ def _error(status: int, message: str) -> JSONResponse:
 
 
 def create_app(
-    db_path: Path, boundaries: dict, gaz: Gazetteer, clock: Callable[[], datetime]
+    db_path: Path,
+    boundaries: dict,
+    gaz: Gazetteer,
+    clock: Callable[[], datetime],
+    review: ReviewConfig | None = None,
 ) -> FastAPI:
+    """`review` (loopback binds only) adds the street review routes (Streets v2 spec 7.9)."""
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @contextmanager
@@ -131,5 +140,12 @@ def create_app(
         last = datetime.fromisoformat(row[0]).astimezone(MANILA).isoformat() if row else None
         return JSONResponse({"ok": True, "schema": version, "last_check_at": last})
 
+    if review is not None:
+        app.include_router(build_router(review, ro, boundaries))
+        app.mount(
+            "/streets/review/static",
+            StaticFiles(directory=REVIEW_STATIC),
+            name="review-static",
+        )
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app

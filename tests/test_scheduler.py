@@ -27,7 +27,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli, "utcnow", lambda: NOW)
     # serve starts the map thread by default; never open a real port in these tests
-    monkeypatch.setattr(cli, "make_map_app", lambda paths: object())
+    monkeypatch.setattr(cli, "make_map_app", lambda paths, *a: object())
     monkeypatch.setattr(cli.map_server, "start_thread", lambda *a, **k: None)
     return Paths(tmp_path)
 
@@ -226,7 +226,7 @@ def test_serve_starts_map_thread(home, monkeypatch):
 def test_serve_no_map_starts_no_thread(home, monkeypatch):
     _last_check(home, 2)
     calls = _quiet_serve(monkeypatch)
-    monkeypatch.setattr(cli, "make_map_app", lambda paths: pytest.fail("built the map app"))
+    monkeypatch.setattr(cli, "make_map_app", lambda paths, *a: pytest.fail("built the map app"))
     monkeypatch.setattr(
         cli.map_server, "start_thread", lambda *a, **k: pytest.fail("started the map")
     )
@@ -283,7 +283,7 @@ def test_map_bad_boundaries_in_serve_keeps_alerts(home, monkeypatch, caplog):
     _last_check(home, 2)
     calls = _quiet_serve(monkeypatch)
 
-    def bad(paths):
+    def bad(paths, *a):
         raise BoundariesError("boundaries missing")
 
     monkeypatch.setattr(cli, "make_map_app", bad)
@@ -306,7 +306,7 @@ def test_map_unexpected_startup_error_keeps_alerts(home, monkeypatch, caplog):
     _last_check(home, 2)
     calls = _quiet_serve(monkeypatch)
 
-    def broken(paths):
+    def broken(paths, *a):
         raise AttributeError("'list' object has no attribute 'get'")
 
     monkeypatch.setattr(cli, "make_map_app", broken)
