@@ -244,7 +244,10 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     a.add_argument("--dry-run", action="store_true", help="parse in memory, write nothing")
     a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
-    e.add_argument("action", choices=("sample", "run", "check", "review-sample", "freeze"))
+    e.add_argument(
+        "action", choices=("sample", "run", "check", "review-sample", "freeze", "freeze-aliases")
+    )
+    e.add_argument("--again", action="store_true", help="run: a rerun after a crashed test run")
     e.add_argument("--suite", choices=("areas", "streets", "streets-v2"), default="areas")
     e.add_argument("--n", type=int, default=25, help="review-sample: rows (default 25)")
     e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
@@ -318,6 +321,15 @@ def _eval_sample_streets(paths: Paths, seed: int) -> int:
 
 
 REVIEW_FILE = Path("streets") / "label-review.md"
+
+
+def _eval_freeze_aliases() -> int:
+    """`ALIASES_FROZEN` = the hash of the committed aliases, before the one test run."""
+    out = streets_eval.EVAL_DIR / streets_eval.ALIASES_FROZEN
+    out.parent.mkdir(parents=True, exist_ok=True)
+    evaluate.freeze(ALIASES_PATH, out)
+    print(f"written: {out}")
+    return 0
 
 
 def _eval_streets_v2(paths: Paths, args: argparse.Namespace) -> int:
@@ -865,6 +877,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
     if command == "snapshot":
         return _snapshot(paths, args)
     if command == "eval":
+        if args.action == "freeze-aliases":
+            return _eval_freeze_aliases()
         if args.suite == "streets-v2":
             return _eval_streets_v2(paths, args)
         if args.suite == "streets":
@@ -878,7 +892,13 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
                     paths.data / OSM_DIR_NAME,
                     load_boundaries(),
                     utcnow(),
+                    data_dir=paths.data,
+                    aliases_path=ALIASES_PATH,
+                    again=args.again,
                 )
+            except streets_eval.GuardError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 2
             except (evaluate.EvalError, BoundariesError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1

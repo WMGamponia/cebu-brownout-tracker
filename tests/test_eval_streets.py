@@ -276,7 +276,10 @@ def test_run_streets_test_split_must_be_frozen(tmp_path):
     with pytest.raises(EvalError, match="not frozen"):
         run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
     freeze(d / "test.jsonl", d / "FROZEN")
-    run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
+    # Streets v2: FROZEN alone is not enough; the rows, aliases and input log are guarded too
+    # (tests/test_eval_streets_guards.py)
+    with pytest.raises(EvalError, match="test.rows.jsonl missing"):
+        run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
 
 
 def test_run_streets_without_extract_errors(tmp_path):

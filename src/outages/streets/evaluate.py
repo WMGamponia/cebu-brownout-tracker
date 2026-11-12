@@ -18,9 +18,15 @@ from datetime import datetime
 from pathlib import Path
 
 from outages.config import VECO_TOWNS
-from outages.evaluate import EvalError, check_frozen, load_split
+from outages.evaluate import EvalError, load_split
 from outages.osm.extract import StreetIndex
-from outages.streets.match import load_aliases, match_street, scope_for, search_towns
+from outages.streets.match import (
+    ALIASES_PATH,
+    load_aliases,
+    match_street,
+    scope_for,
+    search_towns,
+)
 from outages.streets.normalize import street_key
 
 EVAL_DIR = Path("evals") / "streets"
@@ -28,6 +34,8 @@ P5_DIR = "p5"  # Phase 5's retired split and results (history; Streets v2 spec 4
 TEST_ROWS = "test.rows.jsonl"  # the v2 test rows, no gold
 ROWS_FROZEN = "ROWS_FROZEN"
 ALIASES_FROZEN = "ALIASES_FROZEN"
+INPUT_LOG_NAME = "suggest_inputs.jsonl"
+INPUT_LOG = Path("data") / "streets" / INPUT_LOG_NAME  # every mention sent to the suggester
 SEED = 20261112
 PER_TOWN = 10
 N_DEV = 30  # spec 5.1: 30 dev / 50 test (8 towns: six give 4 dev rows, two give 3)
@@ -258,25 +266,57 @@ def _town_name(psgc: str) -> str:
     return names.get(psgc, psgc)
 
 
+def _results_path(out_dir: Path, split: str, now: datetime, again: bool) -> Path:
+    """`<date>-<split>.md`; a second test run the same day refuses unless `--again`, which
+    writes `<date>-test-<n>.md` (spec 6.4: for a crashed run, not a re-roll)."""
+    out = out_dir / f"{now:%Y-%m-%d}-{split}.md"
+    if split != "test" or not out.exists():
+        return out
+    if not again:
+        raise GuardError(
+            f"{out} exists: the test split runs once; pass --again only after a crashed run"
+        )
+    n = 2
+    while (out_dir / f"{now:%Y-%m-%d}-{split}-{n}.md").exists():
+        n += 1
+    return out_dir / f"{now:%Y-%m-%d}-{split}-{n}.md"
+
+
 def run_streets(
-    split: str, eval_dir: Path, osm_dir: Path, boundaries: dict, now: datetime
+    split: str,
+    eval_dir: Path,
+    osm_dir: Path,
+    boundaries: dict,
+    now: datetime,
+    data_dir: Path = Path("data"),
+    aliases_path: Path = ALIASES_PATH,
+    again: bool = False,
 ) -> tuple[Path, dict]:
     """Match every labelled row in memory (no DB, no store), score, write the report.
 
-    The test split must be frozen and unchanged (spec 5.4)."""
+    The test split runs only behind its four guards (spec 6.4)."""
     path = eval_dir / f"{split}.jsonl"
-    if split == "test":
-        check_frozen(path, eval_dir / "FROZEN")
     index = StreetIndex.load(osm_dir)
     if index is None:
         raise EvalError(f"no OSM extract in {osm_dir}; run `streets fetch` first")
+    guards = (
+        test_guards(eval_dir, data_dir, aliases_path, index.osm_base) if split == "test" else []
+    )
+    out_dir = eval_dir / "results"
+    out = _results_path(out_dir, split, now, again)
     rows = load_split(path)
     check_osm_base(rows, index.osm_base)
-    aliases = load_aliases()
+    aliases = load_aliases(aliases_path)
     matches = {}
     lines = [
         f"# Street eval — {split} — {now:%Y-%m-%d}",
         "",
+        *(["Guards (spec 6.4):", "", *[f"- {g}" for g in guards], ""] if guards else []),
+        *(
+            [f"Written with --again ({out.name}): a rerun after a crashed run.", ""]
+            if again
+            else []
+        ),
         f"Extract osm_base {index.osm_base}; {len(aliases)} aliases; rules only.",
         "",
     ]
@@ -321,7 +361,6 @@ def run_streets(
     ]
     out_dir = eval_dir / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{now:%Y-%m-%d}-{split}.md"
     out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return out, s
 
@@ -499,3 +538,69 @@ def format_review(rows: list[dict], index: StreetIndex | None, boundaries: dict)
             out.append(f"  - … {len(cands) - REVIEW_CANDIDATES} more in scope")
         out.append("")
     return "\n".join(out)
+
+
+# --- Streets v2: the four guards on the single test run (spec 6.4) ---
+
+
+def check_test_frozen(eval_dir: Path) -> str:
+    test, frozen = eval_dir / "test.jsonl", eval_dir / "FROZEN"
+    if not frozen.is_file():
+        raise GuardError(f"{test} is not frozen ({frozen} missing)")
+    sha = _sha(test)
+    if sha != frozen.read_text(encoding="utf-8").strip():
+        raise GuardError(f"{test} changed since FROZEN; see {eval_dir / 'CHANGES.md'}")
+    return sha
+
+
+def input_log_rows(data_dir: Path) -> set[tuple[str, int]]:
+    log = data_dir / "streets" / INPUT_LOG_NAME
+    if not log.is_file():
+        return set()
+    out = set()
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            out.add((r["areas_hash"], int(r["seq"])))
+    return out
+
+
+def test_guards(
+    eval_dir: Path, data_dir: Path, aliases_path: Path, index_osm_base: str | None
+) -> list[str]:
+    """The four checks before the one test run, as report lines; `GuardError` names the first
+    that fails: (1) test.jsonl = FROZEN and fits the frozen rows, (2) the aliases =
+    ALIASES_FROZEN, (3) every label's osm_base = the extract's, (4) no test mention was ever
+    sent to the suggester."""
+    test_sha = check_test_frozen(eval_dir)
+    rows_p = eval_dir / TEST_ROWS
+    if not rows_p.is_file():
+        raise GuardError(f"{rows_p} missing")
+    counts = check_labels(rows_p, eval_dir / "test.jsonl", index_osm_base)  # (1) rows + (3)
+    rows_sha = _sha(rows_p)
+    frozen_aliases = eval_dir / ALIASES_FROZEN
+    if not frozen_aliases.is_file():
+        raise GuardError(f"{frozen_aliases} missing: run `eval freeze-aliases` first")
+    alias_sha = _sha(aliases_path)
+    if alias_sha != frozen_aliases.read_text(encoding="utf-8").strip():
+        raise GuardError(f"{aliases_path.name} changed since ALIASES_FROZEN was written")
+    logged = input_log_rows(data_dir)
+    ids = {(r["areas_hash"], r["seq"]): r["id"] for r in load_split(rows_p)}
+    leaked = sorted(ids[k] for k in logged if k in ids)
+    if leaked:
+        raise GuardError(f"test rows were sent to the suggester: {', '.join(leaked)}")
+    return [
+        f"test.jsonl sha256 {test_sha[:16]}… = FROZEN ✓",
+        f"test.rows.jsonl sha256 {rows_sha[:16]}… = ROWS_FROZEN; {counts['rows']} ids and "
+        "mentions match ✓",
+        f"{aliases_path.name} sha256 {alias_sha[:16]}… = ALIASES_FROZEN ✓",
+        f"osm_base {index_osm_base} on every label ✓; "
+        + (
+            f"{len(logged)} suggester inputs logged, none from the test split ✓"
+            if logged
+            else "no suggester inputs logged ✓"
+        ),
+    ]
+
+
+test_guards.__test__ = False  # a guard, not a pytest test
