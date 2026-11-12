@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Phase 5 — Streets, history, multi-user, **spec approved and plan written on `phase5-streets-history` (plan awaits the owner's review); build starts with `prompts/phase5-build.md`.** Phase 4 built on `phase4-map`; PR #4 waits for the owner's OK. Phases 1–3 merged to `main` (PRs #1, #2, #3).
+**Current phase:** Phase 5 — Streets, history, multi-user, **spec and plan approved on `phase5-streets-history` (native execution); build starts with `prompts/phase5-build.md`.** Phase 4 built on `phase4-map`; PR #4 waits for the owner's OK. Phases 1–3 merged to `main` (PRs #1, #2, #3).
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
@@ -103,7 +103,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 - **2026-11-12** — **Phase 4 build complete (Task 10).** The owner restarted `serve` on `phase4-map` (07:47): log `map: http://127.0.0.1:8765`, the catch-up check ran, `/healthz` and the page show "Data as of Thu 12 Nov, 07:47"; the 20:00 run with the map thread is still to be seen in the log. README: the map, LAN opt-in, Node tests, attributions. One fresh whole-branch review: 0 critical, 2 important, 9 minor; 4 fixed test-first (646 Python + 16 JS tests): (1) Ctrl+C on `map` exited 1 with "rerun to resume" (uvicorn re-raises SIGINT after its clean shutdown); (2) the page's lists ran in id order, not time order (JS orders integer-like keys numerically); (3) a map startup error other than bad boundaries would have stopped `serve` and its alerts; (4) a tab left open never refetched, so it could show old data without the warning. 5 minors deferred (listed in the PR). `prompts/phase5.md` written.
 
-- **2026-11-12** — **Phase 5 brainstorm done; spec approved, plan written.** Spec: `docs/superpowers/specs/2026-11-12-phase5-streets-history-design.md`; plan: `docs/superpowers/plans/2026-11-12-phase5-streets-history.md` (12 tasks); build prompt `prompts/phase5-build.md`. Branch `phase5-streets-history` from `phase4-map` (PR #4 still open). Decisions (owner, 2026-11-12):
+- **2026-11-12** — **Phase 5 brainstorm done; spec and plan approved (native execution).** Spec: `docs/superpowers/specs/2026-11-12-phase5-streets-history-design.md`; plan: `docs/superpowers/plans/2026-11-12-phase5-streets-history.md` (12 tasks); build prompt `prompts/phase5-build.md`. Branch `phase5-streets-history` from `phase4-map` (PR #4 still open). Decisions (owner, 2026-11-12):
   - **Multi-user = approve to join:** anyone may `/start`; the admin approves each chat with a button; `TELEGRAM_ALLOWED_CHAT_IDS` stays always-approved. Private chats only; ≤ 20 pending, ≤ 10 subscriptions each, a per-chat rate limit; `/privacy`, `/forget` (deletes every row with the chat ID), admin `/pending`, `/users` (no barangays), `/revoke`. Reason: the bot runs on a PC that sleeps (two runs missed this week), and a barangay is close to a home address; the welcome text says alerts can be late or missed.
   - **Streets from one Overpass extract per town** (8 requests, by hand with `streets fetch --yes`), stored in `data/osm/`, never committed (ODbL); plain httpx. Matching offline into `street_matches` (status + clipped lines), so the map stays read-only.
   - **Lines on top of shading:** a barangay is never unshaded because some streets matched (VECO's lists also hold sitios and establishments).
