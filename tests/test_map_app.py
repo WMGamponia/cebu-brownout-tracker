@@ -18,6 +18,8 @@ from outages.map.app import create_app
 from outages.map.build import build, dumps
 from outages.map.window import default_window
 
+LATEST = max(n for n, _ in db._migrations())
+
 
 @pytest.fixture
 def db_path(tmp_path) -> Path:
@@ -70,7 +72,7 @@ def test_index_and_static(db_path):
 def test_healthz(db_path):
     r = _client(db_path).get("/healthz")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "schema": 3, "last_check_at": "2026-11-12T08:00:00+08:00"}
+    assert r.json() == {"ok": True, "schema": LATEST, "last_check_at": "2026-11-12T08:00:00+08:00"}
 
 
 def test_no_docs_routes(db_path):

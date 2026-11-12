@@ -25,20 +25,23 @@ def conn(tmp_path):
     c.close()
 
 
+LATEST = max(n for n, _ in db._migrations())
 AREA_TABLES = {"area_parses", "area_barangays", "area_entities", "llm_cache"}
 
 
 def test_fresh_db_has_schema(conn):
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= TABLES | AREA_TABLES
-    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == [1, 2, 3]
+    assert [r[0] for r in conn.execute("SELECT version FROM schema_version")] == list(
+        range(1, LATEST + 1)
+    )
 
 
 def test_connect_twice_does_not_reapply(tmp_path):
     p = tmp_path / "o.db"
     db.connect(p).close()
     c = db.connect(p)
-    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == 3
+    assert c.execute("SELECT count(*) FROM schema_version").fetchone()[0] == LATEST
     c.close()
 
 
@@ -67,7 +70,7 @@ def test_migration_002_on_phase1_db(tmp_path):
     c = db.connect(p)
     names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= AREA_TABLES
-    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
+    assert c.execute("SELECT max(version) FROM schema_version").fetchone()[0] == LATEST
     assert c.execute("SELECT areas_hash, areas_raw FROM outages").fetchone()[0] is None
     c.close()
 
@@ -173,7 +176,7 @@ ALERT_TABLES = {"subscribers", "subscriptions", "alerts_sent", "admin_notes_sent
 def test_migration_003_tables(conn):
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert names >= ALERT_TABLES
-    assert conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
+    assert conn.execute("SELECT max(version) FROM schema_version").fetchone()[0] == LATEST
 
 
 def _seed_alert_refs(conn):
@@ -210,3 +213,38 @@ def test_alerts_sent_unique_item(conn):
 
 def test_connect_sets_busy_timeout(conn):
     assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30000
+
+
+def _cols(conn, table):
+    return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def test_migration_004_tables(conn):
+    assert _cols(conn, "street_matches") == {
+        "areas_hash",
+        "seq",
+        "status",
+        "osm_name",
+        "geometry_json",
+        "osm_date",
+    }
+    assert _cols(conn, "subscribers") >= {"status", "requested_at", "decided_at"}
+    assert db._version(conn) == 4
+
+
+def test_migration_004_keeps_subscribers_approved(tmp_path):
+    p = tmp_path / "o.db"
+    c = sqlite3.connect(p)
+    for n, sql in db._migrations():
+        if n <= 3:
+            c.executescript(
+                f"BEGIN;\n{sql}\nINSERT INTO schema_version (version) VALUES ({n});\nCOMMIT;"
+            )
+    c.execute("INSERT INTO subscribers (chat_id, created_at) VALUES (42, 't')")
+    c.commit()
+    c.close()
+    c = db.connect(p)
+    assert c.execute("SELECT status FROM subscribers WHERE chat_id = 42").fetchone()[0] == (
+        "approved"
+    )
+    c.close()

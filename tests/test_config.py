@@ -75,3 +75,19 @@ def test_map_settings():
     assert config.STALE_CHECK_H == 15
     assert set(config.MECO_TOWNS.values()) == {"731100000", "702223000"}
     assert not set(config.MECO_TOWNS.values()) & set(config.VECO_TOWNS.values())
+
+
+def test_phase5_settings():
+    assert config.OVERPASS_URL == "https://overpass-api.de/api/interpreter"
+    assert config.OVERPASS_SPACING_S == 10
+    assert config.OVERPASS_BACKOFF_S == (30, 120)
+    assert config.OSM_DIR_NAME == "osm"
+    assert config.STREET_BUFFER_M == 150
+    assert config.BBOX_PAD_M == 500
+    assert isinstance(config.STREETS_DRAW, bool)
+    assert config.PENDING_CAP == 20
+    assert config.SUBSCRIPTION_CAP == 10
+    assert config.RATE_LIMIT_PER_MIN == 20
+    assert config.RATE_LIMIT_MUTE_S == 600
+    assert config.SEND_SPACING_S == 0.05
+    assert config.PENDING_REPLY_EVERY_H == 24
