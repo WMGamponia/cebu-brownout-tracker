@@ -700,7 +700,14 @@ def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     try:
         conn.execute("PRAGMA busy_timeout=30000")  # wait out a scheduled run's write
         snapshot.guard(conn)
-        files = snapshot.build_files(conn, load_gazetteer(), load_boundaries(), taken, last)
+        files = snapshot.build_files(
+            conn,
+            load_gazetteer(),
+            load_boundaries(),
+            taken,
+            last,
+            osm_base=streets_index.read_osm_base(paths.data / OSM_DIR_NAME),
+        )
     except Exception as e:
         log.exception("snapshot: build failed")
         print(f"error: snapshot not written: {e}", file=sys.stderr)

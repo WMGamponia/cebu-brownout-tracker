@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from outages.areas.gazetteer import Gazetteer
-from outages.config import PUBLIC_REPO_URL, VECO_HOME
+from outages.config import PUBLIC_REPO_URL, STREETS_DRAW, VECO_HOME
 from outages.history.load import load_rows
 from outages.history.stats import Range, compute
 from outages.map.app import STATIC
@@ -70,7 +70,7 @@ PRUNED = {
     "stats": re.compile(r"[a-z0-9-]+\.json"),
 }
 
-LICENSES = """\
+LICENSES_HEAD = """\
 # Licences and data notes
 
 This folder is a static snapshot of the Cebu Brownout Tracker, a portfolio demo. It is not
@@ -83,11 +83,30 @@ live and not affiliated with VECO (Visayan Electric Company).
 - **Map library:** Leaflet 1.9.4, BSD-2-Clause (in `static/vendor/leaflet-1.9.4/`).
 - **Map tiles:** © OpenStreetMap contributors, used under the OSMF tile usage policy. Your
   browser fetches the tiles from OpenStreetMap's servers, which see your IP address.
+"""
+STREETS_OFF = """\
 - **Street lines:** none while street drawing is off. If drawing is ever on, street lines are
   derived from OpenStreetMap data, © OpenStreetMap contributors, available under the ODbL; the
   derived lines are in `weeks/*.geojson` (the `streets.drawn[].lines` fields).
+"""
+STREETS_ON = """\
+- **Street lines:** derived from OpenStreetMap data, © OpenStreetMap contributors, available
+  under the Open Database License (ODbL) 1.0. Extract as of {osm_base}. The derived lines are
+  in `weeks/*.geojson` (the `streets.drawn[].lines` fields) and are offered under the same
+  licence.
+"""
+LICENSES_TAIL = """\
 - **Code:** MIT; see the repository.
 """
+
+
+def licenses_text(draw: bool, osm_base: str | None) -> str:
+    """LICENSES.md; the street paragraph follows `STREETS_DRAW` (Streets v2 spec 8)."""
+    streets = STREETS_ON.format(osm_base=osm_base or "unknown") if draw else STREETS_OFF
+    return LICENSES_HEAD + streets + LICENSES_TAIL
+
+
+LICENSES = licenses_text(False, None)
 
 
 class SnapshotError(Exception):
@@ -172,6 +191,8 @@ def build_files(
     boundaries: dict,
     taken_at: datetime,
     last_check_at: str | None,
+    draw: bool = STREETS_DRAW,
+    osm_base: str | None = None,
 ) -> dict[str, bytes]:
     """Every output file (relative POSIX path → bytes), built in memory."""
     taken_at = taken_at.astimezone(MANILA).replace(microsecond=0)
@@ -180,7 +201,7 @@ def build_files(
     files.update(_static_files())
     ws = windows(conn, taken_at)
     for w in ws:
-        doc = build(conn, gaz, boundaries, w, taken_at)
+        doc = build(conn, gaz, boundaries, w, taken_at, draw=draw)
         files[f"weeks/{w.from_date.isoformat()}.geojson"] = dumps(doc).encode("utf-8")
     rs = ranges(d)
     for r in rs:
@@ -204,7 +225,7 @@ def build_files(
         "code_url": PUBLIC_REPO_URL,
     }
     files["snapshot.json"] = dumps(snap).encode("utf-8")
-    files["LICENSES.md"] = LICENSES.encode("utf-8")
+    files["LICENSES.md"] = licenses_text(draw, osm_base).encode("utf-8")
     files[".nojekyll"] = b""
     return files
 

@@ -82,3 +82,11 @@ class StreetIndex:
                         out.update(set(w.names.values()))
                         break
         return sorted(out, key=lambda n: (-out[n], n))
+
+
+def read_osm_base(osm_dir: Path) -> str | None:
+    """The extract's `osm_base` from its manifest alone (no ways loaded); None if absent."""
+    man_path = osm_dir / MANIFEST
+    if not man_path.is_file():
+        return None
+    return json.loads(man_path.read_text(encoding="utf-8")).get("osm_base")
