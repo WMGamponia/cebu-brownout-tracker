@@ -219,7 +219,8 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     m.add_argument("--port", type=int, default=MAP_PORT)
     st = parsers["streets"]
     st.add_argument("action", nargs="?", choices=("fetch", "match"))
-    st.add_argument("--yes", action="store_true", help="fetch: make the 8 Overpass requests")
+    st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
+    st.add_argument("--towns", help="fetch: only these towns (comma-separated names)")
     st.add_argument("--rebuild", action="store_true", help="match: redo every street")
     st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
     st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
@@ -263,10 +264,22 @@ def _eval_run(paths: Paths, args: argparse.Namespace) -> int:
 
 def _streets_fetch(paths: Paths, args: argparse.Namespace) -> int:
     """Without --yes: print the 8 requests and exit 2, building no client (spec 4.2)."""
+    names = list(VECO_TOWNS)
+    if args.towns:
+        names = [t.strip() for t in args.towns.split(",") if t.strip()]
+        unknown = [t for t in names if t not in VECO_TOWNS]
+        if unknown:
+            print(
+                f"error: unknown town {', '.join(unknown)}; one of {', '.join(VECO_TOWNS)}",
+                file=sys.stderr,
+            )
+            return 2
     try:
         boundaries = load_boundaries()
         plan = [
-            (name, psgc, overpass.town_bbox(boundaries, psgc)) for name, psgc in VECO_TOWNS.items()
+            (name, psgc, overpass.town_bbox(boundaries, psgc))
+            for name, psgc in VECO_TOWNS.items()
+            if name in names
         ]
     except (BoundariesError, overpass.FetchError) as e:
         print(f"error: {e}", file=sys.stderr)
@@ -281,7 +294,9 @@ def _streets_fetch(paths: Paths, args: argparse.Namespace) -> int:
     out_dir = paths.data / OSM_DIR_NAME
     client = overpass.make_client()
     try:
-        summary = overpass.fetch_all(client, boundaries, out_dir, utcnow())
+        summary = overpass.fetch_all(
+            client, boundaries, out_dir, utcnow(), towns=[psgc for _, psgc, _ in plan]
+        )
     finally:
         client.close()
     manifest = overpass.load_manifest(out_dir) or {"towns": {}}

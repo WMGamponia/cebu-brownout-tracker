@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 
 NAME_TAGS = ("name", "alt_name", "old_name", "official_name", "short_name", "highway")
 MANIFEST = "manifest.json"
+# Overloaded or rate-limited: wait and retry (502/503 are what an overloaded gateway answers).
+BACKOFF_STATUS = (429, 502, 503, 504)
 
 Sleep = Callable[[float], None]
 
@@ -43,7 +45,7 @@ class FetchError(Exception):
 
 
 class RateLimited(FetchError):
-    """429/504 after every back-off: stop the whole fetch (spec 7)."""
+    """429/502/503/504 after every back-off: stop the whole fetch (spec 7)."""
 
 
 @dataclass
@@ -108,7 +110,7 @@ def fetch_town(
             r = client.post(OVERPASS_URL, data={"data": query})
         except httpx.HTTPError as e:
             raise FetchError(f"{town_psgc}: {type(e).__name__}") from None
-        if r.status_code in (429, 504):
+        if r.status_code in BACKOFF_STATUS:
             if not backoffs:
                 raise RateLimited(f"{town_psgc}: HTTP {r.status_code} after back-off")
             wait = backoffs.pop(0)
@@ -154,12 +156,18 @@ def fetch_all(
     out_dir: Path,
     now: datetime,
     sleep: Sleep = time.sleep,
+    towns: list[str] | None = None,
 ) -> FetchSummary:
-    """Fetch every VECO town in order; write each file atomically and update the manifest."""
+    """Fetch the VECO towns (all, or `towns`) in order; write each file atomically and update
+    the manifest. Towns not fetched keep their files and manifest entries."""
+    veco = list(VECO_TOWNS.values())
+    for t in towns or []:
+        if t not in veco:
+            raise FetchError(f"{t} is not a VECO town")
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(out_dir) or {"towns": {}}
     summary = FetchSummary()
-    towns = list(VECO_TOWNS.values())
+    towns = [t for t in veco if t in towns] if towns else veco
     for i, psgc in enumerate(towns):
         if i:
             sleep(OVERPASS_SPACING_S)

@@ -250,3 +250,42 @@ def test_rate_limit_stops_and_keeps_fetched(tmp_path, boundaries):
     assert (tmp_path / f"streets-{towns[1]}.json").exists()
     man = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
     assert set(man["towns"]) == set(towns[:2])
+
+
+@pytest.mark.parametrize("status", [502, 503])
+def test_502_503_back_off_like_504(status):
+    responses = iter([httpx.Response(status), httpx.Response(200, content=_body("ok_small.json"))])
+    sl = Sleeps()
+    got = fetch_town(_client(lambda r: next(responses)), "730600000", BBOX, sleep=sl)
+    assert len(got["ways"]) == 2
+    assert sl.calls == [30]
+
+
+def test_fetch_all_only_listed_towns_keeps_others(tmp_path, boundaries):
+    towns = list(VECO_TOWNS.values())
+    ok = lambda r: httpx.Response(200, content=_body("ok_small.json"))  # noqa: E731
+    fetch_all(_client(ok), boundaries, tmp_path, NOW, sleep=Sleeps())
+    before = (tmp_path / f"streets-{towns[1]}.json").read_bytes()
+    later = datetime(2026, 11, 12, 5, 0, tzinfo=UTC)
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        return ok(req)
+
+    sl = Sleeps()
+    s = fetch_all(
+        _client(handler), boundaries, tmp_path, later, sleep=sl, towns=[towns[0], towns[3]]
+    )
+    assert s.ok == [towns[0], towns[3]]
+    assert len(seen) == 2 and sl.calls == [10]
+    assert (tmp_path / f"streets-{towns[1]}.json").read_bytes() == before
+    man = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert set(man["towns"]) == set(towns)
+    assert man["towns"][towns[0]]["fetched_at"] == later.isoformat()
+    assert man["towns"][towns[1]]["fetched_at"] == NOW.isoformat()
+
+
+def test_fetch_all_unknown_town_rejected(tmp_path, boundaries):
+    with pytest.raises(FetchError, match="not a VECO town"):
+        fetch_all(_client(lambda r: None), boundaries, tmp_path, NOW, towns=["123"])

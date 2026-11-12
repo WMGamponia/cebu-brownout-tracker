@@ -396,7 +396,7 @@ def test_streets_fetch_yes_reports(capsys, monkeypatch, tmp_path):
 
     monkeypatch.setattr(overpass, "make_client", lambda **kw: FakeClient())
 
-    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None):
+    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None, towns=None):
         out_dir.mkdir(parents=True)
         (out_dir / "manifest.json").write_text(
             '{"osm_base": "2026-11-12T03:00:00Z", "towns": {"730600000": {"ways": 5}}}',
@@ -411,3 +411,31 @@ def test_streets_fetch_yes_reports(capsys, monkeypatch, tmp_path):
     assert "Cebu City" in out and "5 ways" in out
     assert "Mandaue City" in out and "0 ways" in out
     assert "2026-11-12T03:00:00Z" in out
+
+
+def test_streets_fetch_towns_by_name(capsys, monkeypatch, tmp_path):
+    from outages.osm import overpass
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    assert main(["streets", "fetch", "--towns", "Cebu City,Minglanilla"]) == 2
+    out = capsys.readouterr().out
+    assert "2 requests" in out
+    assert "Cebu City" in out and "Minglanilla" in out and "Liloan" not in out
+    seen = {}
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None, towns=None):
+        seen["towns"] = towns
+        return overpass.FetchSummary(ok=[], failed={})
+
+    monkeypatch.setattr(overpass, "make_client", lambda **kw: FakeClient())
+    monkeypatch.setattr(overpass, "fetch_all", fake_fetch_all)
+    main(["streets", "fetch", "--yes", "--towns", "Cebu City,Minglanilla"])
+    assert seen["towns"] == ["730600000", "702232000"]
+    assert main(["streets", "fetch", "--towns", "Atlantis"]) == 2
+    assert "unknown town" in capsys.readouterr().err
