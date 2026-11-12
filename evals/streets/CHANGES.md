@@ -9,3 +9,4 @@ Any change to `test.jsonl` after it is frozen is logged here with the reason and
   - test-18: `Cebu South Road` → `Natalio Bacalso Avenue` (rule 1: the in-scope way's `name`; "Cebu South Road" is its `alt_name`).
   - dev-07: `Maghaway Road` → `null`, note `two roads` (rule 4: a separate Linao Road way in scope also carries `alt_name=Maghaway Road`; the matcher would draw both).
   - All other 78 golds stand. Rule numbers in notes renumbered to GUIDE v2 (v1 rules 3–7 are v2 rules 5–9; v1 rule 1 is "scope").
+- 2026-11-12 — Streets v2 test split: 150 rows sampled (seed 20261113, `test.rows.jsonl`, `ROWS_FROZEN` 6ae68462…) and labelled under GUIDE v2 by a fresh labeller from `streets candidates` output (46 null, 104 non-null, 3 lists). Owner reviewed 25 labels (`eval review-sample`); all stand. t2-013 (`Kamatisan Rd.`) discussed: the road exists on the ground but has no name in OSM, so `null` (rule 9) stands — an OSM gap, not a label error. Frozen: `FROZEN` = 0ee44bd8….
