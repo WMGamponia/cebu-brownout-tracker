@@ -259,11 +259,15 @@ def load(conn: sqlite3.Connection, now: datetime, gaz: Gazetteer) -> Snapshot:
     """Everything `due_items` needs; an empty snapshot before migration 003."""
     if not _has_table(conn, "subscribers"):
         return Snapshot()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(subscribers)")}
+    # Phase 5: only approved chats get alerts (a schema-3 DB has no status: all were allowed).
+    approved = " AND s.status = 'approved'" if "status" in cols else ""
     subs = [
         Sub(r[0], r[1], r[2], datetime.fromisoformat(r[3]))
         for r in conn.execute(
             "SELECT s.id, s.chat_id, x.psgc_code, x.created_at FROM subscribers s"
             " JOIN subscriptions x ON x.subscriber_id = s.id WHERE s.active = 1"
+            f"{approved}"
             " ORDER BY s.id, x.created_at, x.psgc_code"
         )
     ]

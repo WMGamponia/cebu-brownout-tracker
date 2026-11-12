@@ -11,7 +11,8 @@ import io
 import json
 import logging
 import sqlite3
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -27,6 +28,7 @@ from outages.alerts.select import (
     load,
 )
 from outages.areas.gazetteer import Gazetteer
+from outages.config import SEND_SPACING_S
 from outages.notify import Notifier, PrintNotifier, SendError
 from outages.timeparse import MANILA
 
@@ -193,21 +195,29 @@ def admin_notes(
     return [n for n in notes if not all(store.note_sent(conn, k) for k in n.keys)]
 
 
-def _send_all(notifier: Notifier, chat_id: int, parts: list[str]) -> str:
-    """Send every part; 'plain' if any part fell back to plain text. Raises SendError."""
+def _send_all(notifier: Notifier, chat_id: int, parts: list[str], pace: Callable[[], None]) -> str:
+    """Send every part, paced; 'plain' if any part fell back to plain text. Raises SendError."""
     how = "html"
     for p in parts:
+        pace()
         if notifier.send(chat_id, p) == "plain":
             how = "plain"
     return how
 
 
 def _record(conn: sqlite3.Connection, items: list[AlertItem], now: datetime) -> None:
+    """Record sent items only for a subscriber that still exists with that chat: a /forget on
+    the bot thread during the send must not fail the run or leave a trace of the user."""
     with conn:
         conn.executemany(
             "INSERT OR IGNORE INTO alerts_sent (subscriber_id, outage_id, kind, change_id,"
-            " sent_at) VALUES (?, ?, ?, ?, ?)",
-            [(i.subscriber_id, i.outage_id, i.kind, i.change_id, store.ts(now)) for i in items],
+            " sent_at) SELECT ?, ?, ?, ?, ? WHERE EXISTS"
+            " (SELECT 1 FROM subscribers WHERE id = ? AND chat_id = ?)",
+            [
+                (i.subscriber_id, i.outage_id, i.kind, i.change_id, store.ts(now))
+                + (i.subscriber_id, i.chat_id)
+                for i in items
+            ],
         )
 
 
@@ -225,16 +235,25 @@ def alert_run(
     gaz: Gazetteer,
     admin_chat_id: int | None,
     check_ok: bool,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> RunSummary:
-    """Send each active subscriber one message with what is due; then the admin notes."""
+    """Send each approved subscriber one message with what is due; then the admin notes.
+    Messages go one at a time, at least SEND_SPACING_S apart (Phase 5 spec 4.9)."""
     snap = load(conn, now, gaz)
     groups = _by_subscriber(due_items(snap, now))
     sent = recorded = failed = 0
     run_notes: list[Note] = []
+    started = [False]
+
+    def pace() -> None:
+        if started[0]:
+            sleep(SEND_SPACING_S)
+        started[0] = True
+
     for (sid, chat_id), items in groups.items():
         parts = render(items, snap, gaz, now)
         try:
-            how = _send_all(notifier, chat_id, parts)
+            how = _send_all(notifier, chat_id, parts, pace)
         except SendError as err:
             failed += 1
             log.warning("alerts: send to subscriber %s failed (%s)", sid, err.kind)

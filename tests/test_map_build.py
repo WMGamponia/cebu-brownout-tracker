@@ -12,7 +12,20 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from map_world import NOW, P2, STO_NINO, TAYUD_C, TAYUD_L, TISA, boundaries, gazetteer, populate
+from map_world import (
+    GORORDO_LINES,
+    NOW,
+    P2,
+    STO_NINO,
+    STREETS_OSM_DATE,
+    TAYUD_C,
+    TAYUD_L,
+    TISA,
+    boundaries,
+    gazetteer,
+    populate,
+    populate_streets,
+)
 
 from outages import db
 from outages.map.build import BoundariesError, build, dumps, load_boundaries, schema_ready
@@ -25,13 +38,14 @@ GOLDEN = Path(__file__).parent / "golden" / "map"
 def conn():
     c = db.connect(Path(":memory:"))
     populate(c)
+    populate_streets(c)
     yield c
     c.close()
 
 
-def _doc(conn, window: Window | None = None) -> dict:
+def _doc(conn, window: Window | None = None, draw: bool = True) -> dict:
     w = window or default_window(conn, NOW)
-    return json.loads(dumps(build(conn, gazetteer(), boundaries(), w, NOW)))
+    return json.loads(dumps(build(conn, gazetteer(), boundaries(), w, NOW, draw=draw)))
 
 
 def _check_golden(doc: dict, name: str) -> None:
@@ -149,7 +163,7 @@ def test_meta_times_in_manila(conn):
     meta = _doc(conn)["meta"]
     assert meta["generated_at"] == "2026-11-12T10:00:00+08:00"
     assert meta["last_check_at"] == "2026-11-12T08:00:00+08:00"
-    assert meta["attribution"] == boundaries()["attribution"]
+    assert meta["attribution"].startswith(boundaries()["attribution"])
 
 
 def test_never_checked_is_null(conn):
@@ -201,3 +215,89 @@ def test_load_boundaries_rejects_wrong_json_types(tmp_path):
         p.write_text(bad, encoding="utf-8")
         with pytest.raises(BoundariesError):
             load_boundaries(p)
+
+
+ODBL = "Streets © OpenStreetMap contributors (ODbL)"
+
+
+def test_streets_drawn_and_not_drawn(conn):
+    o = _doc(conn)["outages"]["1"]  # hA: Gorordo drawn, Salinas not found
+    assert o["streets"] == {
+        "drawn": [{"name": "Gorordo Ave.", "osm_name": "Gorordo Avenue", "lines": GORORDO_LINES}],
+        "not_drawn": [{"name": "Salinas Dr.", "why": "not_found"}],
+    }
+    assert _doc(conn)["outages"]["4"]["streets"]["drawn"][0]["osm_name"] == "Juana Osmeña Street"
+    assert _doc(conn)["outages"]["2"]["streets"] == {"drawn": [], "not_drawn": []}
+
+
+def test_drawing_off_moves_all_to_not_drawn(conn):
+    doc = _doc(conn, draw=False)
+    _check_golden(doc, "drawing_off.geojson")
+    assert doc["outages"]["1"]["streets"] == {
+        "drawn": [],
+        "not_drawn": [
+            {"name": "Gorordo Ave.", "why": "drawing_off"},
+            {"name": "Salinas Dr.", "why": "drawing_off"},
+        ],
+    }
+    assert doc["meta"]["osm"] == {"data_date": STREETS_OSM_DATE, "drawing": False}
+    assert ODBL not in doc["meta"]["attribution"]
+
+
+def test_entity_without_match_row_is_not_processed(conn):
+    """Areas re-parsed after the last `streets match`: a new entity has no row yet."""
+    with conn:
+        conn.execute(
+            "INSERT INTO area_entities (areas_hash, seq, kind, name, extractor)"
+            " VALUES ('hA', 3, 'street', 'New Street', 'rules')"
+        )
+    nd = _doc(conn)["outages"]["1"]["streets"]["not_drawn"]
+    assert nd == [
+        {"name": "Salinas Dr.", "why": "not_found"},
+        {"name": "New Street", "why": "not_processed"},
+    ]
+
+
+def test_schema3_db_streets_no_osm_data(tmp_path):
+    import sqlite3
+
+    p = tmp_path / "o.db"
+    c = sqlite3.connect(p)
+    for n, sql in db._migrations():
+        if n <= 3:
+            c.executescript(
+                f"BEGIN;\n{sql}\nINSERT INTO schema_version (version) VALUES ({n});\nCOMMIT;"
+            )
+    populate(c)
+    c.close()
+    ro = db.connect_ro(p)
+    doc = json.loads(
+        dumps(build(ro, gazetteer(), boundaries(), default_window(ro, NOW), NOW, draw=True))
+    )
+    ro.close()
+    assert doc["outages"]["1"]["streets"] == {
+        "drawn": [],
+        "not_drawn": [
+            {"name": "Gorordo Ave.", "why": "no_osm_data"},
+            {"name": "Salinas Dr.", "why": "no_osm_data"},
+        ],
+    }
+    assert doc["meta"]["osm"] == {"data_date": None, "drawing": True}
+
+
+def test_meta_osm_and_attribution(conn):
+    doc = _doc(conn)
+    assert doc["meta"]["osm"] == {"data_date": STREETS_OSM_DATE, "drawing": True}
+    assert doc["meta"]["attribution"].endswith(ODBL)
+    # a window with no drawn line: no ODbL line
+    doc = _doc(conn, Window(date(2026, 11, 16), date(2026, 11, 16)))
+    assert not any(o["streets"]["drawn"] for o in doc["outages"].values())
+    assert ODBL not in doc["meta"]["attribution"]
+
+
+def test_no_barangay_outage_with_lines_stays_unplaced(conn):
+    o = _doc(conn)["outages"]["11"]  # hG: Cebu Business Park, no barangay
+    assert o["barangays"] == []
+    assert o["unplaced"] == [{"name": None, "towns": ["Cebu City"], "why": "no_barangay"}]
+    assert o["streets"]["drawn"][0]["osm_name"] == "Cardinal Rosales Avenue"
+    assert len(o["streets"]["drawn"][0]["lines"]) == 2

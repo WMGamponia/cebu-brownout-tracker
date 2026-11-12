@@ -1,0 +1,727 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "730600022",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.8,
+       10.3
+      ],
+      [
+       123.81,
+       10.3
+      ],
+      [
+       123.81,
+       10.31
+      ],
+      [
+       123.8,
+       10.31
+      ],
+      [
+       123.8,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "730600022",
+    "name": "Santo Niño",
+    "town": "Cebu City",
+    "covered": true,
+    "outage_ids": [
+     2
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "730600040",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.81,
+       10.3
+      ],
+      [
+       123.82000000000001,
+       10.3
+      ],
+      [
+       123.82000000000001,
+       10.31
+      ],
+      [
+       123.81,
+       10.31
+      ],
+      [
+       123.81,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "730600040",
+    "name": "Lahug",
+    "town": "Cebu City",
+    "covered": true,
+    "outage_ids": [
+     1,
+     3,
+     4
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "730600060",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.82,
+       10.3
+      ],
+      [
+       123.83,
+       10.3
+      ],
+      [
+       123.83,
+       10.31
+      ],
+      [
+       123.82,
+       10.31
+      ],
+      [
+       123.82,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "730600060",
+    "name": "Tisa",
+    "town": "Cebu City",
+    "covered": true,
+    "outage_ids": [
+     1,
+     3
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "702219020",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.83,
+       10.3
+      ],
+      [
+       123.84,
+       10.3
+      ],
+      [
+       123.84,
+       10.31
+      ],
+      [
+       123.83,
+       10.31
+      ],
+      [
+       123.83,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "702219020",
+    "name": "Tayud",
+    "town": "Consolacion",
+    "covered": true,
+    "outage_ids": [
+     5
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "702227020",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.84,
+       10.3
+      ],
+      [
+       123.85000000000001,
+       10.3
+      ],
+      [
+       123.85000000000001,
+       10.31
+      ],
+      [
+       123.84,
+       10.31
+      ],
+      [
+       123.84,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "702227020",
+    "name": "Poblacion",
+    "town": "Liloan",
+    "covered": true,
+    "outage_ids": []
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "702227030",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.85,
+       10.3
+      ],
+      [
+       123.86,
+       10.3
+      ],
+      [
+       123.86,
+       10.31
+      ],
+      [
+       123.85,
+       10.31
+      ],
+      [
+       123.85,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "702227030",
+    "name": "Tayud",
+    "town": "Liloan",
+    "covered": true,
+    "outage_ids": [
+     5
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "702232010",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.86,
+       10.3
+      ],
+      [
+       123.87,
+       10.3
+      ],
+      [
+       123.87,
+       10.31
+      ],
+      [
+       123.86,
+       10.31
+      ],
+      [
+       123.86,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "702232010",
+    "name": "Linao",
+    "town": "Minglanilla",
+    "covered": true,
+    "outage_ids": [
+     6
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "id": "731100001",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       123.86999999999999,
+       10.3
+      ],
+      [
+       123.88,
+       10.3
+      ],
+      [
+       123.88,
+       10.31
+      ],
+      [
+       123.86999999999999,
+       10.31
+      ],
+      [
+       123.86999999999999,
+       10.3
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "psgc": "731100001",
+    "name": "Agus",
+    "town": "Lapu-Lapu City",
+    "covered": false,
+    "outage_ids": []
+   }
+  }
+ ],
+ "outages": {
+  "1": {
+   "start": "2026-11-12T08:00:00+08:00",
+   "end": "2026-11-12T17:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Line maintenance",
+   "areas_raw": "Areas of 1",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [
+    {
+     "psgc": "730600040",
+     "name": "Lahug",
+     "town": "Cebu City",
+     "veco_name": "Lahug",
+     "ambiguous_with": []
+    },
+    {
+     "psgc": "730600060",
+     "name": "Tisa",
+     "town": "Cebu City",
+     "veco_name": "Tisa",
+     "ambiguous_with": []
+    }
+   ],
+   "entities": {
+    "street": [
+     "Gorordo Ave.",
+     "Salinas Dr."
+    ],
+    "sitio_purok": [
+     "Sitio Mabuhay"
+    ],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": [
+     {
+      "name": "Gorordo Ave.",
+      "why": "drawing_off"
+     },
+     {
+      "name": "Salinas Dr.",
+      "why": "drawing_off"
+     }
+    ]
+   }
+  },
+  "2": {
+   "start": "2026-11-12T08:30:00+08:00",
+   "end": "2026-11-12T12:00:00+08:00",
+   "status": "additional",
+   "purpose": "Pole transfer",
+   "areas_raw": "Areas of 2",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [
+    {
+     "psgc": "730600022",
+     "name": "Santo Niño",
+     "town": "Cebu City",
+     "veco_name": "Sto. Niño",
+     "ambiguous_with": []
+    }
+   ],
+   "entities": {
+    "street": [],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
+  },
+  "3": {
+   "start": "2026-11-12T13:00:00+08:00",
+   "end": "2026-11-12T17:00:00+08:00",
+   "status": "cancelled",
+   "purpose": "Tree trimming",
+   "areas_raw": "Areas of 3",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [
+    {
+     "psgc": "730600040",
+     "name": "Lahug",
+     "town": "Cebu City",
+     "veco_name": "Lahug",
+     "ambiguous_with": []
+    },
+    {
+     "psgc": "730600060",
+     "name": "Tisa",
+     "town": "Cebu City",
+     "veco_name": "Tisa",
+     "ambiguous_with": []
+    }
+   ],
+   "entities": {
+    "street": [
+     "Gorordo Ave.",
+     "Salinas Dr."
+    ],
+    "sitio_purok": [
+     "Sitio Mabuhay"
+    ],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": [
+     {
+      "name": "Gorordo Ave.",
+      "why": "drawing_off"
+     },
+     {
+      "name": "Salinas Dr.",
+      "why": "drawing_off"
+     }
+    ]
+   }
+  },
+  "4": {
+   "start": "2026-11-12T22:00:00+08:00",
+   "end": "2026-11-13T05:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Overnight works",
+   "areas_raw": "Areas of 4",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [
+    {
+     "psgc": "730600040",
+     "name": "Lahug",
+     "town": "Cebu City",
+     "veco_name": "Lahug",
+     "ambiguous_with": []
+    }
+   ],
+   "entities": {
+    "street": [
+     "Escario St."
+    ],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": [
+     {
+      "name": "Escario St.",
+      "why": "drawing_off"
+     }
+    ]
+   }
+  },
+  "5": {
+   "start": "2026-11-13T08:00:00+08:00",
+   "end": "2026-11-13T17:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Substation work",
+   "areas_raw": "Areas of 5",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p2-interruption",
+    "title": "Nov 13"
+   },
+   "stale": true,
+   "barangays": [
+    {
+     "psgc": "702219020",
+     "name": "Tayud",
+     "town": "Consolacion",
+     "veco_name": "Tayud",
+     "ambiguous_with": [
+      "Liloan"
+     ]
+    },
+    {
+     "psgc": "702227030",
+     "name": "Tayud",
+     "town": "Liloan",
+     "veco_name": "Tayud",
+     "ambiguous_with": [
+      "Consolacion"
+     ]
+    }
+   ],
+   "entities": {
+    "street": [],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
+  },
+  "6": {
+   "start": "2026-11-13T09:00:00+08:00",
+   "end": "2026-11-13T15:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Rerouting",
+   "areas_raw": "Areas of 6",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [
+    {
+     "psgc": "702232010",
+     "name": "Linao",
+     "town": "Minglanilla",
+     "veco_name": "Linao",
+     "ambiguous_with": []
+    }
+   ],
+   "entities": {
+    "street": [],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [
+     "Minglanilla Town Hall"
+    ],
+    "other": []
+   },
+   "unplaced": [
+    {
+     "name": "Poblacion",
+     "towns": [
+      "Minglanilla"
+     ],
+     "why": "other_town"
+    }
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
+  },
+  "7": {
+   "start": "2026-11-14T08:00:00+08:00",
+   "end": "2026-11-14T17:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Line <b>work</b> & tests",
+   "areas_raw": "Areas of 7",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [],
+   "entities": {
+    "street": [],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [
+    {
+     "name": "Lipata",
+     "towns": [],
+     "why": "unmatched"
+    }
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
+  },
+  "8": {
+   "start": "2026-11-14T10:00:00+08:00",
+   "end": "2026-11-14T14:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Not parsed yet",
+   "areas_raw": "Areas of 8",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [],
+   "entities": {
+    "street": [],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [],
+    "other": []
+   },
+   "unplaced": [
+    {
+     "name": null,
+     "towns": [],
+     "why": "not_parsed"
+    }
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
+  },
+  "11": {
+   "start": "2026-11-14T13:00:00+08:00",
+   "end": "2026-11-14T16:00:00+08:00",
+   "status": "scheduled",
+   "purpose": "Business park",
+   "areas_raw": "Areas of 11",
+   "post": {
+    "url": "https://www.visayanelectric.com/blog-posts/p1-interruption",
+    "title": "Nov 12-20 interruptions"
+   },
+   "stale": false,
+   "barangays": [],
+   "entities": {
+    "street": [
+     "Cardinal Rosales Ave."
+    ],
+    "sitio_purok": [],
+    "subdivision": [],
+    "establishment": [
+     "Cebu Business Park"
+    ],
+    "other": []
+   },
+   "unplaced": [
+    {
+     "name": null,
+     "towns": [
+      "Cebu City"
+     ],
+     "why": "no_barangay"
+    }
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": [
+     {
+      "name": "Cardinal Rosales Ave.",
+      "why": "drawing_off"
+     }
+    ]
+   }
+  }
+ },
+ "meta": {
+  "generated_at": "2026-11-12T10:00:00+08:00",
+  "last_check_at": "2026-11-12T08:00:00+08:00",
+  "window": {
+   "from": "2026-11-12",
+   "to": "2026-11-18"
+  },
+  "days": [
+   "2026-11-12",
+   "2026-11-13",
+   "2026-11-14",
+   "2026-11-15",
+   "2026-11-16",
+   "2026-11-17",
+   "2026-11-18"
+  ],
+  "removed_count": 1,
+  "stale_posts": [
+   {
+    "url": "https://www.visayanelectric.com/blog-posts/p2-interruption",
+    "title": "Nov 13"
+   }
+  ],
+  "attribution": "Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026",
+  "osm": {
+   "data_date": "2026-11-12T02:14:58Z",
+   "drawing": false
+  }
+ }
+}

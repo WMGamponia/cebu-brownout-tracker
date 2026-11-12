@@ -15,6 +15,7 @@
       <h1>Cebu Brownout Map</h1>
       <p id="asof" class="asof">Loading…</p>
     </div>
+    <p id="history-banner" class="history" hidden></p>
     <p id="old-warning" class="warn" hidden></p>
     <div id="stale" class="warn" hidden>
       <span>VECO updated this post and we couldn't read the update; this is from the earlier version.</span>
@@ -27,7 +28,14 @@
     <button id="retry" type="button">Retry</button>
   </div>
 
-  <nav id="controls" aria-label="Day and hour">
+  <nav id="controls" aria-label="Week, day and hour">
+    <div class="week-row">
+      <button id="week-prev" type="button" aria-label="Previous week">◀</button>
+      <label>Week of <input id="week" type="date"></label>
+      <button id="week-next" type="button" aria-label="Next week">▶</button>
+      <button id="week-today" type="button">Today</button>
+      <a class="history-link" href="history">History</a>
+    </div>
     <div id="days" role="tablist" aria-label="Day"></div>
     <div class="hour-row">
       <button id="play" type="button" aria-label="Play">▶</button>
@@ -36,6 +44,7 @@
     </div>
     <div class="toggles">
       <label><input type="checkbox" id="show-cancelled" checked> Show cancelled</label>
+      <label id="streets-toggle" hidden><input type="checkbox" id="show-streets" checked> Show streets</label>
       <button id="panel-toggle" type="button" aria-controls="panel" aria-expanded="false">Details</button>
     </div>
   </nav>
@@ -59,8 +68,12 @@
           <li><span class="sw sw-none"></span>Nothing this day</li>
           <li><span class="sw sw-meco"></span>MECO area, not covered</li>
         </ul>
-        <p class="muted">Streets and sitios are in each barangay's popup; the map can't narrow
-          "portion of" to streets yet.</p>
+        <ul id="legend-lines" class="legend" hidden>
+          <li><span class="ln ln-active"></span>Street named for an outage in this hour</li>
+          <li><span class="ln ln-cancelled"></span>Street of a cancelled outage in this hour</li>
+          <li><span class="ln ln-faint"></span>Street with an outage this day, not in this hour</li>
+        </ul>
+        <p id="streets-note" class="muted">Streets and sitios are in each barangay's popup.</p>
       </section>
       <section class="credits">
         <p id="attribution"></p>

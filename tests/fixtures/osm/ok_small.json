@@ -1,0 +1,11 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62",
+  "osm3s": {"timestamp_osm_base": "2026-11-12T03:00:00Z", "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."},
+  "elements": [
+    {"type": "way", "id": 101, "bounds": {}, "tags": {"highway": "primary", "name": "Cebu South Road", "ref": "N8", "surface": "asphalt"},
+     "geometry": [{"lat": 10.2601234, "lon": 123.8401234}, {"lat": 10.2611234, "lon": 123.8411234}, {"lat": 10.2621234, "lon": 123.8421234}]},
+    {"type": "way", "id": 102, "tags": {"highway": "residential", "name": "Gorordo Avenue", "old_name": "Gorordo Ave", "alt_name": "Gorordo"},
+     "geometry": [{"lat": 10.31, "lon": 123.9}, {"lat": 10.311, "lon": 123.901}]}
+  ]
+}

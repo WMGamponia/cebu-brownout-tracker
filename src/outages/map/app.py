@@ -1,7 +1,8 @@
-"""The map's web app: four GET routes over a per-request read-only connection (spec 4.4).
+"""The map's web app: GET routes over a per-request read-only connection (spec 4.4).
 
-The surface is exactly `/`, `/static/…`, `/outages.geojson` and `/healthz`: no docs UI, no
-CORS, no writes. A missing or old DB is a 503 and is never created or migrated.
+The surface is exactly `/`, `/history`, `/static/…`, `/outages.geojson`, `/stats.json`,
+`/boundaries.geojson` and `/healthz`: no docs UI, no CORS, no writes. A missing or old DB is a
+503 and is never created or migrated.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 
 from outages import db
 from outages.areas.gazetteer import Gazetteer
+from outages.history.load import load_rows
+from outages.history.stats import compute, parse_range
 from outages.map.build import build, dumps, schema_ready
 from outages.map.window import WindowError, parse_window
 from outages.timeparse import MANILA
@@ -27,6 +30,7 @@ log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).parent / "static"
 NOT_READY = "database not ready: run python -m outages areas"
+NOT_MIGRATED = "database needs migrations: run python -m outages streets match"
 
 
 class _NotReady(Exception):
@@ -59,6 +63,10 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(STATIC / "index.html", media_type="text/html; charset=utf-8")
 
+    @app.get("/history", include_in_schema=False)
+    def history_page() -> FileResponse:
+        return FileResponse(STATIC / "history.html", media_type="text/html; charset=utf-8")
+
     @app.get("/outages.geojson")
     def outages(from_: str | None = Query(None, alias="from"), days: str | None = None) -> Response:
         try:
@@ -77,6 +85,39 @@ def create_app(
             dumps(doc),
             media_type="application/geo+json; charset=utf-8",
             headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/stats.json")
+    def stats(from_: str | None = Query(None, alias="from"), to: str | None = None) -> Response:
+        try:
+            with ro() as conn:
+                if not db.is_current(conn):
+                    return _error(503, NOT_MIGRATED)
+                now = clock()
+                rng = parse_range(from_, to, now)
+                rows, coverage = load_rows(conn, rng)
+                doc = compute(rows, rng, gaz, coverage, now)
+        except _NotReady:
+            return _error(503, NOT_READY)
+        except WindowError as e:
+            return _error(422, str(e))
+        except Exception:
+            log.exception("map: /stats.json failed")
+            return _error(500, "internal error")
+        return Response(
+            dumps(doc),
+            media_type="application/json; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    boundaries_body = dumps(boundaries)
+
+    @app.get("/boundaries.geojson")
+    def boundaries_geojson() -> Response:
+        return Response(
+            boundaries_body,
+            media_type="application/geo+json; charset=utf-8",
+            headers={"Cache-Control": "public, max-age=86400"},
         )
 
     @app.get("/healthz")

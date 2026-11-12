@@ -221,7 +221,7 @@ def test_report_offline_builds_no_telegram(capsys, monkeypatch, no_tg_env):
     no_network(monkeypatch)
     no_telegram(monkeypatch)
     assert main(["report"]) == 0
-    assert "alerts: 0 subscribers, 0 sent; unparsed areas: 0 upcoming outages" in (
+    assert "alerts: 0 subscribers (approved 0, pending 0, blocked 0), 0 sent;" in (
         capsys.readouterr().out
     )
 
@@ -235,10 +235,16 @@ def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
     no_network(monkeypatch)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
     monkeypatch.setenv("TELEGRAM_ALLOWED_CHAT_IDS", "42")
+    monkeypatch.setenv("TELEGRAM_ADMIN_CHAT_ID", "42")
     polls = {"n": 0}
+    sent_to = []
 
     def handler(req):
         method = req.url.path.rsplit("/", 1)[1]
+        if method == "sendMessage":
+            import json as _json
+
+            sent_to.append(_json.loads(req.content)["chat_id"])
         if method == "getUpdates":
             polls["n"] += 1
             if polls["n"] > 1:
@@ -262,7 +268,8 @@ def test_bot_command_offline(capsys, monkeypatch, tmp_path, no_tg_env):
     out = capsys.readouterr()
     assert "SECRET" not in out.out + out.err
     log = (tmp_path / "data" / "logs" / "outages.log").read_text(encoding="utf-8")
-    assert "bot: message from chat 7 (not allowed)" in log and "SECRET" not in log
+    assert "bot: join request from chat 7" in log and "SECRET" not in log
+    assert sent_to == [42, 7]  # the admin's Approve / Deny request, then the welcome
 
 
 def test_bot_without_token_exits_1(capsys, monkeypatch, no_tg_env):
@@ -357,3 +364,143 @@ def test_map_command_ctrl_c_is_a_clean_stop(monkeypatch, tmp_path, capsys):
     assert main(["map"]) == 0
     err = capsys.readouterr().err
     assert "resume" not in err and "error" not in err
+
+
+def no_overpass(monkeypatch):
+    """Fail if a command builds the Overpass client."""
+    from outages.osm import overpass
+
+    def boom(**kw):
+        raise AssertionError("this command must not build an Overpass client")
+
+    monkeypatch.setattr(overpass, "make_client", boom)
+
+
+def test_streets_fetch_without_yes_builds_no_client(capsys, monkeypatch, tmp_path):
+    from outages.config import VECO_TOWNS
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    assert main(["streets", "fetch"]) == 2
+    out = capsys.readouterr().out
+    for town in VECO_TOWNS:
+        assert town in out
+    assert "--yes" in out
+    assert "overpass-api.de" in out
+    assert not (tmp_path / "data" / "osm").exists()
+
+
+def test_streets_fetch_yes_reports(capsys, monkeypatch, tmp_path):
+    from outages.osm import overpass
+
+    no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(overpass, "make_client", lambda **kw: FakeClient())
+
+    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None, towns=None):
+        out_dir.mkdir(parents=True)
+        (out_dir / "manifest.json").write_text(
+            '{"osm_base": "2026-11-12T03:00:00Z", "towns": {"730600000": {"ways": 5}}}',
+            encoding="utf-8",
+        )
+        (out_dir / "streets-730600000.json").write_text("{}", encoding="utf-8")
+        return overpass.FetchSummary(ok=["730600000"], failed={"731300000": "0 ways"})
+
+    monkeypatch.setattr(overpass, "fetch_all", fake_fetch_all)
+    assert main(["streets", "fetch", "--yes"]) == 1  # one town failed
+    out = capsys.readouterr().out
+    assert "Cebu City" in out and "5 ways" in out
+    assert "Mandaue City" in out and "0 ways" in out
+    assert "2026-11-12T03:00:00Z" in out
+
+
+def test_streets_fetch_towns_by_name(capsys, monkeypatch, tmp_path):
+    from outages.osm import overpass
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    assert main(["streets", "fetch", "--towns", "Cebu City,Minglanilla"]) == 2
+    out = capsys.readouterr().out
+    assert "2 requests" in out
+    assert "Cebu City" in out and "Minglanilla" in out and "Liloan" not in out
+    seen = {}
+
+    class FakeClient:
+        def close(self):
+            pass
+
+    def fake_fetch_all(client, boundaries, out_dir, now, sleep=None, towns=None):
+        seen["towns"] = towns
+        return overpass.FetchSummary(ok=[], failed={})
+
+    monkeypatch.setattr(overpass, "make_client", lambda **kw: FakeClient())
+    monkeypatch.setattr(overpass, "fetch_all", fake_fetch_all)
+    main(["streets", "fetch", "--yes", "--towns", "Cebu City,Minglanilla"])
+    assert seen["towns"] == ["730600000", "702232000"]
+    assert main(["streets", "fetch", "--towns", "Atlantis"]) == 2
+    assert "unknown town" in capsys.readouterr().err
+
+
+def test_streets_match_and_review_offline(capsys, monkeypatch, tmp_path):
+    import hashlib
+
+    from map_world import populate
+    from osm_world import write
+
+    from outages import __main__ as cli
+    from outages import db
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.setattr(cli, "make_telegram", lambda t: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.chdir(tmp_path)
+    from map_world import boundaries
+
+    monkeypatch.setattr(cli, "load_boundaries", lambda: boundaries())
+    p = tmp_path / "data" / "outages.db"
+    c = db.connect(p)
+    populate(c)
+    c.close()
+    write(tmp_path / "data" / "osm")
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert main(["streets", "match", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "dry run" in out and "matched 2" in out and "not_found 1" in out
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert main(["streets", "match"]) == 0
+    assert "written 3" in capsys.readouterr().out
+    assert main(["streets", "--review"]) == 0
+    out = capsys.readouterr().out
+    assert "Salinas Dr." in out
+
+
+def test_stats_command_offline(capsys, monkeypatch, tmp_path):
+    import hashlib
+
+    from map_world import populate
+
+    from outages import __main__ as cli
+    from outages import db
+
+    no_network(monkeypatch)
+    no_overpass(monkeypatch)
+    monkeypatch.setattr(cli, "make_telegram", lambda t: (_ for _ in ()).throw(AssertionError()))
+    monkeypatch.chdir(tmp_path)
+    p = tmp_path / "data" / "outages.db"
+    c = db.connect(p)
+    populate(c)
+    c.close()
+    before = hashlib.sha256(p.read_bytes()).hexdigest()
+    assert main(["stats", "--from", "2026-11-01", "--to", "2026-11-30"]) == 0
+    out = capsys.readouterr().out
+    assert "History 2026-11-01 to 2026-11-30" in out and "left out" in out
+    assert hashlib.sha256(p.read_bytes()).hexdigest() == before
+    assert main(["stats", "--from", "2026-11-30", "--to", "2026-11-01"]) == 2
+    assert "must not be after" in capsys.readouterr().err

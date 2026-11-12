@@ -10,6 +10,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from outages import db
@@ -21,7 +22,10 @@ from outages.config import SITEMAP_URL
 from outages.discover import PostRef, parse_sitemap
 from outages.extract import ExtractedPost, ExtractError, extract_post
 from outages.fetch import Fetcher
+from outages.map.build import load_boundaries
+from outages.osm.extract import StreetIndex
 from outages.parse import parse_post
+from outages.streets import store as streets_store
 from outages.timeparse import MANILA
 from outages.upsert import match
 
@@ -133,6 +137,19 @@ def areas_step(conn: sqlite3.Connection, now: datetime, extractor: Extractor | N
         log.exception("areas step failed; rerun `python -m outages areas`")
 
 
+def streets_step(conn: sqlite3.Connection, osm_dir: Path | None) -> None:
+    """Match street entities against the local OSM extract, when one has been fetched (Phase 5
+    spec 4.5). Like `areas_step`, a failure is logged and never fails the check."""
+    if osm_dir is None or not (osm_dir / "manifest.json").is_file():
+        return
+    try:
+        index = StreetIndex.load(osm_dir)
+        s = streets_store.run_match(conn, index, load_boundaries())
+        log.info("streets: matched %d mentions %s", s.written, s.by_status)
+    except Exception:
+        log.exception("streets step failed; rerun `python -m outages streets match`")
+
+
 def backfill(conn: sqlite3.Connection, fetcher: Fetcher, now: datetime) -> CheckSummary:
     """Fetch every interruption post in the sitemap that has no stored version (resumable)."""
     refs = _sitemap(fetcher)
@@ -155,6 +172,7 @@ def check(
     fetcher: Fetcher,
     now: datetime,
     extractor: Extractor | None = None,
+    osm_dir: Path | None = None,
 ) -> CheckSummary:
     """Fetch posts that are new, have a newer lastmod, or have outages ending today or later."""
     refs = _sitemap(fetcher)
@@ -188,6 +206,7 @@ def check(
     with conn:
         db.set_meta(conn, "last_check_at", _utc(now))
     areas_step(conn, now, extractor)
+    streets_step(conn, osm_dir)
     return summary
 
 
@@ -198,7 +217,10 @@ def _page(title: str | None, content_html: str) -> str:
 
 
 def reparse(
-    conn: sqlite3.Connection, now: datetime, extractor: Extractor | None = None
+    conn: sqlite3.Connection,
+    now: datetime,
+    extractor: Extractor | None = None,
+    osm_dir: Path | None = None,
 ) -> CheckSummary:
     """Re-run parse + upsert on each post's latest stored version.
 
@@ -231,4 +253,5 @@ def reparse(
         )
         log.info("reparse %s: %s", row["slug"], "ok" if ok else "failed")
     areas_step(conn, now, extractor)
+    streets_step(conn, osm_dir)
     return summary

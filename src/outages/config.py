@@ -119,3 +119,23 @@ def telegram_settings() -> TelegramSettings | None:
         raise ValueError("TELEGRAM_ADMIN_CHAT_ID must be one integer chat ID")
     allowed = frozenset(_chat_ids("TELEGRAM_ALLOWED_CHAT_IDS"))
     return TelegramSettings(token, allowed, admin[0] if admin else None)
+
+
+# Phase 5: streets from one hand-refreshed OSM extract per town (spec 4.2-4.5).
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_SPACING_S = 10
+OVERPASS_BACKOFF_S = (30, 120)
+OSM_DIR_NAME = "osm"  # under data/; ODbL, never committed
+STREET_BUFFER_M = 150
+BBOX_PAD_M = 500
+# Set by the pre-registered street eval gate (spec 5.4): test precision >= 0.95, >= 20 drawn.
+# Test split 2026-11-12: precision 0.923 (12 of 13 drawn), coverage 0.600 -> off.
+STREETS_DRAW = False
+
+# Phase 5: approve-to-join bot (spec 4.9).
+PENDING_CAP = 20
+SUBSCRIPTION_CAP = 10
+RATE_LIMIT_PER_MIN = 20
+RATE_LIMIT_MUTE_S = 600
+SEND_SPACING_S = 0.05
+PENDING_REPLY_EVERY_H = 24

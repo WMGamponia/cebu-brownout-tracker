@@ -24,16 +24,29 @@ from outages.config import (
     ENTITY_EXTRACTOR,
     MAP_HOST,
     MAP_PORT,
+    OSM_DIR_NAME,
+    OVERPASS_SPACING_S,
+    OVERPASS_URL,
     RUN_TIMES,
+    VECO_TOWNS,
     Paths,
     TelegramSettings,
     telegram_settings,
 )
 from outages.fetch import Fetcher
+from outages.history import load as history_load
+from outages.history import stats as history_stats
 from outages.map import server as map_server
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
+from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
+from outages.osm import extract as streets_index
+from outages.osm import overpass
+from outages.streets import evaluate as streets_eval
+from outages.streets import review as streets_review
+from outages.streets import store as streets_store
+from outages.streets.match import ALIASES_PATH
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -49,6 +62,8 @@ COMMANDS = {
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
+    "stats": "history stats for a date range (read-only; no VECO fetch): --from, --to",
+    "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
 }
 LAN_WARNING = "map is reachable from your network; there is no login"
 
@@ -175,7 +190,14 @@ def _bot(paths: Paths) -> int:
     client = make_telegram(settings.token)
     log.info("bot: polling for %d allowed chat(s); Ctrl+C to stop", len(settings.allowed))
     try:
-        bot.poll_forever(client, paths.db, load_gazetteer(), settings.allowed, threading.Event())
+        bot.poll_forever(
+            client,
+            paths.db,
+            load_gazetteer(),
+            settings.allowed,
+            threading.Event(),
+            admin_chat_id=settings.admin_chat_id,
+        )
     except KeyboardInterrupt:
         print("bot: stopped")
     finally:
@@ -202,7 +224,8 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
     e.add_argument("action", choices=("sample", "run"))
-    e.add_argument("--seed", type=int, default=20261111)
+    e.add_argument("--suite", choices=("areas", "streets"), default="areas")
+    e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
     e.add_argument("--split", choices=("dev", "test"), default="dev")
     e.add_argument("--arms", default="rules")
     al = parsers["alerts"].add_mutually_exclusive_group(required=True)
@@ -211,6 +234,16 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     m = parsers["map"]
     m.add_argument("--host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
     m.add_argument("--port", type=int, default=MAP_PORT)
+    sp = parsers["stats"]
+    sp.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: to − 364 days)")
+    sp.add_argument("--to", help="YYYY-MM-DD (default: today, Manila)")
+    st = parsers["streets"]
+    st.add_argument("action", nargs="?", choices=("fetch", "match"))
+    st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
+    st.add_argument("--towns", help="fetch: only these towns (comma-separated names)")
+    st.add_argument("--rebuild", action="store_true", help="match: redo every street")
+    st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
+    st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
     s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
@@ -233,6 +266,23 @@ def _eval_sample(paths: Paths, seed: int) -> int:
     return 0
 
 
+def _eval_sample_streets(paths: Paths, seed: int) -> int:
+    conn = db.connect_ro(paths.db)
+    try:
+        rows = streets_eval.street_rows(conn)
+    finally:
+        conn.close()
+    dev, test = streets_eval.sample_streets(rows, seed=seed)
+    try:
+        evaluate.write_sample(streets_eval.EVAL_DIR, dev, test)
+    except evaluate.EvalError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(f"{len(rows)} street mentions; sampled dev {len(dev)}, test {len(test)}")
+    print(f"written: {streets_eval.EVAL_DIR}")
+    return 0
+
+
 def _eval_run(paths: Paths, args: argparse.Namespace) -> int:
     """Score the arms on a split; the LLM cache lives in data/outages.db. No VECO requests."""
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
@@ -247,6 +297,127 @@ def _eval_run(paths: Paths, args: argparse.Namespace) -> int:
     print(out.read_text(encoding="utf-8"), end="")
     print(f"written: {out}")
     return 0
+
+
+def _streets_fetch(paths: Paths, args: argparse.Namespace) -> int:
+    """Without --yes: print the 8 requests and exit 2, building no client (spec 4.2)."""
+    names = list(VECO_TOWNS)
+    if args.towns:
+        names = [t.strip() for t in args.towns.split(",") if t.strip()]
+        unknown = [t for t in names if t not in VECO_TOWNS]
+        if unknown:
+            print(
+                f"error: unknown town {', '.join(unknown)}; one of {', '.join(VECO_TOWNS)}",
+                file=sys.stderr,
+            )
+            return 2
+    try:
+        boundaries = load_boundaries()
+        plan = [
+            (name, psgc, overpass.town_bbox(boundaries, psgc))
+            for name, psgc in VECO_TOWNS.items()
+            if name in names
+        ]
+    except (BoundariesError, overpass.FetchError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if not args.yes:
+        print(f"streets fetch will make {len(plan)} requests to {OVERPASS_URL},")
+        print(f"one at a time, {OVERPASS_SPACING_S} s apart (bbox S,W,N,E):")
+        for name, psgc, bbox in plan:
+            print(f"  {name:<14} {psgc}  {','.join(str(x) for x in bbox)}")
+        print("Rerun with --yes to fetch. The extract is ODbL and stays in data/osm/.")
+        return 2
+    out_dir = paths.data / OSM_DIR_NAME
+    client = overpass.make_client()
+    try:
+        summary = overpass.fetch_all(
+            client, boundaries, out_dir, utcnow(), towns=[psgc for _, psgc, _ in plan]
+        )
+    finally:
+        client.close()
+    manifest = overpass.load_manifest(out_dir) or {"towns": {}}
+    for name, psgc, _ in plan:
+        if psgc in summary.ok:
+            f = overpass.town_file(out_dir, psgc)
+            ways = manifest["towns"][psgc]["ways"]
+            print(f"  {name:<14} {ways} ways, {f.stat().st_size:,} bytes")
+        else:
+            print(f"  {name:<14} FAILED: {summary.failed.get(psgc, '?')}")
+    print(f"osm_base {manifest.get('osm_base')}; written: {out_dir}")
+    if summary.stopped:
+        print("error: stopped after Overpass back-off; rerun later", file=sys.stderr)
+    return 0 if not summary.failed else 1
+
+
+def _streets_match(paths: Paths, args: argparse.Namespace) -> int:
+    """Offline. A dry run opens the DB read-only (works before migration 004)."""
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("warning: no OSM extract (run `streets fetch`); every street is no_osm_data")
+    boundaries = load_boundaries()
+    conn = db.connect_ro(paths.db) if args.dry_run else db.connect(paths.db)
+    try:
+        s = streets_store.run_match(
+            conn, index, boundaries, rebuild=args.rebuild, dry_run=args.dry_run
+        )
+    finally:
+        conn.close()
+    parts = ", ".join(f"{k} {v}" for k, v in s.by_status.items()) or "nothing to match"
+    if args.dry_run:
+        print(f"dry run (nothing written): {parts}")
+    else:
+        print(f"written {s.written}: {parts}")
+    return 0
+
+
+def _streets_review(paths: Paths) -> int:
+    conn = db.connect_ro(paths.db)
+    try:
+        if not db.is_current(conn):
+            print("error: run `streets match` first (DB not migrated)", file=sys.stderr)
+            return 1
+        items = streets_review.review(
+            conn, streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME), load_boundaries()
+        )
+    finally:
+        conn.close()
+    for i in items:
+        sugg = "; ".join(i.suggestions) if i.suggestions else "-"
+        print(f"{i.count:>4}  {i.name}  ->  {sugg}")
+    print(f"{len(items)} not_found names; accepted suggestions go in {ALIASES_PATH} by hand")
+    return 0
+
+
+def _stats(paths: Paths, args: argparse.Namespace) -> int:
+    """Read-only; prints the same numbers as /stats.json."""
+    now = utcnow()
+    try:
+        rng = history_stats.parse_range(args.from_, args.to, now)
+    except WindowError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    conn = db.connect_ro(paths.db)
+    try:
+        if not db.is_current(conn):
+            print("error: run `streets match` first (DB not migrated)", file=sys.stderr)
+            return 1
+        rows, coverage = history_load.load_rows(conn, rng)
+    finally:
+        conn.close()
+    doc = history_stats.compute(rows, rng, load_gazetteer(), coverage, now)
+    print(history_stats.format_text(doc), end="")
+    return 0
+
+
+def _streets(paths: Paths, args: argparse.Namespace) -> int:
+    if args.review:
+        return _streets_review(paths)
+    if args.action == "fetch":
+        return _streets_fetch(paths, args)
+    if args.action == "match":
+        return _streets_match(paths, args)
+    raise SystemExit("error: usage: streets fetch [--yes] | streets match | streets --review")
 
 
 def _gazetteer(paths: Paths) -> int:
@@ -288,7 +459,9 @@ def _check(paths: Paths) -> bool:
     conn = db.connect(paths.db)
     fetcher = make_fetcher()
     try:
-        s = pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
+        s = pipeline.check(
+            conn, fetcher, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+        )
         _summary("check", s)
         return s.errors == 0
     except Exception:
@@ -418,6 +591,7 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
                 settings.allowed,
                 stop,
             ),
+            kwargs={"admin_chat_id": settings.admin_chat_id},
             name="telegram-bot",
             daemon=True,
         ).start()
@@ -435,7 +609,13 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
 
 
 def _report(paths: Paths, conn) -> int:
-    lines = "\n".join((report.areas_line(conn), report.alerts_line(conn, utcnow())))
+    lines = "\n".join(
+        (
+            report.areas_line(conn),
+            report.streets_line(conn),
+            report.alerts_line(conn, utcnow()),
+        )
+    )
     text = report.format_table(report.build(conn), report.duplicates(conn), areas=lines)
     paths.reports.mkdir(parents=True, exist_ok=True)
     out = paths.reports / f"report-{utcnow():%Y-%m-%d}.txt"
@@ -457,9 +637,31 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
         return _bot(paths)
     if command == "map":
         return _map(paths, args)
+    if command == "streets":
+        return _streets(paths, args)
+    if command == "stats":
+        return _stats(paths, args)
     if command == "eval":
+        if args.suite == "streets":
+            if args.action == "sample":
+                return _eval_sample_streets(paths, args.seed or streets_eval.SEED)
+            assert args.action == "run"
+            try:
+                out, _ = streets_eval.run_streets(
+                    args.split,
+                    streets_eval.EVAL_DIR,
+                    paths.data / OSM_DIR_NAME,
+                    load_boundaries(),
+                    utcnow(),
+                )
+            except (evaluate.EvalError, BoundariesError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+            print(out.read_text(encoding="utf-8"), end="")
+            print(f"written: {out}")
+            return 0
         if args.action == "sample":
-            return _eval_sample(paths, args.seed)
+            return _eval_sample(paths, args.seed or 20261111)
         if args.action == "run":
             return _eval_run(paths, args)
         raise SystemExit(f"error: unknown eval action {args.action!r}")
@@ -471,7 +673,10 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
             return _report(paths, conn)
         if command == "reparse":
             return _summary(
-                "reparse", pipeline.reparse(conn, utcnow(), extractor_from_config(conn))
+                "reparse",
+                pipeline.reparse(
+                    conn, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+                ),
             )
         if command == "serve":
             last = db.get_meta(conn, "last_check_at")
@@ -483,7 +688,10 @@ def _run(args: argparse.Namespace, paths: Paths) -> int:
                 return _summary(command, pipeline.backfill(conn, fetcher, utcnow()))
             assert command == "check"
             return _summary(
-                command, pipeline.check(conn, fetcher, utcnow(), extractor_from_config(conn))
+                command,
+                pipeline.check(
+                    conn, fetcher, utcnow(), extractor_from_config(conn), paths.data / OSM_DIR_NAME
+                ),
             )
         finally:
             fetcher.close()

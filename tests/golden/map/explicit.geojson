@@ -344,7 +344,32 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [
+     {
+      "name": "Escario St.",
+      "osm_name": "Juana Osmeña Street",
+      "lines": [
+       [
+        [
+         123.811,
+         10.302
+        ],
+        [
+         123.815,
+         10.302
+        ],
+        [
+         123.819,
+         10.302
+        ]
+       ]
+      ]
+     }
+    ],
+    "not_drawn": []
+   }
   },
   "5": {
    "start": "2026-11-13T08:00:00+08:00",
@@ -384,7 +409,11 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "6": {
    "start": "2026-11-13T09:00:00+08:00",
@@ -423,7 +452,11 @@
      ],
      "why": "other_town"
     }
-   ]
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   }
  },
  "meta": {
@@ -443,6 +476,10 @@
     "title": "Nov 13"
    }
   ],
-  "attribution": "Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026"
+  "attribution": "Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026; Streets © OpenStreetMap contributors (ODbL)",
+  "osm": {
+   "data_date": "2026-11-12T02:14:58Z",
+   "drawing": true
+  }
  }
 }

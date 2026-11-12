@@ -361,7 +361,37 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [
+     {
+      "name": "Gorordo Ave.",
+      "osm_name": "Gorordo Avenue",
+      "lines": [
+       [
+        [
+         123.811,
+         10.302
+        ],
+        [
+         123.815,
+         10.302
+        ],
+        [
+         123.819,
+         10.302
+        ]
+       ]
+      ]
+     }
+    ],
+    "not_drawn": [
+     {
+      "name": "Salinas Dr.",
+      "why": "not_found"
+     }
+    ]
+   }
   },
   "2": {
    "start": "2026-11-12T08:30:00+08:00",
@@ -390,7 +420,11 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "3": {
    "start": "2026-11-12T13:00:00+08:00",
@@ -431,7 +465,37 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [
+     {
+      "name": "Gorordo Ave.",
+      "osm_name": "Gorordo Avenue",
+      "lines": [
+       [
+        [
+         123.811,
+         10.302
+        ],
+        [
+         123.815,
+         10.302
+        ],
+        [
+         123.819,
+         10.302
+        ]
+       ]
+      ]
+     }
+    ],
+    "not_drawn": [
+     {
+      "name": "Salinas Dr.",
+      "why": "not_found"
+     }
+    ]
+   }
   },
   "4": {
    "start": "2026-11-12T22:00:00+08:00",
@@ -462,7 +526,32 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [
+     {
+      "name": "Escario St.",
+      "osm_name": "Juana Osmeña Street",
+      "lines": [
+       [
+        [
+         123.811,
+         10.302
+        ],
+        [
+         123.815,
+         10.302
+        ],
+        [
+         123.819,
+         10.302
+        ]
+       ]
+      ]
+     }
+    ],
+    "not_drawn": []
+   }
   },
   "5": {
    "start": "2026-11-13T08:00:00+08:00",
@@ -502,7 +591,11 @@
     "establishment": [],
     "other": []
    },
-   "unplaced": []
+   "unplaced": [],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "6": {
    "start": "2026-11-13T09:00:00+08:00",
@@ -541,7 +634,11 @@
      ],
      "why": "other_town"
     }
-   ]
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "7": {
    "start": "2026-11-14T08:00:00+08:00",
@@ -568,7 +665,11 @@
      "towns": [],
      "why": "unmatched"
     }
-   ]
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "8": {
    "start": "2026-11-14T10:00:00+08:00",
@@ -595,7 +696,11 @@
      "towns": [],
      "why": "not_parsed"
     }
-   ]
+   ],
+   "streets": {
+    "drawn": [],
+    "not_drawn": []
+   }
   },
   "11": {
    "start": "2026-11-14T13:00:00+08:00",
@@ -610,7 +715,9 @@
    "stale": false,
    "barangays": [],
    "entities": {
-    "street": [],
+    "street": [
+     "Cardinal Rosales Ave."
+    ],
     "sitio_purok": [],
     "subdivision": [],
     "establishment": [
@@ -626,7 +733,38 @@
      ],
      "why": "no_barangay"
     }
-   ]
+   ],
+   "streets": {
+    "drawn": [
+     {
+      "name": "Cardinal Rosales Ave.",
+      "osm_name": "Cardinal Rosales Avenue",
+      "lines": [
+       [
+        [
+         123.801,
+         10.305
+        ],
+        [
+         123.805,
+         10.305
+        ]
+       ],
+       [
+        [
+         123.806,
+         10.306
+        ],
+        [
+         123.809,
+         10.306
+        ]
+       ]
+      ]
+     }
+    ],
+    "not_drawn": []
+   }
   }
  },
  "meta": {
@@ -652,6 +790,10 @@
     "title": "Nov 13"
    }
   ],
-  "attribution": "Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026"
+  "attribution": "Boundaries: faeldon/philippines-json-maps v1.1.1 (MIT), PSGC 3Q 2026; Streets © OpenStreetMap contributors (ODbL)",
+  "osm": {
+   "data_date": "2026-11-12T02:14:58Z",
+   "drawing": true
+  }
  }
 }
