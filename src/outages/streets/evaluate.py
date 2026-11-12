@@ -370,6 +370,102 @@ def gate(s: dict) -> bool:
     return s["precision"] is not None and s["precision"] >= 0.95 and s["drawn"] >= 20
 
 
+def run_suggest_dev(
+    eval_dir: Path,
+    index: StreetIndex,
+    boundaries: dict,
+    now: datetime,
+    picker,
+    aliases_path: Path = ALIASES_PATH,
+) -> tuple[Path, dict]:
+    """Spec 7.5: on dev rows the rules leave `not_found`, the prefilter's recall and the
+    picker's and difflib's accuracy (right pick on non-null gold, none on null gold).
+
+    Dev only; the test split never reaches a picker."""
+    from outages.streets.suggest import (
+        STREET_PROMPT_VERSION,
+        Group,
+        candidates,
+        difflib_pick,
+    )
+
+    rows = load_split(eval_dir / "dev.jsonl")
+    check_osm_base(rows, index.osm_base)
+    aliases = load_aliases(aliases_path)
+    n_nonnull = n_null = hits = q_ok = d_ok = 0
+    table = [
+        "| id | VECO name | gold | in top 12 | qwen | difflib |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        towns = [VECO_TOWNS[t] for t in r["towns"] if t in VECO_TOWNS]
+        scope = scope_for(r["barangays"], towns, boundaries)
+        m = match_street(
+            r["name"], scope, search_towns(r["barangays"], towns, boundaries), index, aliases
+        )
+        if m.status != "not_found":
+            continue
+        g = Group(
+            r["town_psgc"],
+            street_key(r["name"]),
+            r["name"],
+            [(r["areas_hash"], r["seq"])],
+            [r["areas_raw"]],
+        )
+        cands = candidates(g, index, boundaries, {r["areas_hash"]: (r["barangays"], towns)})
+        gold = gold_keys(r["gold"])
+        q, d = picker.pick(g, cands), difflib_pick(g, cands)
+
+        def right(pick: str | None, gold: set[str] = gold) -> bool:
+            return pick is None if not gold else pick is not None and street_key(pick) in gold
+
+        hit = bool(gold) and any(street_key(c) in gold for c in cands)
+        if gold:
+            n_nonnull += 1
+            hits += hit
+        else:
+            n_null += 1
+        q_ok += right(q.pick)
+        d_ok += right(d.pick)
+        q_text = q.pick or ("none" if q.status == "ok" else q.status)
+        d_text = d.pick or ("none" if d.status == "ok" else d.status)
+        table.append(
+            f"| {r['id']} | {r['name']} | {_gold_text(r['gold'])} | {'yes' if hit else '—'}"
+            f" | {q_text} {'✓' if right(q.pick) else '✗'}"
+            f" | {d_text} {'✓' if right(d.pick) else '✗'} |"
+        )
+    n = n_nonnull + n_null
+    m_ = {
+        "prefilter_recall": hits / n_nonnull if n_nonnull else None,
+        "qwen_acc": q_ok / n if n else None,
+        "difflib_acc": d_ok / n if n else None,
+        "n_nonnull": n_nonnull,
+        "n_null": n_null,
+    }
+    name = getattr(picker, "name", "picker")
+    lines = [
+        f"# Street suggester — dev — {now:%Y-%m-%d} — prompt v{STREET_PROMPT_VERSION}",
+        "",
+        f"Extract osm_base {index.osm_base}; {len(aliases)} aliases; picker `{name}`"
+        f" ({getattr(picker, 'model', '')}).",
+        f"Dev rows the rules leave `not_found`: {n} ({n_nonnull} with gold, {n_null} null).",
+        "The rows are few, so the comparison is directional, not a measurement.",
+        "",
+        f"- prefilter recall (gold among the 12): {_pct(m_['prefilter_recall'])}"
+        f" ({hits} of {n_nonnull})",
+        f"- qwen accuracy: {_pct(m_['qwen_acc'])} ({q_ok} of {n})",
+        f"- difflib accuracy: {_pct(m_['difflib_acc'])} ({d_ok} of {n})",
+        "",
+        *table,
+        "",
+    ]
+    out_dir = eval_dir / "results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{now:%Y-%m-%d}-suggest-dev-v{STREET_PROMPT_VERSION}.md"
+    out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    return out, m_
+
+
 # --- Streets v2: the 150-row test split (spec 6.1-6.3) ---
 
 SEED_V2 = 20261113

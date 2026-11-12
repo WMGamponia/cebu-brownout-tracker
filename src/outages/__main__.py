@@ -61,6 +61,7 @@ from outages.streets import candidates as street_candidates
 from outages.streets import evaluate as streets_eval
 from outages.streets import review as streets_review
 from outages.streets import store as streets_store
+from outages.streets import suggest as street_suggest
 from outages.streets.match import ALIASES_PATH
 from outages.streets.normalize import street_key as street_keys
 from outages.telegram import TelegramClient, install_redaction
@@ -248,7 +249,9 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
         "action", choices=("sample", "run", "check", "review-sample", "freeze", "freeze-aliases")
     )
     e.add_argument("--again", action="store_true", help="run: a rerun after a crashed test run")
-    e.add_argument("--suite", choices=("areas", "streets", "streets-v2"), default="areas")
+    e.add_argument(
+        "--suite", choices=("areas", "streets", "streets-v2", "streets-suggest"), default="areas"
+    )
     e.add_argument("--n", type=int, default=25, help="review-sample: rows (default 25)")
     e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
     e.add_argument("--split", choices=("dev", "test"), default="dev")
@@ -328,6 +331,40 @@ def _eval_freeze_aliases() -> int:
     out = streets_eval.EVAL_DIR / streets_eval.ALIASES_FROZEN
     out.parent.mkdir(parents=True, exist_ok=True)
     evaluate.freeze(ALIASES_PATH, out)
+    print(f"written: {out}")
+    return 0
+
+
+def make_street_picker(paths: Paths) -> street_suggest.QwenPicker:
+    """The Qwen street picker with its cache in `data/streets/` (localhost Ollama only)."""
+    return street_suggest.QwenPicker(
+        street_suggest.open_cache(paths.data / "streets" / "llm_cache.db")
+    )
+
+
+def _eval_suggest_dev(paths: Paths, args: argparse.Namespace) -> int:
+    """Spec 7.5: the suggester's dev comparison. The test split never reaches a picker."""
+    if args.action != "run" or args.split != "dev":
+        print(
+            "error: the streets-suggest suite is `run --split dev` only (dev only)", file=sys.stderr
+        )
+        return 2
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("error: no OSM extract; run `streets fetch` first", file=sys.stderr)
+        return 1
+    try:
+        picker = make_street_picker(paths)
+        out, m = streets_eval.run_suggest_dev(
+            streets_eval.EVAL_DIR, index, load_boundaries(), utcnow(), picker, ALIASES_PATH
+        )
+    except LLMUnavailable as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except (evaluate.EvalError, BoundariesError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(out.read_text(encoding="utf-8"), end="")
     print(f"written: {out}")
     return 0
 
@@ -881,6 +918,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
             return _eval_freeze_aliases()
         if args.suite == "streets-v2":
             return _eval_streets_v2(paths, args)
+        if args.suite == "streets-suggest":
+            return _eval_suggest_dev(paths, args)
         if args.suite == "streets":
             if args.action == "sample":
                 return _eval_sample_streets(paths, args.seed or streets_eval.SEED)

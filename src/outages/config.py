@@ -51,6 +51,9 @@ HAIKU_MODEL = "claude-haiku-5-5"
 LLM_TIMEOUT_S = 120
 # Set by the pre-registered eval decision rule (spec 2); env OUTAGES_ENTITY_EXTRACTOR overrides.
 ENTITY_EXTRACTOR = os.environ.get("OUTAGES_ENTITY_EXTRACTOR", "rules")
+# Streets v2 spec 7.5: the arm with the higher dev accuracy fills the queue's `pick`;
+# a tie → difflib.
+STREET_SUGGEST_PRIMARY = "qwen"
 
 
 @dataclass(frozen=True)
