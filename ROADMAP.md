@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Phase 6 — Ship it, **brainstorm next with `prompts/phase6.md`.** Phase 5 (streets, history, multi-user) built on `phase5-streets-history`; street drawing off by its gate. Phases 1–3 merged to `main` (PRs #1, #2, #3); Phase 4 (PR #4) and Phase 5 merge with the owner's OK of 2026-11-12.
+**Current phase:** Phase 6 — Ship it, **brainstorm next with `prompts/phase6.md`.** Phase 5 (streets, history, multi-user) built on `phase5-streets-history`; street drawing off by its gate. Phases 1–4 merged to `main` (PRs #1–#4); Phase 5 merges with the owner's OK of 2026-11-12.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
 ### Progress log
