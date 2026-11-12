@@ -87,10 +87,13 @@ def build_router(
                 "veco_name": r["veco_name"],
                 "mentions": _mentions(r),
                 "status": r["status"],
+                "has_pick": bool(r["pick"]),
             }
             for r in rows
             if not r["decision"] and r["status"] in REVIEWABLE
         ]
+        # Owner's order (2026-11-13): rows with a pick first, each part by mentions.
+        out.sort(key=lambda i: (not i["has_pick"], -i["mentions"]))
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
     @router.get("/streets/review/item")

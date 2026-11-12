@@ -154,7 +154,15 @@ def test_decide_queue_busy_409(world, monkeypatch):
 def test_items_excludes_decided(world):
     items = _client(world).get("/streets/review/items").json()
     assert [i["veco_key"] for i in items] == ["gorordo avnue", "escarrio street"]
-    assert set(items[0]) == {"town_psgc", "town", "veco_key", "veco_name", "mentions", "status"}
+    assert set(items[0]) == {
+        "town_psgc",
+        "town",
+        "veco_key",
+        "veco_name",
+        "mentions",
+        "status",
+        "has_pick",
+    }
     assert items[0]["mentions"] == 2
 
 
@@ -263,3 +271,16 @@ def test_make_map_app_review_only_on_loopback(monkeypatch, tmp_path):
     assert seen["review"] is not None and len(seen["review"].token) >= 40
     cli.make_map_app(paths, "0.0.0.0")
     assert seen["review"] is None
+
+
+def test_items_picks_first_by_mentions(world):
+    rows = [
+        _row("a street", mentions=9, pick="", candidates="A Street"),
+        _row("b street", mentions=2, pick="B Street", candidates="B Street"),
+        _row("c street", mentions=5, pick="C Street", candidates="C Street"),
+        _row("d street", mentions=3, pick="", status="invalid", candidates="D Street"),
+    ]
+    queue.write(world["queue"], rows)
+    items = _client(world).get("/streets/review/items").json()
+    assert [i["veco_key"] for i in items] == ["c street", "b street", "a street", "d street"]
+    assert [i["has_pick"] for i in items] == [True, True, False, False]
