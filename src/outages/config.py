@@ -15,6 +15,10 @@ RUN_TIMES = ("06:00", "20:00")
 MISFIRE_GRACE_S = 6 * 3600  # a PC that slept through a run still runs it once on waking
 BACKFILL_DELAY_S = (3, 8)
 CATCH_UP_AFTER_H = 12
+# 2026-11-14: Windows wait timeouts don't count time asleep, so one long scheduler wait can end
+# hours late. A short watchdog job keeps waits short and runs a slot slept past the grace once.
+WATCHDOG_MIN = 5
+WATCHDOG_SLACK_MIN = 10  # leave a just-due slot to its cron job
 
 # Phase 2: pinned PSGC gazetteer (faeldon/philippines-json-maps v1.1.1). The hash is ours, not
 # the release's SHA256SUMS, which comes from the same place as the zip.
