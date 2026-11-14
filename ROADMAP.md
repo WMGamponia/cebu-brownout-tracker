@@ -166,10 +166,12 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **`ambiguous` by design:** `Tayud`, `Casili`, `Banilad`, `Bulacao`, `Linao`, `San Roque` — one row per listed town.
   - `testing` (2) and `Mandaue City DCA Brokerage…` (1): no barangay at all.
 - **Map limits (Phase 4, accepted):** a whole barangay is shaded for "portion of" (streets only in the popup until Phase 5); medium-resolution polygons are coarse (~9 vertices), so edges between barangays are approximate; OSM tiles are fine for one person's local use, but a public Phase 6 demo must re-check the tile policy or use another provider.
-- **36 outages name places but no barangay** (e.g. "Cebu Business Park", "South Reclamation Area"): the map lists them under "Not on the map"; alerts can't reach them. Street lines could show some of them ("drawn by its streets only"), but drawing is off.
-- **Street drawing is off (Phase 5 gate).** The frozen 50-row test split drew 13 rows at precision 0.923; the bar was 0.95 over ≥ 20 drawn rows. A 50-row split yields too few drawn rows to ever meet it (~40 % of VECO's street names are in OSM); turning drawing on needs a fresh split of ≥ 150 rows labelled with gold = the OSM `name` tag (two labels used an `alt_name`), the same bar, run once. `street_matches` is filled (2,363 of 5,032 mentions would be drawn), so the switch is `STREETS_DRAW` once the evidence is there.
-- **OSM coverage of Cebu side streets is uneven:** 2,669 of 5,032 street mentions have no OSM way of that name near their barangays. `streets --review` suggests aliases; none are applied automatically.
-- **ODbL:** the extract and any derived street lines stay in `data/`. A public Phase 6 snapshot that draws lines must carry the ODbL notice and offer the derived data.
+- **36 outages name places but no barangay** (e.g. "Cebu Business Park", "South Reclamation Area"): the map lists them under "Not on the map"; alerts can't reach them. Some now show as street lines ("drawn by its streets only").
+- **Street drawing is on (Streets v2 gate, 2026-11-13).** 150-row test split: precision 1.000 (68 of 68 drawn), but the 95 % interval's lower end is 0.947, so a true precision a little under 0.95 isn't ruled out. Coverage 0.654: a third of streets with an OSM answer still aren't drawn. The measured precision covers the aliases frozen on 2026-11-13; aliases approved later are unmeasured. An outage whose barangays couldn't be placed is clipped to its whole town, so its lines can run town-wide.
+- **Alias queue: 1,435 groups undecided** (`data/streets/alias_queue.csv`), 715 of them with a pick. Qwen picks far more often on real data than on dev (729 of 1,464 vs ~1 in 7), and some picks are plainly wrong (Tacubo Street → Mabini Street), so every row needs the owner.
+- **`serve` runs whatever branch the main checkout is on** (editable install): it started on `streets-v2` on 2026-11-13. Switch branches in a worktree, not in the checkout `serve` runs from.
+- **OSM coverage of Cebu side streets is uneven:** 2,544 of 5,075 street mentions still have no OSM way of that name (or an alias) near their barangays, e.g. Kamatisan Rd., a real road with no name in OSM. Naming roads in OSM from local knowledge would help a later extract.
+- **ODbL:** the extract stays in `data/`; the snapshot's `LICENSES.md` carries the ODbL notice and the extract date, and the derived lines are offered in `weeks/*.geojson`.
 - **A future week in the picker is bannered "History: …"** (the banner keys on "today isn't in this window").
 - **Deferred from the Phase 5 review (minor):** the per-chat rate limit also applies to the admin chat (clearing 20 requests in a minute mutes it for 10 min); `/revoke` on an allowlisted chat is undone at the next start; with schema 4 but no extract the map says "street matching not run yet" rather than "street data not downloaded" (unseen while drawing is off); `/stats.json` with a year like 9999 answers 500, not 422; the pending reply is once per calendar day, not a rolling 24 h; a `/forget` during an alert run can still receive that run's message (no row is kept).
 - **A declined chat can't `/forget` itself** (spec: blocked chats get silence; the row keeps the chat ID so the bot stays silent). Removing it takes a manual SQL delete.
@@ -189,6 +191,9 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - **…and check that the rule can be won.** A "+5 points" margin on a metric where the baseline already scores 98.9 can't be met; the rule decided the outcome before Qwen ran. Next time, set the margin after a dev baseline exists, or on the metric with headroom.
 - **Check a "missing" record against its source before adding one.** Lipata and Sto. Niño looked like barangays missing from the gazetteer; PSA showed one is part of Linao and the other is listed under an old name. New codes would have split one place in two.
 - **Run the real thing in a real browser before calling a page done.** Fixture data happened to have ids in time order and a sized window; the real DB and a background tab exposed two bugs no unit test caught.
+- **Check what a metric rewards before letting it pick a winner.** The suggester comparison counted "none" on a null row as correct; with 44 of 51 dev rows null, an always-none arm would have won. The rule still compared two real arms, but the full run (Qwen picking for half the groups) showed dev said little about real precision.
+- **Let the owner use the tool before calling it done.** Ten minutes on the review page found two things no test did: the order (picks first) and the bold line not following the chosen street.
+- **`cmd | tail` hides a failing exit code.** One commit went in red because the pipe returned `tail`'s status; `set -o pipefail` before any chained check.
 - **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
 ## Phase 0 — Setup
@@ -231,8 +236,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - [x] Public repo with a rewritten history, MIT. → `WMGamponia/cebu-brownout-tracker`; the private repo is the `private-archive` remote.
 
 ## Streets v2 (after Phase 6)
-- [ ] Fresh street test split of ≥ 150 rows (distinct from the 80 labelled), gold = the OSM `name` tag; same bar (precision ≥ 0.95 over ≥ 20 drawn), run once.
-- [ ] Offline LLM alias suggester (OSM names in scope only; dev and unlabelled mentions only; owner approves each into `street_aliases.csv`; aliases frozen before the test run).
+- [x] Fresh street test split of ≥ 150 rows (distinct from the 80 labelled), gold = the OSM `name` tag; same bar (precision ≥ 0.95 over ≥ 20 drawn), run once. → 150 rows, precision 1.000 (68 of 68 drawn), drawing on.
+- [x] Offline LLM alias suggester (OSM names in scope only; dev and unlabelled mentions only; owner approves each into `street_aliases.csv`; aliases frozen before the test run). → `streets suggest`, `/streets/review`, `serve` hook; 14 decided, 1,435 waiting.
 
 ## Map UI refresh (after Streets v2)
 Owner, 2026-11-13: the page around the map looks bland; take cues from zoom.earth's interface elements (borrow the ideas only, not its branding or exact layout). **The map itself stays as is** (OSM tiles, current shading). Brainstorm and spec first, like a phase.
