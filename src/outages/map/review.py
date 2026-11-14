@@ -14,13 +14,14 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from outages.config import STREET_BUFFER_M
 from outages.osm.extract import StreetIndex
 from outages.streets import queue
 from outages.streets.match import match_street, scope_for, search_towns
+from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 from outages.streets.store import scope_inputs
 from outages.streets.suggest import SCOPE_MENTIONS, groups
 
@@ -49,12 +50,22 @@ def _mentions(r: dict) -> int:
         return 0
 
 
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _loopback_host(request: Request) -> None:
+    """Refuse any Host that isn't a loopback name: a DNS-rebinding page (evil.example → 127.0.0.1)
+    would otherwise be same-origin, read the token and pass the Origin check (review #5)."""
+    if (request.url.hostname or "").lower() not in LOOPBACK_NAMES:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
 def build_router(
     cfg: ReviewConfig,
     ro: Callable[[], AbstractContextManager],
     boundaries: dict,
 ) -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(dependencies=[Depends(_loopback_host)])
     features = {f["properties"]["psgc"]: f for f in boundaries["features"]}
     index_lock = threading.Lock()
     loaded: dict[str, StreetIndex | None] = {}
@@ -119,15 +130,15 @@ def build_router(
             # candidate can be drawn: their placed barangays, else their towns.
             hashes = [h for h, _ in sorted(g.mentions)[:SCOPE_MENTIONS]]
             inputs = scope_inputs(conn, sorted(set(hashes)))
-        brgys: list[str] = []
-        towns: list[str] = []
-        for h in hashes:
+        # Per mention, as the matcher sees it: its placed barangays, else every barangay of its
+        # listed towns; the item shows the union of those scopes.
+        codes: list[str] = []
+        search: list[str] = []
+        for h in dict.fromkeys(hashes):
             b, t = inputs.get(h, ([], []))
-            brgys += [c for c in b if c not in brgys]
-            towns += [c for c in t if c not in towns]
-        codes = brgys or [
-            p for p, f in features.items() if f["properties"].get("town_psgc") in towns
-        ]
+            own = b or [p for p, f in features.items() if f["properties"].get("town_psgc") in t]
+            codes += [c for c in own if c not in codes]
+            search += [c for c in search_towns(b, t, boundaries) if c not in search]
         doc = {
             "veco_name": g.veco_name,
             "mentions": len(g.mentions),
@@ -149,14 +160,17 @@ def build_router(
         if idx is None:
             doc["message"] = "no OSM extract: run `streets fetch`; no street lines to show"
             return JSONResponse(doc)
-        scope = scope_for(brgys, towns, boundaries)
-        search = search_towns(brgys, towns, boundaries)
+        scope = scope_for(codes, [], boundaries)
         for name in queue.choices(row):
-            m = match_street(name, scope, search, idx, {})
+            # Through the alias path that runs after --apply, so the page shows exactly where
+            # this name would be drawn for VECO's spelling (generic names included).
+            alias = {(t, key): name for t in search}
+            m = match_street(g.veco_name, scope, search, idx, alias)
             doc["candidates"].append(
                 {
                     "name": name,
                     "is_pick": name == row["pick"],
+                    "generic": street_key(name) in GENERIC_STREET_KEYS,
                     "lines": [[list(p) for p in line] for line in m.lines],
                 }
             )

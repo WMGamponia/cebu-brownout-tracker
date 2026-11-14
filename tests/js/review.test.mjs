@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 import {
   keyFor,
+  labelEl,
   lineStyle,
   messageFor,
   nextIndex,
@@ -73,4 +74,13 @@ test("lineStyle: only the selected street is bold", () => {
   assert.ok(on.weight > off.weight);
   assert.notEqual(on.color, off.color);
   assert.deepEqual(lineStyle("A Street", null), off);
+});
+
+test("labelEl: a street name becomes text, never HTML (review #4)", () => {
+  const made = [];
+  const doc = { createElement: (tag) => { const e = { tag }; made.push(e); return e; } };
+  const el = labelEl(doc, '<img src=x onerror="alert(1)">');
+  assert.equal(el.tag, "span");
+  assert.equal(el.textContent, '<img src=x onerror="alert(1)">');
+  assert.equal(el.innerHTML, undefined);
 });

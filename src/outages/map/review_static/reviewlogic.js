@@ -43,3 +43,11 @@ const OTHER = { color: "#1565c0", weight: 3, opacity: 0.8 };
 export function lineStyle(name, selected) {
   return { ...(name === selected ? SELECTED : OTHER) };
 }
+
+/** A label element whose text is set with textContent: OSM names are data anyone can edit,
+ *  and Leaflet renders a string tooltip as HTML (review #4). */
+export function labelEl(doc, text) {
+  const el = doc.createElement("span");
+  el.textContent = text;
+  return el;
+}

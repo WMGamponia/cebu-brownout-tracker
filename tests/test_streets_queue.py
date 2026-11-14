@@ -511,3 +511,139 @@ def test_hook_swallows_picker_errors(hook_home, caplog):
 
     assert _hook(hook_home, Broken()) is None
     assert "picker broke" in caplog.text
+
+
+# --- final review fixes ---------------------------------------------------------------------
+
+
+def test_run_keeps_decisions_made_mid_run(tmp_path):
+    """Review #1: a decision recorded while `run` is picking survives the run's write."""
+    conn = _conn(tmp_path, STREETS)
+    path = tmp_path / "data" / "streets" / "alias_queue.csv"
+    _run(tmp_path, conn, FakeQwen(), limit=1)
+    (first,) = queue.read(path)
+
+    class DecidesMidRun(FakeQwen):
+        def pick(self, g, cands):
+            queue.set_decision(path, first["town_psgc"], first["veco_key"], "n")
+            return super().pick(g, cands)
+
+    assert _run(tmp_path, conn, DecidesMidRun()).new == 1
+    rows = {r["veco_key"]: r["decision"] for r in queue.read(path)}
+    assert rows[first["veco_key"]] == "n" and len(rows) == 2
+    conn.close()
+
+
+def test_queue_temp_name_is_per_writer(tmp_path, monkeypatch):
+    """Review #1: two processes writing at once never swap each other's temp file."""
+    seen = []
+    real = queue.os.replace
+
+    def spy(src, dst):
+        seen.append(str(src))
+        return real(src, dst)
+
+    monkeypatch.setattr(queue.os, "replace", spy)
+    queue.write(tmp_path / "q.csv", [_row()])
+    import os
+
+    assert str(os.getpid()) in seen[0] and seen[0].endswith(".tmp")
+
+
+def test_apply_retry_after_busy_queue_no_duplicates(tmp_path, monkeypatch):
+    """Review #2: the queue held by Excel at --apply, then a retry: no duplicate rows."""
+    conn = _conn(tmp_path, STREETS)
+    q = tmp_path / "q.csv"
+    queue.write(
+        q,
+        [
+            _row(
+                key="gorordo avnue",
+                mentions=2,
+                decision="y",
+                pick="Gorordo Avenue",
+                pick_source="qwen",
+            ),
+            _row(key="escarrio street", decision="n", pick="Escario Street", pick_source="difflib"),
+        ],
+    )
+    a, rj = _aliases(tmp_path), tmp_path / "rejects.csv"
+    real = queue.os.replace
+
+    def held(src, dst):
+        if str(dst) == str(q):
+            raise PermissionError("in use")
+        return real(src, dst)
+
+    monkeypatch.setattr(queue.os, "replace", held)
+    with pytest.raises(queue.QueueBusy):
+        apply(q, a, rj, INDEX, boundaries(), conn, TODAY)
+    monkeypatch.setattr(queue.os, "replace", real)
+    s = apply(q, a, rj, INDEX, boundaries(), conn, TODAY)
+    assert s.accepted_by_source == {} and s.rejected == 0  # already applied: skipped
+    assert [r["veco_key"] for r in _dicts(a)] == ["bugos street", "gorordo avnue"]
+    assert [r["veco_key"] for r in _dicts(rj)] == ["escarrio street"]
+    assert queue.read(q) == []
+    conn.close()
+
+
+def test_queue_lock_is_shared_across_processes(tmp_path):
+    """Review #1: the CLI and `serve` are different processes; the lock file covers both."""
+    import subprocess
+    import sys
+    import time as _time
+
+    q = tmp_path / "q.csv"
+    queue.write(q, [_row()])
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys, time; from pathlib import Path; from outages.streets import queue\n"
+            "with queue.locked(Path(sys.argv[1])):\n"
+            "    print('held', flush=True); time.sleep(3)",
+            str(q),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        start = _time.monotonic()
+        with pytest.raises(queue.QueueBusy), queue.locked(q, wait_s=0.5):
+            pass
+        assert _time.monotonic() - start >= 0.5
+    finally:
+        holder.wait(timeout=10)
+    with queue.locked(q, wait_s=0.5):  # free again once the other process is done
+        pass
+
+
+def test_generic_names_never_candidates_nor_applied(tmp_path):
+    """Review #3: a generic OSM name ("Barangay Road") is never offered and --apply refuses it:
+    as an alias it would draw every way of that name in scope."""
+    from outages.streets.store import scope_inputs
+    from outages.streets.suggest import candidates, groups
+
+    idx = StreetIndex(OSM_BASE, [*INDEX.ways, _way(9, "Barangay Road", row=2)])
+    conn = _conn(tmp_path, STREETS)
+    (g,) = [x for x in groups(conn, set(), set()) if x.key == "gorordo avnue"]
+    inputs = scope_inputs(conn, [h for h, _ in g.mentions])
+    assert "Barangay Road" not in candidates(g, idx, boundaries(), inputs)
+    q = tmp_path / "q.csv"
+    queue.write(
+        q,
+        [
+            _row(
+                key="gorordo avnue",
+                mentions=2,
+                decision="Barangay Road",
+                pick="Barangay Road",
+                candidates="Barangay Road",
+            )
+        ],
+    )
+    a, rj = _aliases(tmp_path), tmp_path / "rejects.csv"
+    s = apply(q, a, rj, idx, boundaries(), conn, TODAY)
+    assert len(s.refused) == 1 and len(_dicts(a)) == 1
+    conn.close()

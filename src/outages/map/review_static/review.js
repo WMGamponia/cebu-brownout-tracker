@@ -9,6 +9,7 @@ import {
   messageFor,
   nextIndex,
   selectedName,
+  labelEl,
 } from "/streets/review/static/reviewlogic.js";
 
 const BASE = "/streets/review";
@@ -98,7 +99,7 @@ function draw(doc) {
     if (!c.lines.length) continue;
     const latlngs = c.lines.map((line) => line.map(([lon, lat]) => [lat, lon]));
     const line = L.polyline(latlngs, lineStyle(c.name, selectedName(null, doc.pick)));
-    line.bindTooltip(c.name, { permanent: true, className: "street-label" });
+    line.bindTooltip(labelEl(document, c.name), { permanent: true, className: "street-label" });
     line.on("click", () => choose(c.name));
     line.addTo(layers);
     lines.set(c.name, line);
@@ -129,10 +130,15 @@ function render(doc) {
     btn.type = "button";
     btn.dataset.name = c.name;
     btn.textContent = c.name;
-    if (!c.lines.length) {
+    const note = c.generic
+      ? " (generic name: --apply refuses it)"
+      : c.lines.length
+        ? ""
+        : " (not drawn in this scope)";
+    if (note) {
       const s = document.createElement("span");
       s.className = "nolines";
-      s.textContent = " (not drawn in this scope)";
+      s.textContent = note;
       btn.appendChild(s);
     }
     btn.addEventListener("click", () => choose(c.name));

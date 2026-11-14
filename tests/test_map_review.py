@@ -18,7 +18,7 @@ from outages.streets.match import match_street, scope_for, search_towns
 from outages.streets.store import scope_inputs
 
 TOKEN = "t" * 43
-ORIGIN = "http://testserver"
+ORIGIN = "http://127.0.0.1:8765"
 STREETS = [("hA", 5, "Gorordo Avnue"), ("hC", 5, "Gorordo Avnue"), ("hA", 6, "Escarrio St")]
 
 
@@ -71,7 +71,7 @@ def world(tmp_path) -> dict:
 def _client(world, review=True) -> TestClient:
     cfg = ReviewConfig(world["queue"], world["osm"], TOKEN) if review else None
     app = create_app(world["db"], boundaries(), gazetteer(), clock=lambda: NOW, review=cfg)
-    return TestClient(app)
+    return TestClient(app, base_url=ORIGIN)
 
 
 def _post(c: TestClient, body: dict, origin: str | None = ORIGIN):
@@ -284,3 +284,62 @@ def test_items_picks_first_by_mentions(world):
     items = _client(world).get("/streets/review/items").json()
     assert [i["veco_key"] for i in items] == ["c street", "b street", "a street", "d street"]
     assert [i["has_pick"] for i in items] == [True, True, False, False]
+
+
+def _add_streets(world, streets):
+    c = db.connect(world["db"])
+    with c:
+        for h, seq, name in streets:
+            c.execute(
+                "INSERT INTO area_entities (areas_hash, seq, kind, name, extractor)"
+                " VALUES (?, ?, 'street', ?, 'rules')",
+                (h, seq, name),
+            )
+            c.execute(
+                "INSERT INTO street_matches (areas_hash, seq, status) VALUES (?, ?, 'not_found')",
+                (h, seq),
+            )
+    c.close()
+
+
+def test_item_draws_a_generic_pick_where_the_alias_would(world):
+    """Review #3: lines come from the alias path that runs after --apply, so a generic OSM
+    name (blocked on the plain path) is shown where it would really be drawn."""
+    rows = [{**ROWS[0], "pick": "Barangay Road", "candidates": "Barangay Road|Gorordo Avenue"}]
+    queue.write(world["queue"], rows)
+    doc = _client(world).get("/streets/review/item", params={"town": CEBU, "key": "gorordo avnue"})
+    lines = {c["name"]: c["lines"] for c in doc.json()["candidates"]}
+    assert lines["Barangay Road"]  # drawn, as the alias would draw it
+    assert doc.json()["candidates"][0]["generic"] is True
+
+
+def test_item_scope_per_mention_for_mixed_groups(world):
+    """Review #3: one mention placed (Sto. Niño), one town-only (hG): the town-only mention
+    reaches every Cebu City barangay, so Lahug's Gorordo Avenue is drawn."""
+    _add_streets(world, [("hB", 8, "Gorrordo Avenue"), ("hG", 8, "Gorrordo Avenue")])
+    queue.write(world["queue"], [_row("gorrordo avenue", mentions=2, pick="Gorordo Avenue")])
+    doc = (
+        _client(world)
+        .get("/streets/review/item", params={"town": CEBU, "key": "gorrordo avenue"})
+        .json()
+    )
+    psgcs = {f["properties"]["psgc"] for f in doc["scope"]["features"]}
+    assert {STO_NINO, LAHUG} <= psgcs
+    assert doc["candidates"][0]["lines"]
+
+
+def test_review_refuses_foreign_host(world):
+    """Review #5: DNS rebinding sends Host: evil.example with a matching Origin; the review
+    routes answer only to a loopback host name."""
+    c = _client(world)
+    evil = {"Host": "evil.example:8765"}
+    assert c.get("/streets/review", headers=evil).status_code == 403
+    assert c.get("/streets/review/items", headers=evil).status_code == 403
+    r = c.post(
+        "/streets/review/decide",
+        json=_body(),
+        headers={**evil, "Origin": "http://evil.example:8765"},
+    )
+    assert r.status_code == 403
+    assert queue.read(world["queue"])[0]["decision"] == ""
+    assert c.get("/streets/review", headers={"Host": "localhost:8765"}).status_code == 200

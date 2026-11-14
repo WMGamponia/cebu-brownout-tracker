@@ -102,7 +102,9 @@ def candidates(
             continue
         for n in index.names_in(search_towns(brgys, towns, boundaries), scope):
             nk = street_key(n)
-            if nk and nk != group.key:
+            # never the group's own name (it would still not draw) nor a generic one ("Barangay
+            # Road"): as an alias it would draw every way of that name in scope
+            if nk and nk != group.key and nk not in GENERIC_STREET_KEYS:
                 by_key.setdefault(nk, n)
 
     def rank(item: tuple[str, str]) -> tuple[float, str]:
@@ -425,8 +427,8 @@ def run(
                 "decision": "",
             }
         )
-    if rows:
-        queue.write(qpath, queue.merge(existing, rows))
+    if rows:  # merged into a fresh read: decisions made while picking are kept
+        queue.update(qpath, lambda fresh: queue.merge(fresh, rows))
     return RunSummary(
         new=len(rows),
         picked=sum(bool(r["pick"]) for r in rows),
@@ -462,7 +464,23 @@ def apply(
 ) -> ApplySummary:
     """Decided queue rows → `street_aliases.csv` (with provenance) or the rejects file.
     A decision that isn't `y`/`n`/an in-scope name, or whose group is gone, is refused and
-    stays in the queue. Raises queue.QueueError on an unreadable queue (nothing applied)."""
+    stays in the queue. Raises queue.QueueError on an unreadable queue (nothing applied).
+
+    Idempotent: a (town, key) already in the aliases or rejects file is not appended again, so
+    a retry after QueueBusy (the queue held open) adds no duplicates."""
+    with queue.locked(queue_file):
+        return _apply(queue_file, aliases_path, rejects_path, index, boundaries, conn, today)
+
+
+def _apply(
+    queue_file: Path,
+    aliases_path: Path,
+    rejects_path: Path,
+    index: StreetIndex,
+    boundaries: dict,
+    conn: sqlite3.Connection,
+    today: date,
+) -> ApplySummary:
     rows = queue.read(queue_file)
     by_group = {(g.town_psgc, g.key): g for g in groups(conn, set(), set())}
     hashes = sorted({h for g in by_group.values() for h, _ in sorted(g.mentions)[:SCOPE_MENTIONS]})
@@ -471,6 +489,7 @@ def apply(
     for a in aliases:
         a["source"] = a.get("source") or "manual"
     rejects = _read_csv(rejects_path)
+    done = {(a["town_psgc"], street_key(a["veco_key"])) for a in [*aliases, *rejects]}
     accepted: Counter[str] = Counter()
     decided: Counter[str] = Counter()
     took: Counter[str] = Counter()
@@ -484,6 +503,8 @@ def apply(
         if not d:
             keep.append(r)
             continue
+        if (r["town_psgc"], street_key(r["veco_key"])) in done:
+            continue  # applied by an earlier --apply whose queue write failed: just drop it
         src = r["pick_source"] or "none"
         if d == "n":
             rejects.append(
