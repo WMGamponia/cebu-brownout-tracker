@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Streets v2, **building** (branch `streets-v2`; done on the branch; snapshot published; waiting for the owner's OK to open the PR). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
+**Current phase:** Streets v2 **merged** (PR #5, 2026-11-14); next phase not chosen yet. Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
 **History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
@@ -156,6 +156,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - **2026-11-14** — **`serve` skipped the 06:00 run (fixed).** The map warned the data was 15 h old; the log had the 13 Nov 20:00 run and nothing after. Windows' power log showed the PC slept and woke 9 times overnight (~6 h 11 min asleep before 06:00) and the wake task did its job: woken 05:57, held awake to 06:13, `serve` alive. **Root cause:** APScheduler waits for the next job in one `Event.wait(~10 h)`, and on Windows 8+ a wait's timeout doesn't count time asleep, so the wait would end ~6 h late, past the 6 h misfire grace, and APScheduler skips the run (then waits for 20:00 the same way). **Fix, test-first:** a 5-minute `watchdog` job in `serve` keeps every wait short (a due run is seen within 5 awake minutes) and runs once any slot that no check covers 10 min after it (`scheduler.latest_slot` / `missed_slot`, `_Runs` in `__main__`: one run at a time, one attempt per slot even if the check fails). `serve` must be restarted to pick it up.
 
 - **2026-11-14** — **Streets v2 done on the branch.** Final whole-branch review (fresh reviewer): 1 Critical, 4 Important, 6 Minor. Fixed test-first: a suggest run no longer erases decisions made on the review page while it picks (fresh re-read under a cross-process lock), `--apply` retries add no duplicates, generic OSM names are never offered, the review page draws each choice through the alias path per mention, tooltips are text, and the review routes refuse a non-loopback Host. Minors under Known issues. `main` (PR #3 map labels, PR #4 serve watchdog) merged in; 1,034 Python + 79 JS tests green. Snapshot with street lines published from the 2026-11-14 20:28 check (taken 20:53): 15 outages this week draw lines; ODbL text and attribution live.
+
+- **2026-11-14** — **Streets v2 merged** (PR #5, merge commit `ce862b6`); CI green on Ubuntu 3.12, Windows 3.14 and the JS tests. `serve` needs a restart to run it (and PR #4's watchdog).
 
 ### Known issues
 - **A run slept through is caught up, not on time:** the watchdog runs it within ~5 min of waking, and only once per slot; if VECO or the network is down at that moment (as right after a wake), the next try is the next 06:00 / 20:00 (the admin chat gets "VECO not reachable").
