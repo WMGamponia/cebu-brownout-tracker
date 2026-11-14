@@ -49,7 +49,7 @@ class _Fetcher:
 
 def test_scheduler_jobs_at_run_times():
     sched = scheduler.build(lambda: None)
-    jobs = sorted(sched.get_jobs(), key=lambda j: j.id)
+    jobs = sorted((j for j in sched.get_jobs() if j.id != "watchdog"), key=lambda j: j.id)
     assert [j.id for j in jobs] == ["run-06:00", "run-20:00"]
     assert sorted(str(j.trigger) for j in jobs) == [
         "cron[hour='20', minute='0']",
@@ -57,6 +57,59 @@ def test_scheduler_jobs_at_run_times():
     ]
     assert all(str(j.trigger.timezone) == "Asia/Manila" for j in jobs)
     assert all(j.misfire_grace_time == 21600 and j.coalesce and j.max_instances == 1 for j in jobs)
+
+
+def test_scheduler_watchdog_caps_the_wait():
+    """Windows wait timeouts don't count time asleep (2026-11-14: the 06:00 run never came).
+    A short interval job keeps every wait short, so a due run is seen soon after waking."""
+    sched = scheduler.build(lambda: None, watchdog=lambda: None)
+    dog = sched.get_job("watchdog")
+    assert dog.trigger.interval == timedelta(minutes=5)
+    assert dog.coalesce and dog.max_instances == 1 and dog.misfire_grace_time is None
+
+
+MANILA_NOV14 = datetime.fromisoformat("2026-11-14T00:00:00+08:00")
+
+
+def _at(hm: str) -> datetime:
+    h, m = hm.split(":")
+    return MANILA_NOV14 + timedelta(hours=int(h), minutes=int(m))
+
+
+@pytest.mark.parametrize(
+    ("now", "slot"),
+    [
+        ("06:00", "06:00"),
+        ("11:24", "06:00"),
+        ("19:59", "06:00"),
+        ("20:00", "20:00"),
+        ("05:59", "-04:00"),
+    ],
+)
+def test_latest_slot(now, slot):
+    assert scheduler.latest_slot(_at(now)) == _at(slot)
+
+
+def test_missed_slot_the_2026_11_14_case():
+    """Last check 13 Nov 20:01, PC asleep past the 6 h grace: at 11:24 the 06:00 run is missed."""
+    assert scheduler.missed_slot("2026-11-13T12:01:55+00:00", _at("11:24")) == _at("06:00")
+
+
+@pytest.mark.parametrize(
+    ("last", "now"),
+    [
+        ("06:01", "18:00"),  # checked this slot; 20:00 not due yet (no spurious 18:00 run)
+        ("2026-11-13T20:01", "05:00"),  # checked the previous slot
+        ("2026-11-13T20:01", "06:05"),  # 06:00 just passed: leave it to the cron job
+    ],
+)
+def test_missed_slot_none(last, now):
+    last_at = (datetime.fromisoformat(last + "+08:00") if "T" in last else _at(last)).isoformat()
+    assert scheduler.missed_slot(last_at, _at(now)) is None
+
+
+def test_missed_slot_never_checked():
+    assert scheduler.missed_slot(None, _at("11:24")) == _at("06:00")
 
 
 def _record_alert_runs(monkeypatch) -> list[bool]:
@@ -200,6 +253,46 @@ def test_serve_recent_check_still_runs_alerts(home, monkeypatch):
 
 
 # --- Phase 4: the map thread in serve ----------------------------------------------------------
+
+
+# --- 2026-11-14: a run slept through must not be dropped ---------------------------------------
+
+
+def _runs(home, monkeypatch, now: datetime) -> tuple[cli._Runs, list]:
+    monkeypatch.setattr(cli, "utcnow", lambda: now)
+    calls: list = []
+    monkeypatch.setattr(cli, "_scheduled_run", lambda p, s, do_check=True: calls.append(do_check))
+    return cli._Runs(home, None), calls
+
+
+def test_watchdog_runs_the_missed_06_00_once(home, monkeypatch, caplog):
+    conn = db.connect(home.db)
+    db.set_meta(conn, "last_check_at", "2026-11-13T12:01:55+00:00")  # 20:01 Manila
+    conn.commit()
+    conn.close()
+    runs, calls = _runs(home, monkeypatch, _at("11:24"))
+    with caplog.at_level(logging.WARNING, logger="outages"):
+        runs.watchdog()
+        runs.watchdog()  # once per slot, even if the check failed
+    assert calls == [True]
+    assert "missed the 06:00 run" in caplog.text
+
+
+def test_watchdog_quiet_when_checked(home, monkeypatch):
+    conn = db.connect(home.db)
+    db.set_meta(conn, "last_check_at", _at("06:01").isoformat())
+    conn.commit()
+    conn.close()
+    runs, calls = _runs(home, monkeypatch, _at("18:00"))
+    runs.watchdog()
+    assert calls == []
+
+
+def test_cron_run_then_watchdog_does_not_repeat(home, monkeypatch):
+    runs, calls = _runs(home, monkeypatch, _at("06:20"))  # cron fired late, check failed
+    runs.scheduled()
+    runs.watchdog()
+    assert calls == [True]
 
 
 def _quiet_serve(monkeypatch) -> list:

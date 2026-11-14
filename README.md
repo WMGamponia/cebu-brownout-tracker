@@ -231,8 +231,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -Un
 mid-run is safe for the DB; at worst one alert is sent twice.
 
 **"Data more than 15 h old" on the map:** check the task's *Last Run Result* in Task Scheduler,
-the tail of `data\logs\outages.log`, and whether the PC slept past a run: a run missed by more
-than 6 h is skipped, and the next one catches up.
+the tail of `data\logs\outages.log`, and whether the PC slept past a run. `serve` looks every
+5 minutes: a run slept through is done within minutes of waking (logged as `missed the 06:00
+run`), once per run time even if VECO is unreachable then.
 
 ## Publishing the snapshot
 
