@@ -21,6 +21,15 @@ def fixtures_dir() -> Path:
     return FIXTURES
 
 
+@pytest.fixture(autouse=True)
+def _no_committed_street_aliases(monkeypatch):
+    """`streets match` in tests sees no aliases: the committed street_aliases.csv grows as the
+    owner approves real ones, and one may share a key with a fixture street (`Escario St.`)."""
+    import outages.streets.store as store
+
+    monkeypatch.setattr(store, "load_aliases", lambda *a, **k: {})
+
+
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
