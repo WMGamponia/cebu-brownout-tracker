@@ -184,3 +184,25 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .ln-cancelled { border-top: 4px dashed #616161; }
 .ln-faint { border-top: 2px solid rgba(194, 65, 12, 0.35); }
 .streets ul.reasons { margin: 2px 0 4px 16px; padding: 0; }
+
+/* Short labels on barangays with an outage that day (map.js drawLabels). Never block the map. */
+.leaflet-labels-pane { z-index: 450; pointer-events: none; }
+.map-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--fg);
+  border: 1px solid #f5a25d;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+.map-label-active { border-color: var(--active-line); font-weight: 600; }
+.map-label-cancelled { border-color: #757575; border-style: dashed; color: var(--muted); }
+/* Our own polygon outline marks the hovered or open barangay, not the browser's focus box. */
+path.leaflet-interactive:focus { outline: none; }

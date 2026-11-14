@@ -19,6 +19,8 @@ import {
   safePostUrl,
   shiftDate,
 } from "./timeline.js";
+import { createDwell } from "./hover.js";
+import { cullLabels, labelPoint, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
@@ -51,6 +53,18 @@ const LINE_STYLES = {
 };
 const LINE_ORDER = { faint: 0, active_cancelled: 1, active: 2 };
 const LIGHT_FILL = 0.22;
+
+// The barangay under the mouse, and the one whose popup is open, get a dark outline.
+const HIGHLIGHT = { color: "#111111", weight: 3, dashArray: null };
+
+/** "24" or "12" (AM/PM), remembered per browser. Storage can be blocked: then 24-hour. */
+function savedClock() {
+  try {
+    return localStorage.getItem("clock") === "12" ? "12" : "24";
+  } catch {
+    return "24";
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -90,6 +104,10 @@ const state = {
   showStreets: true,
   streetLayer: null,
   linesIn: new Map(), // psgc -> Set of outage ids with a drawn line inside that barangay
+  clock: savedClock(),
+  hovered: null, // the barangay layer under the mouse
+  cursor: null, // the mouse's latlng over a barangay: hover popups open there
+  labelPane: null,
 };
 
 const drawing = () => Boolean(state.doc && state.doc.meta.osm && state.doc.meta.osm.drawing);
@@ -101,6 +119,30 @@ const map = L.map("map", { zoomControl: true, attributionControl: true });
 map.attributionControl.setPrefix(false);
 addTiles(L, map); // offline: polygons still draw on a blank background
 map.setView([10.32, 123.9], 11);
+
+// Short labels sit above the shading and lines, below tooltips and popups; hidden while zooming.
+state.labelPane = map.createPane("labels");
+state.labelPane.classList.add("leaflet-zoom-hide");
+
+// Hover (mouse only): touch taps keep opening popups as before. A tap also fires mouseover,
+// so the last pointer type decides, not just the device's hover capability.
+const canHover = window.matchMedia("(hover: hover)").matches;
+let lastPointer = "mouse";
+for (const type of ["pointerdown", "pointermove"]) {
+  document.addEventListener(type, (e) => (lastPointer = e.pointerType || "mouse"), { capture: true, passive: true });
+}
+const mouseHover = () => canHover && lastPointer === "mouse";
+
+const dwell = createDwell({
+  // No auto-pan on hover: panning would slide another barangay under the cursor and close it.
+  open: (layer) => {
+    const popup = layer.getPopup();
+    popup.options.autoPan = false;
+    layer.openPopup(state.cursor || undefined);
+    popup.options.autoPan = true;
+  },
+  close: (layer) => layer.closePopup(),
+});
 
 function visibleOutages(ids) {
   const out = [];
@@ -127,6 +169,8 @@ function styleFor(feature) {
   const props = feature.properties;
   const st = featureState(props);
   const style = { ...STYLES[st], fill: true, opacity: 1 };
+  const marked = (layer) => layer && layer.feature === feature;
+  if (marked(state.hovered) || marked(state.openLayer)) Object.assign(style, HIGHLIGHT);
   if (st === "active" && streetsShown()) {
     const ids = state.linesIn.get(props.psgc);
     const lit = visibleOutages(props.outage_ids).some(
@@ -153,7 +197,7 @@ function popupContent(props) {
 }
 
 function outageBlock(o, props, isActive) {
-  const when = el("p", { class: "when", text: rangeLabel(o.start, o.end) }, [badge(o.status)]);
+  const when = el("p", { class: "when", text: rangeLabel(o.start, o.end, state.clock) }, [badge(o.status)]);
   const block = el("div", { class: isActive ? "outage active" : "outage" }, [when]);
   if (o.purpose) block.append(el("p", { text: o.purpose }));
   const places = placesLine(o.entities);
@@ -265,22 +309,115 @@ function tooltipFor(props) {
   return el("span", { text: `${props.name}, ${props.town}` });
 }
 
+/** Restyle one barangay; a highlighted one comes to the front, under the street lines. */
+function restyle(layer) {
+  layer.setStyle(styleFor(layer.feature));
+  if (layer !== state.hovered && layer !== state.openLayer) return;
+  layer.bringToFront();
+  if (state.streetLayer) state.streetLayer.eachLayer((l) => l.bringToFront());
+}
+
+const hooked = new WeakSet(); // popup elements already listening for the mouse
+
+function wireFeature(feature, layer) {
+  layer.bindTooltip(tooltipFor(feature.properties), { sticky: true });
+  const covered = feature.properties.covered;
+  layer.on("mouseover", (e) => {
+    if (!mouseHover()) return;
+    const was = state.hovered;
+    state.hovered = layer;
+    state.cursor = e.latlng;
+    if (was && was !== layer) restyle(was);
+    restyle(layer);
+    if (covered) dwell.enter(layer);
+  });
+  layer.on("mousemove", (e) => {
+    if (!mouseHover() || state.hovered !== layer) return;
+    state.cursor = e.latlng;
+    if (covered) dwell.enter(layer); // still moving: restart the dwell
+  });
+  layer.on("mouseout", () => {
+    if (state.hovered === layer) state.hovered = null;
+    restyle(layer);
+    dwell.leave(layer);
+  });
+  if (!covered) return;
+  layer.bindPopup(() => popupContent(feature.properties), { maxWidth: 320 });
+  layer.on("click", () => dwell.pin(layer));
+  layer.on("popupopen", (e) => {
+    const was = state.openLayer;
+    state.openLayer = layer;
+    if (was && was !== layer) restyle(was);
+    restyle(layer);
+    layer.closeTooltip(); // the popup already names the barangay
+    const box = e.popup.getElement();
+    if (box && !hooked.has(box)) {
+      hooked.add(box);
+      box.addEventListener("mouseenter", () => dwell.enterPopup());
+      box.addEventListener("mouseleave", () => dwell.leavePopup());
+    }
+  });
+  layer.on("popupclose", () => {
+    if (state.openLayer === layer) state.openLayer = null;
+    dwell.closed(layer);
+    restyle(layer);
+  });
+}
+
 function drawFeatures() {
+  dwell.reset();
+  state.hovered = null;
   if (state.layer) state.layer.remove();
   state.layer = L.geoJSON(
     { type: "FeatureCollection", features: state.doc.features },
-    {
-      style: styleFor,
-      onEachFeature(feature, layer) {
-        layer.bindTooltip(tooltipFor(feature.properties), { sticky: true });
-        if (!feature.properties.covered) return;
-        layer.bindPopup(() => popupContent(feature.properties), { maxWidth: 320 });
-        layer.on("popupopen", () => (state.openLayer = layer));
-        layer.on("popupclose", () => (state.openLayer = null));
-      },
-    },
+    { style: styleFor, onEachFeature: wireFeature },
   ).addTo(map);
 }
+
+// --- short labels -------------------------------------------------------------------------------
+
+/** One short label per barangay with an outage shown this day: build them, then place them. */
+function drawLabels() {
+  const pane = state.labelPane;
+  pane.replaceChildren();
+  if (!state.doc) return;
+  for (const f of state.doc.features) {
+    const props = f.properties;
+    if (!props.covered) continue;
+    const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
+    const text = shortLabel(props.name, os, state.clock);
+    const at = text && labelPoint(f.geometry);
+    if (!at) continue;
+    const node = el("div", {
+      class: `map-label map-label-${featureState(props)}`,
+      text,
+      attrs: { "aria-hidden": "true" },
+    });
+    node.dataset.lat = String(at[1]);
+    node.dataset.lng = String(at[0]);
+    pane.append(node);
+  }
+  placeLabels();
+}
+
+/** Position the labels and hide the ones that would overlap (nearest the centre wins). */
+function placeLabels() {
+  const nodes = [...state.labelPane.children];
+  if (!nodes.length) return;
+  const size = map.getSize();
+  const items = nodes.map((node, i) => {
+    const ll = L.latLng(Number(node.dataset.lat), Number(node.dataset.lng));
+    const lp = map.latLngToLayerPoint(ll);
+    node.style.transform = `translate(${Math.round(lp.x)}px, ${Math.round(lp.y)}px) translate(-50%, -50%)`;
+    node.hidden = false;
+    const cp = map.latLngToContainerPoint(ll);
+    return { key: String(i), x: cp.x, y: cp.y, w: node.offsetWidth, h: node.offsetHeight };
+  });
+  const keep = new Set(cullLabels(items, { w: size.x, h: size.y }));
+  nodes.forEach((node, i) => (node.hidden = !keep.has(String(i))));
+}
+
+map.on("moveend zoomend resize", placeLabels);
 
 function fitCovered() {
   const box = map.getContainer();
@@ -303,8 +440,9 @@ new ResizeObserver(() => {
 
 function renderTopbar() {
   const meta = state.doc.meta;
-  const asOf = asOfLabel(meta.last_check_at);
+  const asOf = asOfLabel(meta.last_check_at, state.clock);
   $("asof").textContent = asOf ? `Data as of ${asOf}` : "No check has run yet";
+  $("clock-12").checked = state.clock === "12";
   const age = checkAgeHours(meta.last_check_at, src.now());
   const warn = $("old-warning");
   const past = isPastWindow(meta, src.now());
@@ -359,8 +497,8 @@ function renderDays() {
 function renderHour() {
   const input = $("hour");
   input.value = String(state.hour);
-  input.setAttribute("aria-valuetext", hourLabel(state.hour));
-  $("hour-label").textContent = hourLabel(state.hour);
+  input.setAttribute("aria-valuetext", hourLabel(state.hour, state.clock));
+  $("hour-label").textContent = hourLabel(state.hour, state.clock);
 }
 
 function renderUnplaced() {
@@ -379,7 +517,7 @@ function renderUnplaced() {
       byStreets = el("p", { class: "muted", text: "drawn by its streets only " }, [show]);
     }
     return el("li", {}, [
-      el("p", { class: "when", text: rangeLabel(o.start, o.end) }, [badge(o.status)]),
+      el("p", { class: "when", text: rangeLabel(o.start, o.end, state.clock) }, [badge(o.status)]),
       el("p", { class: "veco-text", text: o.areas_raw }),
       reasons,
       byStreets,
@@ -396,6 +534,8 @@ function render() {
   renderUnplaced();
   drawStreets();
   if (state.layer) state.layer.setStyle(styleFor);
+  for (const l of [state.hovered, state.openLayer]) if (l) restyle(l);
+  drawLabels();
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
 
@@ -492,6 +632,17 @@ $("show-cancelled").addEventListener("change", (e) => {
   if (state.doc) render();
 });
 $("retry").addEventListener("click", start);
+$("clock-12").addEventListener("change", (e) => {
+  state.clock = e.target.checked ? "12" : "24";
+  try {
+    localStorage.setItem("clock", state.clock);
+  } catch {
+    /* storage blocked: the choice lasts until the page closes */
+  }
+  if (!state.doc) return;
+  renderTopbar();
+  render();
+});
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
   if (state.doc) render();
