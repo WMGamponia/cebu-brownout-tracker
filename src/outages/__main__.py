@@ -574,6 +574,46 @@ def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bo
         _run_once(paths, settings, do_check)
 
 
+class _Runs:
+    """The cron runs and the watchdog in `serve`: one run at a time, at most one per slot.
+
+    The watchdog runs a slot that no check has covered (the PC slept past the misfire grace).
+    A slot counts as done once attempted, even if its check failed: the admin chat already hears
+    "VECO not reachable", and retrying every few minutes would hammer VECO while it is down."""
+
+    def __init__(self, paths: Paths, settings: TelegramSettings | None) -> None:
+        self.paths, self.settings = paths, settings
+        self._lock = threading.Lock()
+        self._done: datetime | None = None
+
+    def scheduled(self) -> None:
+        with self._lock:
+            self._run(scheduler.latest_slot(utcnow()))
+
+    def watchdog(self) -> None:
+        with self._lock:
+            now = utcnow()
+            conn = db.connect(self.paths.db)
+            try:
+                last = db.get_meta(conn, "last_check_at")
+            finally:
+                conn.close()
+            slot = scheduler.missed_slot(last, now)
+            if slot is None or (self._done is not None and self._done >= slot):
+                return
+            log.warning(
+                "serve: missed the %s run (PC asleep?); running it now",
+                slot.astimezone(MANILA).strftime("%H:%M"),
+            )
+            self._run(slot)
+
+    def _run(self, slot: datetime) -> None:
+        if self._done is not None and self._done >= slot:
+            return
+        self._done = slot
+        _scheduled_run(self.paths, self.settings)
+
+
 def _run_once(paths: Paths, settings: TelegramSettings | None, do_check: bool) -> None:
     check_ok = _check(paths) if do_check else True
     if settings is None:
@@ -701,7 +741,8 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
         _scheduled_run(paths, settings, do_check=catch_up)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            scheduler.build(lambda: _scheduled_run(paths, settings)).start()
+            runs = _Runs(paths, settings)
+            scheduler.build(runs.scheduled, runs.watchdog).start()
     finally:
         stop.set()
     return 0
