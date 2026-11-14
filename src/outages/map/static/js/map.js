@@ -56,6 +56,7 @@ const LIGHT_FILL = 0.22;
 
 // The barangay under the mouse, and the one whose popup is open, get a dark outline.
 const HIGHLIGHT = { color: "#111111", weight: 3, dashArray: null };
+const OUTLINE = { ...HIGHLIGHT, opacity: 1, fill: false };
 
 /** "24" or "12" (AM/PM), remembered per browser. Storage can be blocked: then 24-hour. */
 function savedClock() {
@@ -309,11 +310,22 @@ function tooltipFor(props) {
   return el("span", { text: `${props.name}, ${props.town}` });
 }
 
-/** Restyle one barangay; a highlighted one comes to the front, under the street lines. */
+/** Restyle one barangay and redraw the highlight outlines. */
 function restyle(layer) {
   layer.setStyle(styleFor(layer.feature));
-  if (layer !== state.hovered && layer !== state.openLayer) return;
-  layer.bringToFront();
+  drawOutlines();
+}
+
+/** The hovered and open barangays' borders, drawn on top as non-interactive copies (under the
+ *  street lines) so neighbours can't cover them. The barangay's own path is never moved: in
+ *  Chrome, re-appending the SVG path under the cursor loses its mouseout, so its sticky tooltip
+ *  and hover state stayed stuck after moving on to the next barangay. */
+function drawOutlines() {
+  if (!state.outlines) state.outlines = L.layerGroup().addTo(map);
+  state.outlines.clearLayers();
+  for (const l of new Set([state.hovered, state.openLayer])) {
+    if (l) state.outlines.addLayer(L.geoJSON(l.feature, { interactive: false, style: () => OUTLINE }));
+  }
   if (state.streetLayer) state.streetLayer.eachLayer((l) => l.bringToFront());
 }
 
@@ -534,7 +546,7 @@ function render() {
   renderUnplaced();
   drawStreets();
   if (state.layer) state.layer.setStyle(styleFor);
-  for (const l of [state.hovered, state.openLayer]) if (l) restyle(l);
+  drawOutlines();
   drawLabels();
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
