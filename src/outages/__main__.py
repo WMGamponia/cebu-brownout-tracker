@@ -7,6 +7,7 @@ import contextlib
 import logging
 import sys
 import threading
+from collections import Counter
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -40,6 +41,7 @@ from outages.config import (
     OVERPASS_URL,
     RUN_TIMES,
     STALE_CHECK_H,
+    STREETS_SUGGEST_AUTO,
     VECO_TOWNS,
     Paths,
     TelegramSettings,
@@ -52,14 +54,19 @@ from outages.history import stats as history_stats
 from outages.map import server as map_server
 from outages.map.app import NOT_MIGRATED, NOT_READY, create_app
 from outages.map.build import BoundariesError, load_boundaries, schema_ready
+from outages.map.review import ReviewConfig
 from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
 from outages.osm import extract as streets_index
 from outages.osm import overpass
+from outages.streets import candidates as street_candidates
 from outages.streets import evaluate as streets_eval
+from outages.streets import queue as street_queue
 from outages.streets import review as streets_review
 from outages.streets import store as streets_store
-from outages.streets.match import ALIASES_PATH
+from outages.streets import suggest as street_suggest
+from outages.streets.match import ALIASES_PATH, REJECTS_PATH
+from outages.streets.normalize import street_key as street_keys
 from outages.telegram import TelegramClient, install_redaction
 from outages.timeparse import MANILA
 
@@ -241,8 +248,14 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     a.add_argument("--dry-run", action="store_true", help="parse in memory, write nothing")
     a.add_argument("--review", action="store_true", help="print and save the review queue")
     e = parsers["eval"]
-    e.add_argument("action", choices=("sample", "run"))
-    e.add_argument("--suite", choices=("areas", "streets"), default="areas")
+    e.add_argument(
+        "action", choices=("sample", "run", "check", "review-sample", "freeze", "freeze-aliases")
+    )
+    e.add_argument("--again", action="store_true", help="run: a rerun after a crashed test run")
+    e.add_argument(
+        "--suite", choices=("areas", "streets", "streets-v2", "streets-suggest"), default="areas"
+    )
+    e.add_argument("--n", type=int, default=25, help="review-sample: rows (default 25)")
     e.add_argument("--seed", type=int, default=None, help="areas 20261111, streets 20261112")
     e.add_argument("--split", choices=("dev", "test"), default="dev")
     e.add_argument("--arms", default="rules")
@@ -256,17 +269,23 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sp.add_argument("--from", dest="from_", help="YYYY-MM-DD (default: to − 364 days)")
     sp.add_argument("--to", help="YYYY-MM-DD (default: today, Manila)")
     st = parsers["streets"]
-    st.add_argument("action", nargs="?", choices=("fetch", "match"))
+    st.add_argument("action", nargs="?", choices=("fetch", "match", "candidates", "suggest"))
     st.add_argument("--yes", action="store_true", help="fetch: make the Overpass requests")
     st.add_argument("--towns", help="fetch: only these towns (comma-separated names)")
     st.add_argument("--rebuild", action="store_true", help="match: redo every street")
     st.add_argument("--dry-run", action="store_true", help="match: count only, write nothing")
     st.add_argument("--review", action="store_true", help="unmatched names with suggestions")
+    st.add_argument("--rows", type=Path, help="candidates: a rows .jsonl (labelling helper)")
+    st.add_argument("--limit", type=int, help="suggest: at most N new groups")
+    st.add_argument("--apply", action="store_true", help="suggest: apply the queue's decisions")
     sn = parsers["snapshot"]
     sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
+    s.add_argument(
+        "--no-suggest", action="store_true", help="no automatic street suggestions after runs"
+    )
     s.add_argument("--map-host", default=MAP_HOST, help=f"default {MAP_HOST}; 0.0.0.0 = your LAN")
     s.add_argument("--map-port", type=int, default=MAP_PORT)
 
@@ -288,6 +307,14 @@ def _eval_sample(paths: Paths, seed: int) -> int:
 
 
 def _eval_sample_streets(paths: Paths, seed: int) -> int:
+    """Phase 5's sampler; refused once its split is retired to `p5/` (it would overwrite dev)."""
+    if (streets_eval.EVAL_DIR / streets_eval.P5_DIR).exists():
+        print(
+            "error: the Phase 5 street split is retired (evals/streets/p5/); "
+            "use `eval sample --suite streets-v2`",
+            file=sys.stderr,
+        )
+        return 2
     conn = db.connect_ro(paths.db)
     try:
         rows = streets_eval.street_rows(conn)
@@ -301,6 +328,119 @@ def _eval_sample_streets(paths: Paths, seed: int) -> int:
         return 1
     print(f"{len(rows)} street mentions; sampled dev {len(dev)}, test {len(test)}")
     print(f"written: {streets_eval.EVAL_DIR}")
+    return 0
+
+
+REVIEW_FILE = Path("streets") / "label-review.md"
+
+
+def _eval_freeze_aliases() -> int:
+    """`ALIASES_FROZEN` = the hash of the committed aliases, before the one test run."""
+    out = streets_eval.EVAL_DIR / streets_eval.ALIASES_FROZEN
+    out.parent.mkdir(parents=True, exist_ok=True)
+    evaluate.freeze(ALIASES_PATH, out)
+    print(f"written: {out}")
+    return 0
+
+
+def make_street_picker(paths: Paths) -> street_suggest.QwenPicker:
+    """The Qwen street picker with its cache in `data/streets/` (localhost Ollama only)."""
+    return street_suggest.QwenPicker(
+        street_suggest.open_cache(paths.data / "streets" / "llm_cache.db")
+    )
+
+
+def _eval_suggest_dev(paths: Paths, args: argparse.Namespace) -> int:
+    """Spec 7.5: the suggester's dev comparison. The test split never reaches a picker."""
+    if args.action != "run" or args.split != "dev":
+        print(
+            "error: the streets-suggest suite is `run --split dev` only (dev only)", file=sys.stderr
+        )
+        return 2
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("error: no OSM extract; run `streets fetch` first", file=sys.stderr)
+        return 1
+    try:
+        picker = make_street_picker(paths)
+        out, m = streets_eval.run_suggest_dev(
+            streets_eval.EVAL_DIR, index, load_boundaries(), utcnow(), picker, ALIASES_PATH
+        )
+    except LLMUnavailable as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    except (evaluate.EvalError, BoundariesError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(out.read_text(encoding="utf-8"), end="")
+    print(f"written: {out}")
+    return 0
+
+
+def _eval_streets_v2(paths: Paths, args: argparse.Namespace) -> int:
+    """The v2 test split's label handling (spec 6.1-6.3). Offline; never prints a gold."""
+    d = streets_eval.EVAL_DIR
+    rows_p, test_p = d / streets_eval.TEST_ROWS, d / "test.jsonl"
+    try:
+        if args.action == "sample":
+            return _eval_sample_v2(paths, args.seed or streets_eval.SEED_V2)
+        index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+        if index is None:
+            print("error: no OSM extract (run `streets fetch`)", file=sys.stderr)
+            return 1
+        if args.action == "check":
+            c = streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            print(" ".join(f"{k} {v}" for k, v in c.items()) + f"; osm_base {index.osm_base}")
+            return 0
+        if args.action == "freeze":
+            frozen = d / "FROZEN"
+            if frozen.exists():
+                print(f"error: {frozen} exists; the test split is frozen", file=sys.stderr)
+                return 2
+            streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            evaluate.freeze(test_p, frozen)
+            print(f"written: {frozen}")
+            return 0
+        if args.action == "review-sample":
+            streets_eval.check_labels(rows_p, test_p, index.osm_base)
+            picked = streets_eval.review_sample(evaluate.load_split(test_p), n=args.n)
+            out = paths.data / REVIEW_FILE
+            out.parent.mkdir(parents=True, exist_ok=True)
+            text = streets_eval.format_review(picked, index, load_boundaries())
+            out.write_text(text, encoding="utf-8", newline="\n")
+            print(Path("data") / REVIEW_FILE)
+            return 0
+    except streets_eval.GuardError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(f"error: eval {args.action} is not a streets-v2 action", file=sys.stderr)
+    return 2
+
+
+def _eval_sample_v2(paths: Paths, seed: int) -> int:
+    """Write the 150 test rows (no gold) and their hash; refuse to overwrite either."""
+    d = streets_eval.EVAL_DIR
+    rows_p, frozen = d / streets_eval.TEST_ROWS, d / streets_eval.ROWS_FROZEN
+    for p in (rows_p, frozen):
+        if p.exists():
+            print(f"error: {p} exists; the v2 test rows are sampled once", file=sys.stderr)
+            return 2
+    dev = evaluate.load_split(d / "dev.jsonl") if (d / "dev.jsonl").is_file() else []
+    exclude = {k for k in (street_keys(r.get("name", "")) for r in dev) if k}
+    conn = db.connect_ro(paths.db)
+    try:
+        mentions = streets_eval.street_rows(conn)
+    finally:
+        conn.close()
+    rows = streets_eval.sample_v2(mentions, exclude, seed=seed)
+    d.mkdir(parents=True, exist_ok=True)
+    evaluate.write_split(rows_p, rows)
+    evaluate.freeze(rows_p, frozen)
+    names = {v: k for k, v in VECO_TOWNS.items()}
+    by_town = Counter(names.get(r["town_psgc"], str(r["town_psgc"])) for r in rows)
+    print(f"{len(mentions)} mentions, {len(exclude)} dev keys excluded; sampled {len(rows)} rows")
+    print("by town: " + ", ".join(f"{t} {n}" for t, n in sorted(by_town.items())))
+    print(f"written: {rows_p}, {frozen}")
     return 0
 
 
@@ -405,8 +545,89 @@ def _streets_review(paths: Paths) -> int:
         conn.close()
     for i in items:
         sugg = "; ".join(i.suggestions) if i.suggestions else "-"
-        print(f"{i.count:>4}  {i.name}  ->  {sugg}")
+        print(f"{i.count:>4}  {i.name}  [{i.town_psgc or '?'}]  ->  {sugg}")
     print(f"{len(items)} not_found names; accepted suggestions go in {ALIASES_PATH} by hand")
+    return 0
+
+
+def _street_world(paths: Paths):
+    """(index, read-only conn) for suggest/apply, or an error message."""
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        return None, None, "no OSM extract; run `streets fetch` first"
+    if not paths.db.is_file():
+        return None, None, f"no database at {paths.db}"
+    conn = db.connect_ro(paths.db)
+    has = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='street_matches'"
+    ).fetchone()
+    if not has or not db.is_current(conn):
+        conn.close()
+        return None, None, "run `streets match` first"
+    return index, conn, None
+
+
+def _streets_suggest(paths: Paths, args: argparse.Namespace) -> int:
+    """Spec 7.1-7.6: new groups to the queue. Only localhost Ollama is contacted."""
+    index, conn, err = _street_world(paths)
+    if err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    try:
+        s = street_suggest.run(
+            conn,
+            index,
+            load_boundaries(),
+            make_street_picker(paths),
+            streets_eval.EVAL_DIR,
+            paths.data,
+            utcnow(),
+            limit=args.limit,
+            rejects_path=REJECTS_PATH,
+        )
+    except (LLMUnavailable, street_queue.QueueBusy) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    print(f"new {s.new}; picked {s.picked}; invalid {s.invalid}; no candidates {s.no_candidates}")
+    print(
+        f"queue: {street_suggest.queue_path(paths.data)} (decide at /streets/review or in the CSV)"
+    )
+    return 0
+
+
+def _streets_apply(paths: Paths) -> int:
+    """Spec 7.7: decided rows to street_aliases.csv (with provenance) or the rejects file."""
+    index, conn, err = _street_world(paths)
+    if err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    try:
+        s = street_suggest.apply(
+            street_suggest.queue_path(paths.data),
+            ALIASES_PATH,
+            REJECTS_PATH,
+            index,
+            load_boundaries(),
+            conn,
+            utcnow().astimezone(MANILA).date(),
+        )
+    except (street_queue.QueueError, street_queue.QueueBusy) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+    n_dec = sum(s.decided_by_source.values())
+    print(f"decided {n_dec + len(s.refused)}; refused {len(s.refused)}; rejected {s.rejected}")
+    acc = ", ".join(f"{k} {v}" for k, v in sorted(s.accepted_by_source.items())) or "none"
+    print(f"accepted by source: {acc}")
+    for src, n in sorted(s.decided_by_source.items()):
+        took = s.took_pick_by_source.get(src, 0)
+        print(f"acceptance rate {src}: {took}/{n} ({took / n:.0%})")
+    for line in s.refused:
+        print(f"refused: {line}")
+    print("next: python -m outages streets match --dry-run")
     return 0
 
 
@@ -479,7 +700,14 @@ def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     try:
         conn.execute("PRAGMA busy_timeout=30000")  # wait out a scheduled run's write
         snapshot.guard(conn)
-        files = snapshot.build_files(conn, load_gazetteer(), load_boundaries(), taken, last)
+        files = snapshot.build_files(
+            conn,
+            load_gazetteer(),
+            load_boundaries(),
+            taken,
+            last,
+            osm_base=streets_index.read_osm_base(paths.data / OSM_DIR_NAME),
+        )
     except Exception as e:
         log.exception("snapshot: build failed")
         print(f"error: snapshot not written: {e}", file=sys.stderr)
@@ -502,14 +730,39 @@ def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     return 0
 
 
+def _streets_candidates(paths: Paths, args: argparse.Namespace) -> int:
+    """Every in-scope OSM way name per row, for labelling (Streets v2 spec 6.2). Reads only the
+    rows file and the extract; prints no gold."""
+    if args.rows is None:
+        print("error: usage: streets candidates --rows <file.jsonl>", file=sys.stderr)
+        return 2
+    index = streets_index.StreetIndex.load(paths.data / OSM_DIR_NAME)
+    if index is None:
+        print("error: no OSM extract (run `streets fetch`)", file=sys.stderr)
+        return 1
+    boundaries = load_boundaries()
+    rows = evaluate.load_split(args.rows)
+    for r in rows:
+        print(street_candidates.format_row(r, street_candidates.in_scope(r, index, boundaries)))
+    print(f"{len(rows)} rows; osm_base {index.osm_base}")
+    return 0
+
+
 def _streets(paths: Paths, args: argparse.Namespace) -> int:
+    if args.action == "candidates":
+        return _streets_candidates(paths, args)
+    if args.action == "suggest":
+        return _streets_apply(paths) if args.apply else _streets_suggest(paths, args)
     if args.review:
         return _streets_review(paths)
     if args.action == "fetch":
         return _streets_fetch(paths, args)
     if args.action == "match":
         return _streets_match(paths, args)
-    raise SystemExit("error: usage: streets fetch [--yes] | streets match | streets --review")
+    raise SystemExit(
+        "error: usage: streets fetch [--yes] | streets match | streets suggest [--apply]"
+        " | streets --review"
+    )
 
 
 def _gazetteer(paths: Paths) -> int:
@@ -566,12 +819,14 @@ def _check(paths: Paths) -> bool:
         conn.close()
 
 
-def _scheduled_run(paths: Paths, settings: TelegramSettings | None, do_check: bool = True) -> None:
+def _scheduled_run(
+    paths: Paths, settings: TelegramSettings | None, do_check: bool = True, suggest: bool = True
+) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check)
+        _run_once(paths, settings, do_check, suggest)
 
 
 class _Runs:
@@ -581,8 +836,10 @@ class _Runs:
     A slot counts as done once attempted, even if its check failed: the admin chat already hears
     "VECO not reachable", and retrying every few minutes would hammer VECO while it is down."""
 
-    def __init__(self, paths: Paths, settings: TelegramSettings | None) -> None:
-        self.paths, self.settings = paths, settings
+    def __init__(
+        self, paths: Paths, settings: TelegramSettings | None, suggest: bool = True
+    ) -> None:
+        self.paths, self.settings, self.suggest = paths, settings, suggest
         self._lock = threading.Lock()
         self._done: datetime | None = None
 
@@ -611,34 +868,72 @@ class _Runs:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(self.paths, self.settings)
+        _scheduled_run(self.paths, self.settings, suggest=self.suggest)
 
 
-def _run_once(paths: Paths, settings: TelegramSettings | None, do_check: bool) -> None:
+def _run_once(
+    paths: Paths, settings: TelegramSettings | None, do_check: bool, suggest: bool = True
+) -> None:
     check_ok = _check(paths) if do_check else True
-    if settings is None:
+    if settings is not None:
+        conn = db.connect(paths.db)
+        client = make_telegram(settings.token)
+        try:
+            alerts_run.alert_run(
+                conn,
+                TelegramNotifier(client),
+                utcnow(),
+                load_gazetteer(),
+                settings.admin_chat_id,
+                check_ok,
+            )
+        except Exception:
+            log.exception("alert run failed")
+        finally:
+            client.close()
+            conn.close()
+    if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
+        try:
+            _suggest_hook(paths, settings)
+        except Exception:
+            log.exception("street suggestions failed; alerts are unaffected")
+
+
+def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
+    """Bounded new street suggestions; one admin note per (Manila day, count) when rows came."""
+    now = utcnow()
+    s = street_suggest.suggest_new(paths, now)
+    if s is None or s.new == 0 or settings is None:
         return
+    key = f"suggest:{now.astimezone(MANILA):%Y-%m-%d}:{s.new}"
+    text = f"{s.new} new street suggestions waiting (data/streets/alias_queue.csv)"
     conn = db.connect(paths.db)
-    client = make_telegram(settings.token)
     try:
-        alerts_run.alert_run(
-            conn,
-            TelegramNotifier(client),
-            utcnow(),
-            load_gazetteer(),
-            settings.admin_chat_id,
-            check_ok,
-        )
-    except Exception:
-        log.exception("alert run failed")
+        if alerts_store.note_sent(conn, key):
+            return
+        client = make_telegram(settings.token)
+        try:
+            note = alerts_run.Note((key,), text)
+            alerts_run.deliver_notes(
+                conn, TelegramNotifier(client), settings.admin_chat_id, [note], now
+            )
+        finally:
+            client.close()
     finally:
-        client.close()
         conn.close()
 
 
-def make_map_app(paths: Paths):
-    """The map app over the real DB; raises `BoundariesError` if the boundaries won't load."""
-    return create_app(paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow())
+def make_map_app(paths: Paths, host: str = MAP_HOST):
+    """The map app over the real DB; raises `BoundariesError` if the boundaries won't load.
+    The street review routes come only with a loopback bind (Streets v2 spec 7.9)."""
+    review = (
+        ReviewConfig(street_suggest.queue_path(paths.data), paths.data / OSM_DIR_NAME)
+        if map_server.is_loopback(host)
+        else None
+    )
+    return create_app(
+        paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow(), review=review
+    )
 
 
 def _warn_if_lan(host: str) -> None:
@@ -650,7 +945,7 @@ def _map(paths: Paths, args: argparse.Namespace) -> int:
     """The map alone, in the foreground. Builds no fetcher and no Telegram client."""
     _warn_if_lan(args.host)
     try:
-        app = make_map_app(paths)
+        app = make_map_app(paths, args.host)
     except BoundariesError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -700,7 +995,7 @@ def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSetting
         return
     _warn_if_lan(args.map_host)
     try:
-        app = make_map_app(paths)
+        app = make_map_app(paths, args.map_host)
     except Exception as e:  # spec 6: nothing about the map may stop the alert runs
         _map_failed(paths, settings, f"map: not started: {e}")
         return
@@ -737,11 +1032,12 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     _start_map(paths, args, settings)
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
+    suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up)
+        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            runs = _Runs(paths, settings)
+            runs = _Runs(paths, settings, suggest=suggest)
             scheduler.build(runs.scheduled, runs.watchdog).start()
     finally:
         stop.set()
@@ -803,6 +1099,12 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
     if command == "snapshot":
         return _snapshot(paths, args)
     if command == "eval":
+        if args.action == "freeze-aliases":
+            return _eval_freeze_aliases()
+        if args.suite == "streets-v2":
+            return _eval_streets_v2(paths, args)
+        if args.suite == "streets-suggest":
+            return _eval_suggest_dev(paths, args)
         if args.suite == "streets":
             if args.action == "sample":
                 return _eval_sample_streets(paths, args.seed or streets_eval.SEED)
@@ -814,7 +1116,13 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
                     paths.data / OSM_DIR_NAME,
                     load_boundaries(),
                     utcnow(),
+                    data_dir=paths.data,
+                    aliases_path=ALIASES_PATH,
+                    again=args.again,
                 )
+            except streets_eval.GuardError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 2
             except (evaluate.EvalError, BoundariesError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1

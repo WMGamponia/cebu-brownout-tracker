@@ -276,7 +276,10 @@ def test_run_streets_test_split_must_be_frozen(tmp_path):
     with pytest.raises(EvalError, match="not frozen"):
         run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
     freeze(d / "test.jsonl", d / "FROZEN")
-    run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
+    # Streets v2: FROZEN alone is not enough; the rows, aliases and input log are guarded too
+    # (tests/test_eval_streets_guards.py)
+    with pytest.raises(EvalError, match="test.rows.jsonl missing"):
+        run_streets("test", d, write(tmp_path / "osm"), boundaries(), now)
 
 
 def test_run_streets_without_extract_errors(tmp_path):
@@ -307,3 +310,157 @@ def test_eval_run_streets_cli_offline(capsys, monkeypatch, tmp_path):
     _write_split(tmp_path / "evals" / "streets", "dev.jsonl", [])
     assert main(["eval", "run", "--suite", "streets"]) == 1  # no extract yet
     assert "streets fetch" in capsys.readouterr().err
+
+
+def test_score_list_gold():
+    rows = [{"areas_hash": "a", "seq": 0, "gold": ["Natalio Bacalso Avenue", "Cebu South Road"]}]
+    s = score(rows, {("a", 0): _m("matched", "Cebu South Road")})
+    assert s["drawn"] == 1 and s["correct"] == 1
+    assert s["coverage"] == 1.0
+
+
+def test_gold_keys():
+    from outages.streets.evaluate import gold_keys
+
+    assert gold_keys(None) == set()
+    assert gold_keys("Gorordo Ave.") == {"gorordo avenue"}
+    assert gold_keys(["A St.", "B Road"]) == {"a street", "b road"}
+
+
+def test_score_breakdowns():
+    rows = [
+        {"areas_hash": "a", "seq": 0, "gold": "X Street", "town_psgc": "730600000"},
+        {"areas_hash": "b", "seq": 0, "gold": "Y Street", "town_psgc": "730600000"},
+        {"areas_hash": "c", "seq": 0, "gold": "Z Street", "town_psgc": "702227000"},
+        {"areas_hash": "d", "seq": 0, "gold": None},
+    ]
+    matches = {
+        ("a", 0): _m("matched", "X Street"),
+        ("b", 0): _m("matched", "Y St."),
+        ("c", 0): _m("alias", "W Street"),
+        ("d", 0): _m("not_found"),
+    }
+    s = score(rows, matches)
+    assert s["by_drawn_status"] == {
+        "matched": {"drawn": 2, "correct": 2},
+        "alias": {"drawn": 1, "correct": 0},
+    }
+    assert s["by_town"] == {
+        "730600000": {"drawn": 2, "correct": 2},
+        "702227000": {"drawn": 1, "correct": 0},
+        "?": {"drawn": 0, "correct": 0},
+    }
+    lo, hi = s["interval"]
+    assert 0 < lo < 2 / 3 < hi < 1
+
+
+def test_wilson():
+    from outages.streets.evaluate import wilson
+
+    lo, hi = wilson(57, 60)
+    assert lo == pytest.approx(0.862, abs=1e-3)
+    assert hi == pytest.approx(0.983, abs=1e-3)
+    assert wilson(0, 0) is None
+
+
+def test_run_refuses_osm_base_mismatch(tmp_path):
+    from datetime import UTC, datetime
+
+    from map_world import LAHUG, boundaries
+    from osm_world import OSM_BASE, write
+
+    from outages.evaluate import EvalError
+    from outages.streets.evaluate import run_streets
+
+    row = {
+        "id": "dev-01",
+        "areas_hash": "a",
+        "seq": 0,
+        "name": "Gorordo Avenue",
+        "towns": ["Cebu City"],
+        "barangays": [LAHUG],
+        "gold": "Gorordo Avenue",
+        "osm_base": "2026-01-01T00:00:00Z",
+    }
+    d = tmp_path / "evals"
+    _write_split(d, "dev.jsonl", [row])
+    with pytest.raises(EvalError) as e:
+        run_streets(
+            "dev", d, write(tmp_path / "osm"), boundaries(), datetime(2026, 11, 12, tzinfo=UTC)
+        )
+    assert "2026-01-01T00:00:00Z" in str(e.value) and OSM_BASE in str(e.value)
+
+
+def test_candidates_lists_all_name_tags(tmp_path):
+    from map_world import LAHUG, boundaries
+    from osm_world import write
+
+    from outages.osm.extract import StreetIndex
+    from outages.streets.candidates import in_scope
+
+    index = StreetIndex.load(write(tmp_path / "osm"))
+    row = {"name": "Escario St.", "towns": ["Cebu City"], "barangays": [LAHUG]}
+    cands = in_scope(row, index, boundaries())
+    by_primary = {c["primary"]: c for c in cands}
+    esc = by_primary["Juana Osmeña Street"]
+    assert esc["tags"] == {"name": "Juana Osmeña Street", "old_name": "Escario Street"}
+    assert esc["ways"] == 1
+    assert by_primary["Gorordo Avenue"]["ways"] == 2
+    assert "Salinas Drive" not in by_primary  # one node in Tisa only; Lahug is the scope
+    assert cands[0]["ways"] >= cands[-1]["ways"]
+
+
+def _cands_cli(monkeypatch, tmp_path, rows):
+    import json
+
+    from map_world import boundaries
+    from osm_world import write
+
+    from outages import __main__ as cli
+    from outages.osm import overpass
+
+    def boom(*a, **kw):
+        raise AssertionError("offline command built a network client")
+
+    monkeypatch.setattr(cli, "make_fetcher", boom)
+    monkeypatch.setattr(cli, "make_telegram", boom)
+    monkeypatch.setattr(overpass, "make_client", boom)
+    monkeypatch.setattr(cli, "load_boundaries", lambda: boundaries())
+    monkeypatch.chdir(tmp_path)
+    write(tmp_path / "data" / "osm")
+    f = tmp_path / "rows.jsonl"
+    f.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return f
+
+
+def test_candidates_cli_never_prints_gold(capsys, monkeypatch, tmp_path):
+    from map_world import LAHUG
+
+    row = {
+        "id": "t2-001",
+        "name": "Gorordo Ave",
+        "towns": ["Cebu City"],
+        "barangays": [LAHUG],
+        "gold": "SECRET",
+        "note": "SECRET NOTE",
+    }
+    f = _cands_cli(monkeypatch, tmp_path, [row])
+    assert main(["streets", "candidates", "--rows", str(f)]) == 0
+    out = capsys.readouterr().out
+    assert "t2-001" in out and "Gorordo Ave" in out and "Gorordo Avenue" in out
+    assert "old_name=Escario Street" in out
+    assert "SECRET" not in out
+
+
+def test_candidates_cli_offline(capsys, monkeypatch, tmp_path):
+    f = _cands_cli(monkeypatch, tmp_path, [])
+    assert main(["streets", "candidates", "--rows", str(f)]) == 0
+    assert main(["streets", "candidates"]) == 2  # --rows is required
+
+
+def test_p5_sampler_refused_once_retired(capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "evals" / "streets" / "p5").mkdir(parents=True)
+    assert main(["eval", "sample", "--suite", "streets"]) == 2
+    assert "retired" in capsys.readouterr().err
+    assert not (tmp_path / "evals" / "streets" / "dev.jsonl").exists()

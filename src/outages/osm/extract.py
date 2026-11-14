@@ -12,6 +12,9 @@ from outages.streets.geo import Point, Scope
 from outages.streets.normalize import street_key
 
 NAME_KEYS = ("name", "alt_name", "old_name", "official_name", "short_name")
+# The one name a way is known by, for the matcher's `osm_name` and for gold (Streets v2 GUIDE
+# rule 2): its `name`, else the first present of these.
+PRIMARY_ORDER = ("name", "official_name", "alt_name", "old_name", "short_name")
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,10 @@ class Way:
     names: dict[str, str]  # name tag -> value
     coords: list[Point]
     town_psgc: str
+
+
+def primary_name(way: Way) -> str | None:
+    return next((way.names[k] for k in PRIMARY_ORDER if way.names.get(k)), None)
 
 
 class StreetIndex:
@@ -75,3 +82,11 @@ class StreetIndex:
                         out.update(set(w.names.values()))
                         break
         return sorted(out, key=lambda n: (-out[n], n))
+
+
+def read_osm_base(osm_dir: Path) -> str | None:
+    """The extract's `osm_base` from its manifest alone (no ways loaded); None if absent."""
+    man_path = osm_dir / MANIFEST
+    if not man_path.is_file():
+        return None
+    return json.loads(man_path.read_text(encoding="utf-8")).get("osm_base")

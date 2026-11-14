@@ -298,3 +298,43 @@ def test_write_is_byte_stable(tmp_path, conn, world):
     write(out, _files(conn, world))
     second = {p.relative_to(out).as_posix(): p.read_bytes() for p in out.rglob("*") if p.is_file()}
     assert first == second == files
+
+
+# --- Streets v2: the street paragraph follows STREETS_DRAW (spec 8, pass step 4) ----------------
+
+
+def test_licenses_drawing_off():
+    from outages.snapshot import licenses_text
+
+    text = licenses_text(False, "2026-11-12T02:14:58Z")
+    assert "none while street drawing is off" in text
+    assert "2026-11-12T02:14:58Z" not in text
+
+
+def test_licenses_drawing_on():
+    from outages.snapshot import licenses_text
+
+    text = licenses_text(True, "2026-11-12T02:14:58Z")
+    assert "derived from OpenStreetMap data, © OpenStreetMap contributors" in text
+    assert "ODbL" in text and "2026-11-12T02:14:58Z" in text
+    assert "weeks/*.geojson" in text and "streets.drawn[].lines" in text
+    assert "none while" not in text
+    assert "Leaflet" in text and "faeldon/philippines-json-maps" in text  # the rest stays
+
+
+def test_build_files_licence_follows_draw(conn, world):
+    from outages.snapshot import build_files
+
+    on = build_files(conn, world[0], world[1], TAKEN, LAST_CHECK, draw=True, osm_base="B1")
+    assert "B1" in on["LICENSES.md"].decode("utf-8")
+    off = build_files(conn, world[0], world[1], TAKEN, LAST_CHECK, draw=False)
+    assert "none while street drawing is off" in off["LICENSES.md"].decode("utf-8")
+
+
+def test_read_osm_base(tmp_path):
+    from osm_world import OSM_BASE, write
+
+    from outages.osm.extract import read_osm_base
+
+    assert read_osm_base(tmp_path / "none") is None
+    assert read_osm_base(write(tmp_path / "osm")) == OSM_BASE

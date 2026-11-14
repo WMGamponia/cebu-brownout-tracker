@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="review-token" content="{{REVIEW_TOKEN}}">
+  <title>Street review</title>
+  <link rel="stylesheet" href="/static/vendor/leaflet-1.9.4/leaflet.css">
+  <link rel="stylesheet" href="/streets/review/static/review.css">
+  <script src="/static/vendor/leaflet-1.9.4/leaflet.js"></script>
+  <script type="module" src="/streets/review/static/review.js"></script>
+</head>
+<body>
+  <main id="layout">
+    <div id="map" aria-label="Map of the area the notice names"></div>
+    <section id="panel" aria-live="polite">
+      <header>
+        <h1>Street review</h1>
+        <p id="left" class="left">Loading…</p>
+      </header>
+      <p id="message" class="message" role="alert" hidden></p>
+      <div id="empty" hidden>
+        <p>Nothing to review.</p>
+        <p class="hint">Fill the queue with <code>python -m outages streets suggest</code>, then reload.</p>
+      </div>
+      <div id="item" hidden>
+        <p class="label">VECO wrote</p>
+        <h2 id="veco-name"></h2>
+        <p id="meta" class="meta"></p>
+        <p class="label">Suggested OSM street</p>
+        <p id="pick" class="pick"></p>
+        <p id="reason" class="reason"></p>
+        <p id="other" class="meta"></p>
+        <p id="map-note" class="meta" hidden></p>
+        <div class="buttons">
+          <button id="yes" type="button" class="yes">Yes <kbd>y</kbd></button>
+          <button id="no" type="button" class="no">No <kbd>n</kbd></button>
+          <button id="skip" type="button">Skip <kbd>s</kbd></button>
+        </div>
+        <p class="label">Or choose another street in the area</p>
+        <ul id="candidates" class="candidates"></ul>
+        <p class="label">Where the notice uses it</p>
+        <ul id="areas" class="areas"></ul>
+      </div>
+      <p class="legend">
+        <span class="swatch scope"></span> named barangays
+        <span class="swatch buffer"></span> + 150 m
+        <span class="swatch pickline"></span> suggestion
+        <span class="swatch other"></span> other streets
+      </p>
+    </section>
+  </main>
+</body>
+</html>

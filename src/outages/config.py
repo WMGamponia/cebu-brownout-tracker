@@ -55,6 +55,13 @@ HAIKU_MODEL = "claude-haiku-5-5"
 LLM_TIMEOUT_S = 120
 # Set by the pre-registered eval decision rule (spec 2); env OUTAGES_ENTITY_EXTRACTOR overrides.
 ENTITY_EXTRACTOR = os.environ.get("OUTAGES_ENTITY_EXTRACTOR", "rules")
+# Streets v2 spec 7.5: the arm with the higher dev accuracy fills the queue's `pick`;
+# a tie → difflib.
+STREET_SUGGEST_PRIMARY = "qwen"
+# Spec 7.8: after each serve run, new street groups go to the queue, bounded per run.
+STREETS_SUGGEST_AUTO = True
+SUGGEST_BUDGET_GROUPS = 20
+SUGGEST_BUDGET_S = 300
 
 
 @dataclass(frozen=True)
@@ -137,8 +144,10 @@ OSM_DIR_NAME = "osm"  # under data/; ODbL, never committed
 STREET_BUFFER_M = 150
 BBOX_PAD_M = 500
 # Set by the pre-registered street eval gate (spec 5.4): test precision >= 0.95, >= 20 drawn.
-# Test split 2026-11-12: precision 0.923 (12 of 13 drawn), coverage 0.600 -> off.
-STREETS_DRAW = False
+# Phase 5 test split 2026-11-12: precision 0.923 (12 of 13 drawn), coverage 0.600 -> off.
+# Streets v2 test split (evals/streets/results/2026-11-12-test.md): precision 1.000
+# (68 of 68 drawn, 95 % Wilson [0.947, 1.000]), coverage 0.654 -> on.
+STREETS_DRAW = True
 
 # Phase 5: approve-to-join bot (spec 4.9).
 PENDING_CAP = 20

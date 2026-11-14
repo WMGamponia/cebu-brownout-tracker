@@ -134,3 +134,22 @@ def test_review_suggests_close_names(tmp_path, index, bnd):
     assert by_name["Gorordo Avnue"].suggestions[0] == "Gorordo Avenue"
     assert len(by_name["Gorordo Avnue"].suggestions) <= 3
     conn.close()
+
+
+def test_primary_name_fallback():
+    from outages.osm.extract import PRIMARY_ORDER, Way, primary_name
+
+    assert PRIMARY_ORDER == ("name", "official_name", "alt_name", "old_name", "short_name")
+    assert primary_name(Way(1, {"alt_name": "Cebu South Road"}, [], CEBU)) == "Cebu South Road"
+    assert primary_name(Way(1, {"name": "A", "alt_name": "B"}, [], CEBU)) == "A"
+    assert primary_name(Way(1, {"old_name": "O", "official_name": "F"}, [], CEBU)) == "F"
+    assert primary_name(Way(1, {}, [], CEBU)) is None
+
+
+def test_osm_name_uses_primary_name(bnd):
+    from outages.osm.extract import Way
+
+    coords = [(123.8 + (1.1 + k * 0.2) / 100, 10.305) for k in range(5)]
+    index = StreetIndex(OSM_BASE, [Way(901, {"alt_name": "Cebu South Road"}, coords, CEBU)])
+    m = _m("Cebu South Road", [LAHUG], [CEBU], index, bnd)
+    assert m.status == "matched" and m.osm_name == "Cebu South Road"

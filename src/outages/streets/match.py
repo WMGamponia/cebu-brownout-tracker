@@ -11,11 +11,12 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from outages.osm.extract import StreetIndex
+from outages.osm.extract import StreetIndex, primary_name
 from outages.streets.geo import Point, Scope, clip, polygons_of
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 
 ALIASES_PATH = Path(__file__).resolve().parent.parent / "areas" / "street_aliases.csv"
+REJECTS_PATH = ALIASES_PATH.with_name("street_alias_rejects.csv")
 
 
 @dataclass(frozen=True)
@@ -28,8 +29,20 @@ class Match:
 NOT_FOUND = Match("not_found")
 
 
+def load_rejects(path: Path = REJECTS_PATH) -> set[tuple[str, str]]:
+    """(town_psgc, veco_key) pairs the owner rejected; never suggested again."""
+    if not path.is_file():
+        return set()
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return {
+            (r["town_psgc"].strip(), street_key(r["veco_key"]))
+            for r in csv.DictReader(f)
+            if r.get("town_psgc") and r.get("veco_key")
+        }
+
+
 def load_aliases(path: Path = ALIASES_PATH) -> dict[tuple[str, str], str]:
-    """(town_psgc, street_key of VECO's name) -> OSM name."""
+    """(town_psgc, street_key of VECO's name) -> OSM name. Provenance columns are ignored."""
     with path.open(encoding="utf-8", newline="") as f:
         return {
             (r["town_psgc"].strip(), street_key(r["veco_key"])): r["osm_name"].strip()
@@ -101,7 +114,7 @@ def match_street(
             runs = clip(way.coords, scope)
             if runs:
                 lines += runs
-                names[way.names.get("name", "")] += 1
+                names[primary_name(way) or ""] += 1
     if not lines:
         return NOT_FOUND
     osm_name = min(names, key=lambda n: (-names[n], n))
