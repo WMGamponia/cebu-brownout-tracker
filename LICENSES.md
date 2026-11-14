@@ -10,7 +10,8 @@ live and not affiliated with VECO (Visayan Electric Company).
 - **Map library:** Leaflet 1.9.4, BSD-2-Clause (in `static/vendor/leaflet-1.9.4/`).
 - **Map tiles:** © OpenStreetMap contributors, used under the OSMF tile usage policy. Your
   browser fetches the tiles from OpenStreetMap's servers, which see your IP address.
-- **Street lines:** none while street drawing is off. If drawing is ever on, street lines are
-  derived from OpenStreetMap data, © OpenStreetMap contributors, available under the ODbL; the
-  derived lines are in `weeks/*.geojson` (the `streets.drawn[].lines` fields).
+- **Street lines:** derived from OpenStreetMap data, © OpenStreetMap contributors, available
+  under the Open Database License (ODbL) 1.0. Extract as of 2026-11-12T02:14:58Z. The derived lines are
+  in `weeks/*.geojson` (the `streets.drawn[].lines` fields) and are offered under the same
+  licence.
 - **Code:** MIT; see the repository.
