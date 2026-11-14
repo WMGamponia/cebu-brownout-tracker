@@ -15,3 +15,229 @@ town_psgc,veco_key,osm_name,source,model,prompt_version,decided
 730600000,gabuya street,L. Gabuya Street,owner,,,2026-11-13
 730600000,n bacalso avenue,Natalio Bacalso Avenue,qwen,qwen3:14b,2,2026-11-13
 730600000,aznar road,Aznar Street,qwen,qwen3:14b,2,2026-11-13
+730600000,f llamas street,Francisco Llamas Street,qwen,qwen3:14b,2,2026-11-15
+730600000,mj cuenco avenue,M.J. Cuenco Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,f e zuellig avenue,Doctor F.E. Zuellig Avenue,qwen,qwen3:14b,2,2026-11-15
+702219000,laray road,Laray Road;Nangka – Laray Road,qwen,qwen3:14b,2,2026-11-15
+702219000,maglasang road,Maglasang Avenue,qwen,qwen3:14b,2,2026-11-15
+702250000,mohon road,Mojon Road,qwen,qwen3:14b,2,2026-11-15
+730600000,barangay mabini road,Mabini-Cebu City Road,qwen,qwen3:14b,2,2026-11-15
+730600000,u alviola street,Alviola Street,qwen,qwen3:14b,2,2026-11-15
+702241000,ilaya san isidro road,Cebu South Road,qwen,qwen3:14b,2,2026-11-15
+702250000,a bacaltos street,Cong. A. Bacaltos Street,qwen,qwen3:14b,2,2026-11-15
+730600000,cabantan street,P. Cabantan Street,qwen,qwen3:14b,2,2026-11-15
+730600000,escario street,N. Escario Street,qwen,qwen3:14b,2,2026-11-15
+730600000,m l quezon street,Manuel L. Quezon Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,osmena blvd,Osmeña Boulevard,qwen,qwen3:14b,2,2026-11-15
+731300000,labogon road,Labogon-Paknaan Road,qwen,qwen3:14b,2,2026-11-15
+731300000,mantawi drive,Mantawi Avenue,qwen,qwen3:14b,2,2026-11-15
+702227000,bag ong daan road,Bagong Daan Road,qwen,qwen3:14b,2,2026-11-15
+702232000,abuno road,Abuno-Upper Tunghaan Road,qwen,qwen3:14b,2,2026-11-15
+702232000,barangay camp 8 road,Camp 8 Road,qwen,qwen3:14b,2,2026-11-15
+730600000,a villalon drive,Villalon Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,general maxilom extension,General Maxilom Avenue Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,m goitanay street,Gotianuy Street,qwen,qwen3:14b,2,2026-11-15
+730600000,pres magsaysay street,President Magsaysay Street,qwen,qwen3:14b,2,2026-11-15
+730600000,pres roxas street,President Roxas Street,qwen,qwen3:14b,2,2026-11-15
+730600000,quezon blvd,Quezon Boulevard,qwen,qwen3:14b,2,2026-11-15
+730600000,rahman street,Rahmann Street,qwen,qwen3:14b,2,2026-11-15
+730600000,sanciangco street,Sanciangko Street,qwen,qwen3:14b,2,2026-11-15
+731300000,maglasang road,Maglasang Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,rizal street,J. Rizal Street,qwen,qwen3:14b,2,2026-11-15
+731300000,s jayme street,S. E. Jayme Street,qwen,qwen3:14b,2,2026-11-15
+731300000,semblante street,A. Semblante Street,qwen,qwen3:14b,2,2026-11-15
+731300000,v vega street,Victor Vega Street,qwen,qwen3:14b,2,2026-11-15
+702219000,bagakay street,Bagakay Road,qwen,qwen3:14b,2,2026-11-15
+702219000,semblante street,A. Semblante Street,qwen,qwen3:14b,2,2026-11-15
+702232000,de julio street,18 de Julio Street,qwen,qwen3:14b,2,2026-11-15
+702250000,r rabaya road,Rafael Rabaya Street,qwen,qwen3:14b,2,2026-11-15
+702250000,rafael rabaya road,Rafael Rabaya Street,qwen,qwen3:14b,2,2026-11-15
+730600000,ab aznar street,A.B. Aznar Road,qwen,qwen3:14b,2,2026-11-15
+730600000,agsungot road,Agsungot,qwen,qwen3:14b,2,2026-11-15
+730600000,arch reyes avenue,Archbishop Reyes Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,arellano blvd,C. Arellano Boulevard,qwen,qwen3:14b,2,2026-11-15
+730600000,v gullas street,Vicente Gullas Street,qwen,qwen3:14b,2,2026-11-15
+731300000,a seno extension,Aniceto Seno Extension,qwen,qwen3:14b,2,2026-11-15
+731300000,aguirre street,E. Aguirre Street,qwen,qwen3:14b,2,2026-11-15
+731300000,h cortes street,Hernan Cortes Street,qwen,qwen3:14b,2,2026-11-15
+702232000,mh selma street,M.H. Selma Street,qwen,qwen3:14b,2,2026-11-15
+702250000,amazona street,Amazona,qwen,qwen3:14b,2,2026-11-15
+702250000,fidel bas road,Fidel Bas Street,qwen,qwen3:14b,2,2026-11-15
+702250000,n bacalso,Natalio Bacalso Avenue,qwen,qwen3:14b,2,2026-11-15
+702250000,n bacalso avenue,Natalio Bacalso Avenue,qwen,qwen3:14b,2,2026-11-15
+702250000,san rafael street,San Rafael,qwen,qwen3:14b,2,2026-11-15
+702250000,uldog road,Uldog Street,qwen,qwen3:14b,2,2026-11-15
+730600000,a abellana extension,Andres Abellana Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,a abellana street,Andres Abellana Street,qwen,qwen3:14b,2,2026-11-15
+730600000,c padilla street,Candido Padilla Street,qwen,qwen3:14b,2,2026-11-15
+730600000,c rosal street,C. S. Rosal Street,qwen,qwen3:14b,2,2026-11-15
+730600000,g quijada street,Gervacio Quijada Street,qwen,qwen3:14b,2,2026-11-15
+730600000,mh aznar street,M. H. Aznar Road,qwen,qwen3:14b,2,2026-11-15
+731300000,elias v espina street,E. V. Espina Street,qwen,qwen3:14b,2,2026-11-15
+731300000,jayme street,S. E. Jayme Street,qwen,qwen3:14b,2,2026-11-15
+702219000,h pepito road,H. Pepito Street,qwen,qwen3:14b,2,2026-11-15
+702227000,mabini road,Mabini Street,qwen,qwen3:14b,2,2026-11-15
+702227000,mahogany street,Mahogany,qwen,qwen3:14b,2,2026-11-15
+702232000,apostol street,A. Apostol Street,qwen,qwen3:14b,2,2026-11-15
+702232000,patricio aleman road,Patricio Aleman Street,qwen,qwen3:14b,2,2026-11-15
+702250000,belleza street,Castor Belleza Street,qwen,qwen3:14b,2,2026-11-15
+702250000,molave extension street,Molave Extension,qwen,qwen3:14b,2,2026-11-15
+702250000,san isidro street,San Isidro Road,qwen,qwen3:14b,2,2026-11-15
+730600000,abad street,A. Abad Street,qwen,qwen3:14b,2,2026-11-15
+730600000,agila street,Agila,qwen,qwen3:14b,2,2026-11-15
+730600000,aguirre street,E. Aguirre Street,qwen,qwen3:14b,2,2026-11-15
+730600000,albano street,S. O. Albaño Street,qwen,qwen3:14b,2,2026-11-15
+730600000,arellano boulevard,C. Arellano Boulevard,qwen,qwen3:14b,2,2026-11-15
+730600000,baseline drive,Baseline Road,qwen,qwen3:14b,2,2026-11-15
+730600000,cuizon street,C. Cuizon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,daffodil street,Daffodil,qwen,qwen3:14b,2,2026-11-15
+730600000,el pardo road,El Pardo Street,qwen,qwen3:14b,2,2026-11-15
+730600000,good shepherd street,Good Shepherd Road,qwen,qwen3:14b,2,2026-11-15
+730600000,guadalajara road,Guadalajara Street,qwen,qwen3:14b,2,2026-11-15
+730600000,ipil ipil street,Ipil-ipil Road,qwen,qwen3:14b,2,2026-11-15
+730600000,j luna avenue,Juan Luna Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,j solon drive,J. Solon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,jose l briones street,J. L. Briones Street,qwen,qwen3:14b,2,2026-11-15
+730600000,juan luna street,Juan Luna Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,magsaysay street,R. Magsaysay Street,qwen,qwen3:14b,2,2026-11-15
+730600000,mc briones street,M.C. Briones Street,qwen,qwen3:14b,2,2026-11-15
+730600000,quijada street,Gervacio Quijada Street,qwen,qwen3:14b,2,2026-11-15
+730600000,ramos extension,F. Ramos Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,sabellano street,E. Sabellano Street,qwen,qwen3:14b,2,2026-11-15
+730600000,salinas dr,Salinas Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,sunrise dr,Sunrise Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,tojong street,Doctor L. Tojong Street,qwen,qwen3:14b,2,2026-11-15
+730600000,tomas abella street,T. Abella Street,qwen,qwen3:14b,2,2026-11-15
+731300000,orlacsan road,Orlacsan Street,qwen,qwen3:14b,2,2026-11-15
+731300000,p sanchez street,P. L. Sanchez Street,qwen,qwen3:14b,2,2026-11-15
+731300000,paseo toby ronald street,Paseo Toby Ronald,qwen,qwen3:14b,2,2026-11-15
+702219000,banana street,Banana,qwen,qwen3:14b,2,2026-11-15
+702219000,lahoylahoy street,Lahoylahoy,qwen,qwen3:14b,2,2026-11-15
+702219000,m pepito road,M. Pepito Street,qwen,qwen3:14b,2,2026-11-15
+702227000,j pepito road,J. Pepito Street,qwen,qwen3:14b,2,2026-11-15
+702232000,cebu s port road,Cebu South Port Road,qwen,qwen3:14b,2,2026-11-15
+702232000,joy road,Joy Street,qwen,qwen3:14b,2,2026-11-15
+702232000,kingswood road,Kingswood Street,qwen,qwen3:14b,2,2026-11-15
+702232000,lower pakigne street,Lower Pakigne Road,qwen,qwen3:14b,2,2026-11-15
+702232000,rue jouvencel street,Rue Jouvencel,qwen,qwen3:14b,2,2026-11-15
+702232000,rue moliere street,Rue Moliere,qwen,qwen3:14b,2,2026-11-15
+702232000,sandayong road,Sandayong Street,qwen,qwen3:14b,2,2026-11-15
+702234000,mazari street,Mazari Drive,qwen,qwen3:14b,2,2026-11-15
+702241000,south road,Cebu South Road,qwen,qwen3:14b,2,2026-11-15
+702250000,bacaltos street,Cong. A. Bacaltos Street,qwen,qwen3:14b,2,2026-11-15
+702250000,bascon street,Ernesto Bascon Street,qwen,qwen3:14b,2,2026-11-15
+702250000,base street,A. Base Street,qwen,qwen3:14b,2,2026-11-15
+702250000,c bacaltos street,Cong. A. Bacaltos Street,qwen,qwen3:14b,2,2026-11-15
+702250000,e bascon street,Ernesto Bascon Street,qwen,qwen3:14b,2,2026-11-15
+702250000,ilang ilang road,Ilang-ilang Street,qwen,qwen3:14b,2,2026-11-15
+702250000,l jaena street,Lopez Jaena Street,qwen,qwen3:14b,2,2026-11-15
+702250000,mauritius road,Mauritius Street,qwen,qwen3:14b,2,2026-11-15
+702250000,molave street extension,Molave Extension,qwen,qwen3:14b,2,2026-11-15
+702250000,p deiparine street,Prisco Deiparine Road,qwen,qwen3:14b,2,2026-11-15
+702250000,paseo anastacia road,Paseo Anastacia,qwen,qwen3:14b,2,2026-11-15
+702250000,paseo feliz road,Paseo Feliz,qwen,qwen3:14b,2,2026-11-15
+702250000,rabaya road,Rafael Rabaya Street,qwen,qwen3:14b,2,2026-11-15
+702250000,seville street,Seville Road,qwen,qwen3:14b,2,2026-11-15
+702250000,tabulasan road,Tabulasan Street,qwen,qwen3:14b,2,2026-11-15
+702250000,tangke road,Tangke Street,qwen,qwen3:14b,2,2026-11-15
+702250000,vh garces street,V. H. Garces Street,qwen,qwen3:14b,2,2026-11-15
+730600000,a m arcilla road,A.M. Arcilla,qwen,qwen3:14b,2,2026-11-15
+730600000,a pond street,Arlington Pond Street,qwen,qwen3:14b,2,2026-11-15
+730600000,abellana extension,Andres Abellana Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,almendras street,P. Almendras Street,qwen,qwen3:14b,2,2026-11-15
+730600000,am arcilla road,A.M. Arcilla,qwen,qwen3:14b,2,2026-11-15
+730600000,anabelle,Paseo Anabelle,qwen,qwen3:14b,2,2026-11-15
+730600000,andres abellana street extension,Andres Abellana Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,archbishop reyes street,Archbishop Reyes Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,atillo street,Pablo S. Atillo Street,qwen,qwen3:14b,2,2026-11-15
+730600000,b benedicto street,B. Benedicto,qwen,qwen3:14b,2,2026-11-15
+730600000,bayabas extension street,Bayabas Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,bayabas street extension,Bayabas Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,bonbonan road,Bonbonan Street,qwen,qwen3:14b,2,2026-11-15
+730600000,borbajo street,A. Borbajo Street,qwen,qwen3:14b,2,2026-11-15
+730600000,borromeo street,A. Borromeo Street,qwen,qwen3:14b,2,2026-11-15
+730600000,calderon street,F. Calderon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,cardinal rosales street,Cardinal Rosales Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,cj cuizon street,C. Cuizon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,don bernardo benedicto street,Don Bernardo Benedicto Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,e pond street,Elizabeth Pond Street,qwen,qwen3:14b,2,2026-11-15
+730600000,echavez,General Echavez Street,qwen,qwen3:14b,2,2026-11-15
+730600000,emilio,Paseo Emilio,qwen,qwen3:14b,2,2026-11-15
+730600000,emilio aguirre street,E. Aguirre Street,qwen,qwen3:14b,2,2026-11-15
+730600000,emilio osmena street,E. Osmeña Street,qwen,qwen3:14b,2,2026-11-15
+730600000,f vestil road,F. Vestil Street,qwen,qwen3:14b,2,2026-11-15
+730600000,fujimum street,Fujimum,qwen,qwen3:14b,2,2026-11-15
+730600000,g elorde street,Gabriel Elorde Street,qwen,qwen3:14b,2,2026-11-15
+730600000,golam dr,Golam Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,greenbelt dr,Greenbelt Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,hannibal street,Saint Hannibal Street,qwen,qwen3:14b,2,2026-11-15
+730600000,j abad santos street,Justice Abad Santos Street,qwen,qwen3:14b,2,2026-11-15
+730600000,j d veyra street,J. De Veyra Street,qwen,qwen3:14b,2,2026-11-15
+730600000,jumabon avenue,Jumabon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,kalaw street,Kalaw,qwen,qwen3:14b,2,2026-11-15
+730600000,katipunan road,Katipunan Street,qwen,qwen3:14b,2,2026-11-15
+730600000,landon street,R. R. Landon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,lavilles street,G. Lavilles Street,qwen,qwen3:14b,2,2026-11-15
+730600000,limkakeng drive,I. Limkakeng Street,qwen,qwen3:14b,2,2026-11-15
+730600000,lucy,Paseo Lucy,qwen,qwen3:14b,2,2026-11-15
+730600000,m c briones avenue,M.C. Briones Street,qwen,qwen3:14b,2,2026-11-15
+730600000,ma paloma street,Ma. Paloma Road,qwen,qwen3:14b,2,2026-11-15
+730600000,osmena avenue,Sergio Osmeña Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,p atillo street,Pablo S. Atillo Street,qwen,qwen3:14b,2,2026-11-15
+730600000,p del rosario,P. del Rosario Street,qwen,qwen3:14b,2,2026-11-15
+730600000,pantaleon del rosario street,P. del Rosario Street,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo anabelle road,Paseo Anabelle,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo anabelle street,Paseo Anabelle,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo angelina street,Paseo Angelina,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo don sergio road,Paseo Don Sergio,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo don sergio street,Paseo Don Sergio,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo emilio road,Paseo Emilio,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo rosebud road,Paseo Rosebud,qwen,qwen3:14b,2,2026-11-15
+730600000,paseo salud road,Paseo Salud,qwen,qwen3:14b,2,2026-11-15
+730600000,r landon street,R. R. Landon Street,qwen,qwen3:14b,2,2026-11-15
+730600000,rosebud,Paseo Rosebud,qwen,qwen3:14b,2,2026-11-15
+730600000,s osmena blvd,Sergio Osmeña Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,s osmena street,Sergio Osmeña Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,salinas extension,Salinas Drive Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,salvador street extension,Salvador Extension,qwen,qwen3:14b,2,2026-11-15
+730600000,sergio osmena blvd,Sergio Osmeña Avenue,qwen,qwen3:14b,2,2026-11-15
+730600000,south road,Cebu South Road,qwen,qwen3:14b,2,2026-11-15
+730600000,sudlon road,Sudlon,qwen,qwen3:14b,2,2026-11-15
+730600000,sunflower dr,Sunflower Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,tamsi street,Tamsi,qwen,qwen3:14b,2,2026-11-15
+730600000,tormis street,A. Tormis Street,qwen,qwen3:14b,2,2026-11-15
+730600000,velez street,M. Velez Street,qwen,qwen3:14b,2,2026-11-15
+730600000,villalon street,Villalon Drive,qwen,qwen3:14b,2,2026-11-15
+730600000,yap street,M.P. Yap Street,qwen,qwen3:14b,2,2026-11-15
+730600000,zodiac dr,Zodiac Drive,qwen,qwen3:14b,2,2026-11-15
+731300000,a c cortes street,A.C. Cortes Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,a c sanchez road,A.C. Sanchez Street,qwen,qwen3:14b,2,2026-11-15
+731300000,ac cortes avenue,A.C. Cortes Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,albano street,S. O. Albaño Street,qwen,qwen3:14b,2,2026-11-15
+731300000,big leaf street,Big Leaf,qwen,qwen3:14b,2,2026-11-15
+731300000,c m cabahug road,C. M. Cabahug Street,qwen,qwen3:14b,2,2026-11-15
+731300000,cabrera street,L. C. Cabrera Street,qwen,qwen3:14b,2,2026-11-15
+731300000,cambridge,Cambridge Street,qwen,qwen3:14b,2,2026-11-15
+731300000,cipadessa street,Cipadessa,qwen,qwen3:14b,2,2026-11-15
+731300000,dm cortes street,D.M. Cortes Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,emilio aguirre street,E. Aguirre Street,qwen,qwen3:14b,2,2026-11-15
+731300000,f f cruz street,F.F. Cruz Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,f rosal street,F. S. Rosal Street,qwen,qwen3:14b,2,2026-11-15
+731300000,h cortes extension,Hernan Cortes Street Extension,qwen,qwen3:14b,2,2026-11-15
+731300000,hernan cortes,Hernan Cortes Street,qwen,qwen3:14b,2,2026-11-15
+731300000,hernan cortes extension,Hernan Cortes Street Extension,qwen,qwen3:14b,2,2026-11-15
+731300000,m ceniza road,M. Ceniza Street,qwen,qwen3:14b,2,2026-11-15
+731300000,mabini street,A. Mabini,qwen,qwen3:14b,2,2026-11-15
+731300000,mabugat road,Mabugat Street,qwen,qwen3:14b,2,2026-11-15
+731300000,marciano quizon road,M. Quizon Street,qwen,qwen3:14b,2,2026-11-15
+731300000,marciano quizon street,M. Quizon Street,qwen,qwen3:14b,2,2026-11-15
+731300000,mc briones street,M.C. Briones Street,qwen,qwen3:14b,2,2026-11-15
+731300000,ml quezon,M.L. Quezon Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,ml quezon avenue,M.L. Quezon Avenue,qwen,qwen3:14b,2,2026-11-15
+731300000,moonseed street,Moonseed,qwen,qwen3:14b,2,2026-11-15
+731300000,ns cabahug street,N. S. Cabahug Street,qwen,qwen3:14b,2,2026-11-15
+731300000,p i ouano street,Pedro I. Ouano Street,qwen,qwen3:14b,2,2026-11-15
+731300000,persian lilac street,Persian Lilac,qwen,qwen3:14b,2,2026-11-15
+731300000,ra ouano street,R. A. Ouano Street,qwen,qwen3:14b,2,2026-11-15
+731300000,remedio street,P. Remedio Street,qwen,qwen3:14b,2,2026-11-15
+731300000,santo nino drive,Santo Niño Road,qwen,qwen3:14b,2,2026-11-15
