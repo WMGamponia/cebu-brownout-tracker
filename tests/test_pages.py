@@ -31,8 +31,13 @@ def test_no_referrer_policy():
 
 
 def test_pages_never_read_the_clock_directly():
-    for name in ("js/map.js", "js/history.js"):
-        assert "Date.now(" not in _text(name), name
+    """"Now" comes from the page source (live or snapshot), never the browser clock.
+    source.js is that source: its live mode is the one place that reads Date.now()."""
+    assert OWN_JS
+    for js in OWN_JS:
+        if js.name == "source.js":
+            continue
+        assert "Date.now(" not in js.read_text(encoding="utf-8"), js.name
 
 
 def test_fix_the_map_link():
