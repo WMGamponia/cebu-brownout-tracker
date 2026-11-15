@@ -20,6 +20,7 @@ import {
   stepSlot,
 } from "./timeline.js";
 import { mountTitleFold, notices, renderNotices } from "./cards.js";
+import { createSelection, uiPadding } from "./select.js";
 import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
@@ -110,6 +111,9 @@ addTiles(L, map); // offline: polygons still draw on a blank background
 map.setView([10.32, 123.9], 11);
 
 // Short labels sit above the shading and lines, below tooltips and popups; hidden while zooming.
+// The dim mask over everything but the selected barangay: above shading and lines, below labels.
+map.createPane("dim").style.zIndex = "420";
+map.getPane("dim").style.pointerEvents = "none";
 state.labelPane = map.createPane("labels");
 state.labelPane.classList.add("leaflet-zoom-hide");
 
@@ -330,8 +334,8 @@ function wireFeature(feature, layer) {
     dwell.leave(layer);
   });
   layer.on("click", (e) => {
-    L.DomEvent.stopPropagation(e); // a click on empty map closes the card
-    openCard(layer);
+    L.DomEvent.stopPropagation(e); // a click on empty map deselects
+    toggleBarangay(layer);
   });
   if (!covered) return;
   layer.bindPopup(() => popupContent(feature.properties), { maxWidth: 320 });
@@ -577,6 +581,7 @@ function renderCard() {
 function openCard(layer) {
   dwell.reset();
   layer.closePopup();
+  layer.closeTooltip(); // a tap opens the sticky "Name, Town" tooltip; the card names it already
   showUnplaced(false);
   const was = state.cardLayer;
   state.cardLayer = layer;
@@ -586,6 +591,133 @@ function openCard(layer) {
   renderCard();
   renderBar(); // dim the other outages on the track
 }
+
+// --- selection: zoom to the barangay, dim the rest, revert (spec 15.2) -------------------------
+
+const selection = createSelection();
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const viewNow = () => ({ center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() });
+
+/** A click or tap on a barangay: select it (zoom, dim, card), or deselect it when it is the
+ *  selected one. MECO areas only show their card. */
+function toggleBarangay(layer) {
+  const props = layer.feature.properties;
+  if (!props.covered) {
+    deselect();
+    openCard(layer);
+    return;
+  }
+  const act = selection.toggle(props.psgc, viewNow());
+  if (act.kind === "revert") return finishDeselect(act);
+  selectBarangay(layer);
+}
+
+/** Select by psgc (a search pick): same as a click on an unselected barangay. */
+function selectByPsgc(psgc) {
+  const layer = state.layer && state.layer.getLayers().find((l) => l.feature.properties.psgc === psgc);
+  if (!layer) return;
+  if (selection.current() === psgc) return;
+  selection.select(psgc, viewNow());
+  selectBarangay(layer);
+}
+
+function selectBarangay(layer) {
+  openCard(layer);
+  drawDim(layer.feature);
+  flyToBarangay(layer);
+}
+
+/** Deselect (Esc, ✕, empty map, "Not on the map"): back to the view before the first selection
+ *  of the sequence, unless `revert` is false (a reload). */
+function deselect(revert = true) {
+  const act = selection.clear();
+  finishDeselect(revert ? act : { kind: "none" });
+}
+
+function finishDeselect(act) {
+  closeCard();
+  drawDim(null);
+  if (act.kind === "revert" && act.to) {
+    moveCamera(() => map.setView(act.to.center, act.to.zoom, { animate: !reduceMotion() }), act.to.zoom);
+  }
+}
+
+/** Run a camera move the selection must not mistake for the user zooming out. A moveend also
+ *  fires as a fly starts, so the move counts as done only once the map reaches `zoom` (or after
+ *  2 s, if something interrupts it). */
+function moveCamera(run, zoom) {
+  selection.animating(true);
+  let timer = null;
+  const done = () => {
+    if (Math.abs(map.getZoom() - zoom) > 0.01) return;
+    finish();
+  };
+  const finish = () => {
+    map.off("moveend", done);
+    clearTimeout(timer);
+    selection.animating(false);
+  };
+  map.on("moveend", done);
+  timer = setTimeout(finish, 2000);
+  run();
+}
+
+/** Fit the barangay in the part of the map the floating UI leaves free. */
+function flyToBarangay(layer) {
+  const box = map.getContainer().getBoundingClientRect();
+  // Shown elements only (fixed-position ones have no offsetParent, so test their boxes).
+  const rect = (el) => (el && !el.hidden && el.getClientRects().length ? el.getBoundingClientRect() : null);
+  const card = rect(bcard.card);
+  const sheet = card && bcard.card.classList.contains("sheet");
+  const title = rect($("title-card"));
+  const bar = rect($("timebar"));
+  const tr = rect(document.querySelector(".corner-tr .round-row"));
+  const pad = uiPadding(
+    { w: box.width, h: box.height },
+    {
+      left: card && !sheet ? card.right - box.left : 0,
+      top: title ? title.bottom - box.top : 0,
+      right: tr ? box.right - tr.left : 0,
+      bottom: Math.max(bar ? box.bottom - bar.top : 0, sheet ? box.bottom - card.top : 0),
+    },
+  );
+  const bounds = layer.getBounds();
+  const target = Math.min(
+    16,
+    map.getBoundsZoom(bounds, false, L.point(pad.paddingTopLeft).add(pad.paddingBottomRight)),
+  );
+  selection.fitted(target);
+  moveCamera(() => map.flyToBounds(bounds, { ...pad, maxZoom: 16, animate: !reduceMotion(), duration: 0.6 }), target);
+}
+
+const WORLD = [
+  [-90, -360],
+  [-90, 360],
+  [90, 360],
+  [90, -360],
+];
+
+/** The dim mask: the world with the selected barangay's outer rings as holes; null removes it. */
+function drawDim(feature) {
+  if (state.dim) state.dim.remove();
+  state.dim = null;
+  if (!feature) return;
+  const g = feature.geometry;
+  const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+  const holes = polys.map((p) => p[0].map(([x, y]) => [y, x]));
+  state.dim = L.polygon([WORLD, ...holes], {
+    pane: "dim",
+    interactive: false,
+    stroke: false,
+    fillColor: "#111418",
+    fillOpacity: 0.35,
+  }).addTo(map);
+}
+
+map.on("zoomend", () => {
+  const act = selection.zoomed(map.getZoom());
+  if (act.kind === "deselect") finishDeselect(act); // zoomed out far enough: camera stays
+});
 
 function closeCard() {
   if (!bcard.isOpen()) return;
@@ -684,7 +816,7 @@ function stepBy(delta) {
 }
 
 function showUnplaced(open) {
-  if (open) closeCard();
+  if (open) deselect();
   $("unplaced-card").hidden = !open;
   if (open) $("unplaced-close").focus({ preventScroll: true });
 }
@@ -732,7 +864,7 @@ async function load() {
     state.slot = sel.slot;
   }
   state.openLayer = null;
-  closeCard();
+  deselect(false); // the barangay layers are rebuilt; keep the camera where it is
   map.closePopup();
   indexLines();
   drawFeatures();
@@ -814,9 +946,9 @@ const bcard = mountBarangayCard($("left-slot"), {
     const at = first && slotOf(parseIso(first.start));
     pick(day, at && at.date === day ? at.slot : 0);
   },
-  close: closeCard,
+  close: () => deselect(),
 });
-map.on("click", closeCard);
+map.on("click", () => deselect());
 
 /** The pinned barangay's shown outages on `day`, by start. */
 function dayOutages(day) {
@@ -851,7 +983,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (closeOpenPopover()) return;
     if (!$("unplaced-card").hidden) showUnplaced(false);
-    closeCard();
+    deselect();
     return;
   }
   if (!state.doc) return;
