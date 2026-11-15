@@ -235,7 +235,8 @@ passed its bar (above): `STREETS_DRAW` in `config.py` is on. Cancelled outages d
    and tells the admin chat when some are waiting. Decide them at
    **http://127.0.0.1:8765/streets/review** (only on a loopback bind): the map shows the named
    barangays, the suggestion in bold and the other streets nearby; **Yes / No / Skip** (`y` /
-   `n` / `s`) or click another street. Or fill the CSV's `decision` column. Then
+   `n` / `s`) or click another street; **Back** (`b`) undoes this visit's last step until
+   `--apply`. Or fill the CSV's `decision` column. Then
    `streets suggest --apply` and `streets match --rebuild`. Nothing is applied automatically, and
    a rejected name is never suggested again.
 

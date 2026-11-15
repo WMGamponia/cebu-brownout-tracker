@@ -4,6 +4,7 @@
 /* global L */
 import { addTiles } from "/static/js/tiles.js";
 import {
+  backStep,
   keyFor,
   lineStyle,
   messageFor,
@@ -28,6 +29,7 @@ let at = -1;
 let current = null; // the loaded item document
 let chosen = null; // a candidate name the owner clicked, or null for the pick
 let busy = false;
+const history = []; // steps taken on this page: { index, decision }
 let stopped = false;
 
 function say(text) {
@@ -201,6 +203,8 @@ async function decide(kind) {
     });
     if (r.status === 204 || r.status === 409) {
       say(r.status === 409 ? messageFor(409) : "");
+      if (r.status === 204) history.push({ index: at, decision });
+      backButton();
       it.decided = true;
       left();
       await load(nextIndex(items, at));
@@ -215,6 +219,49 @@ async function decide(kind) {
   }
 }
 
+function backButton() {
+  $("back").disabled = !history.length;
+}
+
+async function back() {
+  if (busy || stopped) return;
+  const step = backStep(history);
+  if (!step) return;
+  const it = items[step.index];
+  busy = true;
+  try {
+    if (step.undo) {
+      const r = await fetch(`${BASE}/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ town: it.town_psgc, key: it.veco_key, token }),
+      });
+      if (r.status === 403) {
+        say(messageFor(403));
+        stopped = true;
+        return;
+      }
+      if (r.status !== 204) {
+        history.pop();
+        backButton();
+        say(r.status === 409 ? "Can't go back: that decision is already applied" : messageFor(r.status));
+        return;
+      }
+    }
+    history.pop();
+    backButton();
+    it.decided = false;
+    left();
+    say(step.undo ? "Decision undone" : "");
+    await load(step.index);
+  } catch {
+    say("The server isn't answering; is `serve` or `map` still running?");
+  } finally {
+    busy = false;
+  }
+}
+
+$("back").addEventListener("click", back);
 $("yes").addEventListener("click", () => decide("y"));
 $("no").addEventListener("click", () => decide("n"));
 $("skip").addEventListener("click", () => decide("skip"));
@@ -222,7 +269,8 @@ document.addEventListener("keydown", (e) => {
   const k = keyFor(e);
   if (!k) return;
   e.preventDefault();
-  decide(k === "s" ? "skip" : k);
+  if (k === "b") back();
+  else decide(k === "s" ? "skip" : k);
 });
 
 async function start() {

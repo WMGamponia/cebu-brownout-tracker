@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  backStep,
   keyFor,
   labelEl,
   lineStyle,
@@ -39,6 +40,22 @@ test("keyFor maps y / n / s, any case", () => {
   assert.equal(keyFor(ev("N")), "n");
   assert.equal(keyFor(ev("s")), "s");
   assert.equal(keyFor(ev("x")), null);
+});
+
+test("keyFor maps b to back", () => {
+  assert.equal(keyFor(ev("b")), "b");
+  assert.equal(keyFor(ev("B")), "b");
+  assert.equal(keyFor(ev("b", "INPUT")), null);
+});
+
+test("backStep: the last step, and whether the server must clear a decision", () => {
+  assert.equal(backStep([]), null);
+  assert.deepEqual(backStep([{ index: 3, decision: "y" }]), { index: 3, undo: true });
+  assert.deepEqual(backStep([{ index: 3, decision: "Other Street" }]), { index: 3, undo: true });
+  assert.deepEqual(backStep([{ index: 3, decision: "n" }, { index: 5, decision: "skip" }]), {
+    index: 5,
+    undo: false,
+  });
 });
 
 test("keyFor ignores keys while focus is in an input", () => {

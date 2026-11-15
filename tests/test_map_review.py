@@ -83,6 +83,40 @@ def _body(**kw) -> dict:
     return {"town": CEBU, "key": "gorordo avnue", "decision": "y", "token": TOKEN, **kw}
 
 
+def _undo(c: TestClient, body: dict, origin: str | None = ORIGIN):
+    headers = {"Origin": origin} if origin else {}
+    return c.post("/streets/review/undo", json=body, headers=headers)
+
+
+def test_undo_clears_a_decision_and_the_item_is_back(world):
+    c = _client(world)
+    item = {"town": CEBU, "key": "gorordo avnue"}
+    assert _post(c, _body()).status_code == 204
+    assert c.get("/streets/review/item", params=item).status_code == 409
+    assert _undo(c, {**item, "token": TOKEN}).status_code == 204
+    row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
+    assert row["decision"] == ""
+    assert c.get("/streets/review/item", params=item).status_code == 200
+    assert "gorordo avnue" in [i["veco_key"] for i in c.get("/streets/review/items").json()]
+
+
+def test_undo_needs_token_and_same_origin(world):
+    c = _client(world)
+    assert _post(c, _body()).status_code == 204
+    body = {"town": CEBU, "key": "gorordo avnue", "token": TOKEN}
+    assert _undo(c, {**body, "token": "nope"}).status_code == 403
+    assert _undo(c, body, origin="http://evil.example").status_code == 403
+    assert _undo(c, body, origin=None).status_code == 403
+    row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
+    assert row["decision"] == "y"
+
+
+def test_undo_unknown_row_409_and_bad_body_422(world):
+    c = _client(world)
+    assert _undo(c, {"town": CEBU, "key": "gone street", "token": TOKEN}).status_code == 409
+    assert _undo(c, {"town": CEBU, "token": TOKEN}).status_code == 422
+
+
 def test_review_absent_on_lan_bind(world):
     c = _client(world, review=False)
     for path in ("/streets/review", "/streets/review/items", "/streets/review/item"):

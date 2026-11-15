@@ -177,3 +177,17 @@ def set_decision(path: Path, town: str, key: str, decision: str) -> None:
         return rows
 
     update(path, change)
+
+
+def clear_decision(path: Path, town: str, key: str) -> None:
+    """Undo a decision not yet applied (the review page's Back). An undecided row is left as
+    it is. KeyError: no such row (gone from the queue: `--apply` already took it)."""
+
+    def change(rows: list[dict]) -> list[dict]:
+        row = next((r for r in rows if _key(r) == (town, key)), None)
+        if row is None:
+            raise KeyError((town, key))
+        row["decision"] = ""
+        return rows
+
+    update(path, change)
