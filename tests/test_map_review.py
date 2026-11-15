@@ -412,3 +412,60 @@ def test_review_refuses_foreign_host(world):
     assert r.status_code == 403
     assert queue.read(world["queue"])[0]["decision"] == ""
     assert c.get("/streets/review", headers={"Host": "localhost:8765"}).status_code == 200
+
+
+GORORDO = {"town": CEBU, "key": "gorordo avnue"}
+
+
+def test_item_lists_area_names(world):
+    doc = _client(world).get("/streets/review/item", params=GORORDO).json()
+    names = doc["area_names"]
+    assert "Cebu South Road" in names and "Juana Osmeña Street" in names
+    assert "Barangay Road" not in names  # generic: --apply refuses it
+    assert "Tayud Road" not in names  # another town
+    assert names == sorted(names, key=str.casefold)
+
+
+def test_item_area_names_empty_without_extract(world, tmp_path):
+    world["osm"] = tmp_path / "no-osm"
+    doc = _client(world).get("/streets/review/item", params=GORORDO).json()
+    assert doc["area_names"] == []
+
+
+def test_lines_for_an_area_name(world):
+    c = _client(world)
+    r = c.get("/streets/review/lines", params={**GORORDO, "name": "Cebu South Road"})
+    assert r.status_code == 200
+    doc = r.json()
+    assert doc["name"] == "Cebu South Road" and doc["lines"]
+
+
+def test_lines_refuses_a_name_outside_the_area(world, tmp_path):
+    c = _client(world)
+    assert (
+        c.get("/streets/review/lines", params={**GORORDO, "name": "Tayud Road"}).status_code == 404
+    )
+    assert c.get("/streets/review/lines", params=GORORDO).status_code == 422
+    world["osm"] = tmp_path / "no-osm"
+    r = _client(world).get("/streets/review/lines", params={**GORORDO, "name": "Cebu South Road"})
+    assert r.status_code == 404
+
+
+def test_lines_409_when_decided(world):
+    c = _client(world)
+    assert _post(c, _body()).status_code == 204
+    r = c.get("/streets/review/lines", params={**GORORDO, "name": "Cebu South Road"})
+    assert r.status_code == 409
+
+
+def test_decide_accepts_an_area_name(world):
+    assert _post(_client(world), _body(decision="Cebu South Road")).status_code == 204
+    row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
+    assert row["decision"] == "Cebu South Road"
+
+
+def test_decide_refuses_a_name_outside_the_area(world):
+    r = _post(_client(world), _body(decision="Tayud Road"))
+    assert r.status_code == 422
+    row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
+    assert row["decision"] == ""

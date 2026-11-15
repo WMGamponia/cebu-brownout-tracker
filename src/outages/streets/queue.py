@@ -13,7 +13,7 @@ import csv
 import os
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from pathlib import Path
 
 COLUMNS = (
@@ -157,8 +157,11 @@ def choices(row: dict) -> list[str]:
     return [n for i, n in enumerate(out) if n and n not in out[:i]]
 
 
-def set_decision(path: Path, town: str, key: str, decision: str) -> None:
-    """Record `y`, `n`, a candidate's exact name, or nothing for `skip`.
+def set_decision(
+    path: Path, town: str, key: str, decision: str, extra: Collection[str] = ()
+) -> None:
+    """Record `y`, `n`, a candidate's exact name (or one of `extra`, the review page's other
+    in-area names), or nothing for `skip`.
 
     KeyError: no such row. QueueConflict: already decided. ValueError: not a valid decision."""
 
@@ -170,7 +173,7 @@ def set_decision(path: Path, town: str, key: str, decision: str) -> None:
             raise QueueConflict(f"{town} {key} already decided")
         if decision == "y" and not row["pick"]:
             raise ValueError("no pick to accept")
-        if decision not in ("y", "n", "skip") and decision not in choices(row):
+        if decision not in ("y", "n", "skip") and decision not in (*choices(row), *extra):
             raise ValueError(f"{decision!r} is not y, n, skip or one of the candidates")
         if decision != "skip":
             row["decision"] = decision
