@@ -7,6 +7,8 @@ import {
   counterText,
   DEFAULT_MIN,
   emptyText,
+  foldName,
+  searchNames,
   loadGuard,
   MIN_CHOICES,
   readMin,
@@ -143,4 +145,25 @@ test("loadGuard: only the latest load may render", () => {
   const b = g.next();
   assert.equal(g.isLatest(a), false);
   assert.equal(g.isLatest(b), true);
+});
+
+test("foldName: case, accents and punctuation ignored", () => {
+  assert.equal(foldName("Juana Osmeña St."), "juana osmena st");
+  assert.equal(foldName("A. Soriano Jr. Avenue"), "a soriano jr avenue");
+});
+
+test("searchNames: every word must appear; names starting with the query first", () => {
+  const names = ["Cebu South Road", "Cebu South Coastal Road", "Juana Osmeña Street", "A. Soriano Jr. Avenue", "Coastal Drive"];
+  assert.deepEqual(searchNames(names, "coastal"), ["Coastal Drive", "Cebu South Coastal Road"]);
+  assert.deepEqual(searchNames(names, "south coastal"), ["Cebu South Coastal Road"]);
+  assert.deepEqual(searchNames(names, "osmena"), ["Juana Osmeña Street"]);
+  assert.deepEqual(searchNames(names, "a soriano"), ["A. Soriano Jr. Avenue"]);
+  assert.deepEqual(searchNames(names, "  "), []);
+  assert.deepEqual(searchNames(names, "zzz"), []);
+});
+
+test("searchNames: at most `limit` results", () => {
+  const names = Array.from({ length: 20 }, (_, i) => `Road ${i}`);
+  assert.equal(searchNames(names, "road").length, 8);
+  assert.equal(searchNames(names, "road", 3).length, 3);
 });
