@@ -25,7 +25,7 @@ import { createSelection, uiPadding } from "./select.js";
 import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
-import { changedKeys, dropFades, followSlot, playhead } from "./frame.js";
+import { changedKeys, dropFades, followSlot, motionOn, playhead } from "./frame.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
@@ -598,7 +598,18 @@ function openCard(layer) {
 // --- selection: zoom to the barangay, dim the rest, revert (spec 15.2) -------------------------
 
 const selection = createSelection();
-const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Animations (fly-to and revert, playhead glide, fades): the menu's "Smooth animations",
+// remembered per browser; until it is set, the system's reduced-motion setting decides.
+const systemReduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+function savedMotion() {
+  try {
+    return localStorage.getItem("motion");
+  } catch {
+    return null; // storage blocked: follow the system
+  }
+}
+let motionChoice = savedMotion();
+const animate = () => motionOn(motionChoice, systemReduce.matches);
 const viewNow = () => ({ center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() });
 
 /** A click or tap on a barangay: select it (zoom, dim, card), or deselect it when it is the
@@ -641,7 +652,12 @@ function finishDeselect(act) {
   closeCard();
   drawDim(null);
   if (act.kind === "revert" && act.to) {
-    moveCamera(() => map.setView(act.to.center, act.to.zoom, { animate: !reduceMotion() }), act.to.zoom);
+    // flyTo, not setView: Leaflet doesn't animate setView across more than 4 zoom levels.
+    const back = () =>
+      animate()
+        ? map.flyTo(act.to.center, act.to.zoom, { duration: 0.6 })
+        : map.setView(act.to.center, act.to.zoom, { animate: false });
+    moveCamera(back, act.to.zoom);
   }
 }
 
@@ -692,7 +708,7 @@ function flyToBarangay(layer) {
     map.getBoundsZoom(bounds, false, L.point(pad.paddingTopLeft).add(pad.paddingBottomRight)),
   );
   selection.fitted(target);
-  moveCamera(() => map.flyToBounds(bounds, { ...pad, maxZoom: 16, animate: !reduceMotion(), duration: 0.6 }), target);
+  moveCamera(() => map.flyToBounds(bounds, { ...pad, maxZoom: 16, animate: animate(), duration: 0.6 }), target);
 }
 
 const WORLD = [
@@ -749,7 +765,6 @@ function select(day, slot) {
   else renderSlot();
 }
 
-const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const perfDebug = new URLSearchParams(location.search).get("debug") === "perf";
 let maxLongTask = 0;
 if (perfDebug && "PerformanceObserver" in window) {
@@ -763,9 +778,19 @@ if (perfDebug && "PerformanceObserver" in window) {
 
 function setFades(on) {
   state.fades = on;
-  $("map").classList.toggle("fades", on && !reducedMotion.matches);
+  $("map").classList.toggle("fades", on && animate());
+  $("smooth").checked = animate();
 }
-reducedMotion.addEventListener("change", () => setFades(state.fades));
+systemReduce.addEventListener("change", () => setFades(state.fades));
+$("smooth").addEventListener("change", (e) => {
+  motionChoice = e.target.checked ? "on" : "off";
+  try {
+    localStorage.setItem("motion", motionChoice);
+  } catch {
+    /* storage blocked: the choice lasts until the page closes */
+  }
+  setFades(true); // a fresh choice also gives the fades another chance
+});
 
 function stopPlaying() {
   const p = state.play;
@@ -802,7 +827,7 @@ function frame(ts) {
     return;
   }
   if (at.day !== state.day || at.slot !== state.slot) select(at.day, at.slot);
-  timebar.setPlayhead(at.slot, reducedMotion.matches ? 0 : at.frac);
+  timebar.setPlayhead(at.slot, animate() ? at.frac : 0);
   p.raf = requestAnimationFrame(frame);
 }
 

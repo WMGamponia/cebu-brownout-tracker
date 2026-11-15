@@ -229,6 +229,9 @@ well out also lets go of it. Times are Manila time whatever your computer's zone
   run), and outages from a post we couldn't re-read carry a caveat.
 - **Other weeks:** ⋮ → **Week** (◀ ▶, a date, **Today**), or `?from=2026-10-01&days=7` (≤ 14 days).
 - **Credits:** ⓘ holds the map data, tile and library credits.
+- **Smooth animations** (⋮ menu): zooming to and back from a barangay, the gliding playhead and
+  the fades. Off by default when your system asks for reduced motion (on Windows: Settings →
+  Accessibility → Visual effects → Animation effects); switching it on is remembered.
 - **History:** `/history` shows scheduled outage hours per barangay for a range (default: the
   last 12 months), the 10 most-affected barangays, durations, towns, months, and what was left
   out. These are VECO's *scheduled* interruptions, not measured outages. `stats` prints the same.

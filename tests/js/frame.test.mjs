@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { parseIso } from "../../src/outages/map/static/js/timeline.js";
 
-import { MS_PER_SLOT, changedKeys, dropFades, followSlot, playhead } from "../../src/outages/map/static/js/frame.js";
+import { MS_PER_SLOT, changedKeys, dropFades, followSlot, motionOn, playhead } from "../../src/outages/map/static/js/frame.js";
 
 const D1 = "2026-11-12";
 const D2 = "2026-11-13";
@@ -43,4 +43,12 @@ test("followSlot: the current Manila slot while it is in the window", () => {
   assert.deepEqual(followSlot(t("2026-11-12T23:59:59+08:00"), days2), { day: D1, slot: 95 });
   assert.deepEqual(followSlot(t("2026-11-13T00:00:00+08:00"), days2), { day: D2, slot: 0 });
   assert.equal(followSlot(t("2026-11-14T00:00:00+08:00"), days2), null);
+});
+
+test("motionOn: the saved choice wins; otherwise the system's reduced-motion setting", () => {
+  assert.equal(motionOn("on", true), true); // switched on in the menu despite the system
+  assert.equal(motionOn("off", false), false);
+  assert.equal(motionOn(null, true), false);
+  assert.equal(motionOn(null, false), true);
+  assert.equal(motionOn("junk", false), true);
 });

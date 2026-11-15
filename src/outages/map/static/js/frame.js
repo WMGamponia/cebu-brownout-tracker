@@ -20,6 +20,14 @@ export function followSlot(nowMs, days) {
   return days.includes(at.date) ? { day: at.date, slot: at.slot } : null;
 }
 
+/** Whether the page animates (fly-to and revert, playhead glide, fades): the menu's saved choice
+ *  ("on" / "off") wins; with none, the system's reduced-motion setting decides. */
+export function motionOn(saved, systemReduce) {
+  if (saved === "on") return true;
+  if (saved === "off") return false;
+  return !systemReduce;
+}
+
 /** Keys whose value differs between two maps, including keys in only one of them. */
 export function changedKeys(prev, next) {
   const out = [];
