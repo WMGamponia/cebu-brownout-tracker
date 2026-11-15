@@ -20,6 +20,7 @@ import {
 import { mountTitleFold, notices, renderNotices } from "./cards.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
+import { changedKeys, dropFades, playhead } from "./frame.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
@@ -87,7 +88,11 @@ const state = {
   day: null,
   slot: 0, // 15-minute slot of the day, 0–95
   showCancelled: true,
-  timer: null,
+  play: null, // {raf, startDay, startSlot, t0, last, intervals, checked} while playing
+  fades: true, // short fades on slot changes (off under reduced motion or on a slow device)
+  keys: { features: new Map(), lines: new Map(), labels: new Map() }, // last applied state per item
+  lines: [], // [{key, pl, outage}] street polylines of the selected day
+  labels: [], // [{key, node, name, os}] short labels of the selected day
   fetchedAt: 0,
   layer: null,
   openLayer: null,
@@ -157,19 +162,28 @@ function featureState(props) {
   return "day";
 }
 
-function styleFor(feature) {
+/** Everything a barangay's style depends on, as a string: the slot pass restyles only the
+ *  barangays whose key changed. */
+function styleKey(feature) {
   const props = feature.properties;
   const st = featureState(props);
-  const style = { ...STYLES[st], fill: true, opacity: 1 };
   const marked = (layer) => layer && layer.feature === feature;
-  if (marked(state.hovered) || marked(state.openLayer)) Object.assign(style, HIGHLIGHT);
+  const hi = marked(state.hovered) || marked(state.openLayer);
+  let lit = false;
   if (st === "active" && streetsShown()) {
     const ids = state.linesIn.get(props.psgc);
-    const lit = visibleOutages(props.outage_ids).some(
+    lit = visibleOutages(props.outage_ids).some(
       ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInSlot(o, state.day, state.slot),
     );
-    if (lit) style.fillOpacity = LIGHT_FILL;
   }
+  return `${st}|${hi ? 1 : 0}|${lit ? 1 : 0}`;
+}
+
+function styleFor(feature) {
+  const [st, hi, lit] = styleKey(feature).split("|");
+  const style = { ...STYLES[st], fill: true, opacity: 1 };
+  if (hi === "1") Object.assign(style, HIGHLIGHT);
+  if (lit === "1") style.fillOpacity = LIGHT_FILL;
   return style;
 }
 
@@ -255,23 +269,38 @@ function indexLines() {
   }
 }
 
-function drawStreets() {
+/** The day's street lines, built once per day (and per toggle); renderSlot restyles them. */
+function buildStreets() {
   if (!state.streetLayer) state.streetLayer = L.layerGroup().addTo(map);
   state.streetLayer.clearLayers();
+  state.lines = [];
+  state.keys.lines = new Map();
   if (!streetsShown()) return;
-  const lines = [];
   for (const [id, o] of byStart(Object.entries(state.doc.outages))) {
-    const ls = lineState(o, state.day, state.slot, state.showCancelled);
-    if (ls === "hidden" || !o.streets) continue;
-    for (const s of o.streets.drawn) lines.push([LINE_ORDER[ls], ls, id, s]);
+    if (!o.streets || lineState(o, state.day, state.slot, state.showCancelled) === "hidden") continue;
+    o.streets.drawn.forEach((s, i) => {
+      const pl = L.polyline(linePoints(s.lines), { interactive: true });
+      pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
+      pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
+      state.streetLayer.addLayer(pl);
+      state.lines.push({ key: `${id}:${i}`, pl, outage: o });
+    });
   }
-  lines.sort((a, b) => a[0] - b[0]);
-  for (const [, ls, id, s] of lines) {
-    const pl = L.polyline(linePoints(s.lines), { ...LINE_STYLES[ls], interactive: true });
-    pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
-    pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
-    state.streetLayer.addLayer(pl);
+}
+
+/** Restyle the lines whose state changed; active lines go on top. */
+function restyleStreets() {
+  const next = new Map(state.lines.map((l) => [l.key, lineState(l.outage, state.day, state.slot, state.showCancelled)]));
+  const changed = new Set(changedKeys(state.keys.lines, next));
+  if (!changed.size) return;
+  for (const l of state.lines) {
+    if (!changed.has(l.key)) continue;
+    l.pl.setStyle(LINE_STYLES[next.get(l.key)]);
   }
+  // Paint order: faint, then cancelled, then active on top (LINE_ORDER).
+  const order = [...state.lines].sort((a, b) => LINE_ORDER[next.get(a.key)] - LINE_ORDER[next.get(b.key)]);
+  for (const l of order) if (LINE_ORDER[next.get(l.key)] > 0) l.pl.bringToFront();
+  state.keys.lines = next;
 }
 
 function zoomToLines(o) {
@@ -304,7 +333,18 @@ function tooltipFor(props) {
 /** Restyle one barangay and redraw the highlight outlines. */
 function restyle(layer) {
   layer.setStyle(styleFor(layer.feature));
+  state.keys.features.set(layer.feature.properties.psgc, styleKey(layer.feature));
   drawOutlines();
+}
+
+/** Restyle only the barangays whose style key changed since the last pass. */
+function restyleFeatures() {
+  if (!state.layer) return;
+  const layers = state.layer.getLayers();
+  const next = new Map(layers.map((l) => [l.feature.properties.psgc, styleKey(l.feature)]));
+  const changed = new Set(changedKeys(state.keys.features, next));
+  for (const l of layers) if (changed.has(l.feature.properties.psgc)) l.setStyle(styleFor(l.feature));
+  state.keys.features = next;
 }
 
 /** The hovered and open barangays' borders, drawn on top as non-interactive copies (under the
@@ -375,6 +415,7 @@ function drawFeatures() {
     { type: "FeatureCollection", features: state.doc.features },
     { style: styleFor, onEachFeature: wireFeature },
   ).addTo(map);
+  state.keys.features = new Map(state.doc.features.map((f) => [f.properties.psgc, styleKey(f)]));
 }
 
 // --- short labels -------------------------------------------------------------------------------
@@ -383,24 +424,36 @@ function drawFeatures() {
 function drawLabels() {
   const pane = state.labelPane;
   pane.replaceChildren();
+  state.labels = [];
+  state.keys.labels = new Map();
   if (!state.doc) return;
   for (const f of state.doc.features) {
     const props = f.properties;
     if (!props.covered) continue;
     const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
-    const text = shortLabel(props.name, os, state.day, state.slot, state.clock);
-    const at = text && labelPoint(f.geometry);
+    const at = os.length && labelPoint(f.geometry);
     if (!at) continue;
-    const node = el("div", {
-      class: `map-label pill pill-${pillState(os, state.day, state.slot)}`,
-      text,
-      attrs: { "aria-hidden": "true" },
-    });
+    const node = el("div", { class: "map-label pill", attrs: { "aria-hidden": "true" } });
     node.dataset.lat = String(at[1]);
     node.dataset.lng = String(at[0]);
     pane.append(node);
+    state.labels.push({ key: props.psgc, node, name: props.name, os });
   }
+  updateLabels();
   placeLabels();
+}
+
+/** Each label's text and pill colour at the selected slot; only changed ones touch the DOM. */
+function updateLabels() {
+  for (const l of state.labels) {
+    const text = shortLabel(l.name, l.os, state.day, state.slot, state.clock);
+    const pill = pillState(l.os, state.day, state.slot);
+    const key = `${pill}|${text}`;
+    if (state.keys.labels.get(l.key) === key) continue;
+    state.keys.labels.set(l.key, key);
+    l.node.className = `map-label pill pill-${pill}`;
+    l.node.textContent = text;
+  }
 }
 
 /** Position the labels and hide the ones that would overlap (nearest the centre wins). */
@@ -505,40 +558,106 @@ function renderUnplaced() {
   $("unplaced").replaceChildren(...list);
 }
 
-function render() {
+/** Everything that depends on the day or a toggle: bands, lists, street lines, labels. */
+function renderDay() {
   renderBar();
   renderUnplaced();
-  drawStreets();
-  if (state.layer) state.layer.setStyle(styleFor);
+  buildStreets();
+  state.keys.features = new Map(); // a toggle can change any barangay: restyle them all
+  renderSlot();
   drawOutlines();
   drawLabels();
+}
+
+/** Everything that depends on the slot, touching only what changed. */
+function renderSlot() {
+  timebar.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    today: manila(src.now()).date,
+    clock: state.clock,
+    bands: null, // the day's bands are drawn by renderDay
+  });
+  restyleFeatures();
+  restyleStreets();
+  updateLabels();
+  if (!state.play) placeLabels();
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
 
 function select(day, slot) {
+  const newDay = day !== state.day;
   state.day = day;
   state.slot = slot;
-  render();
+  if (newDay) renderDay();
+  else renderSlot();
 }
+
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const perfDebug = new URLSearchParams(location.search).get("debug") === "perf";
+let maxLongTask = 0;
+if (perfDebug && "PerformanceObserver" in window) {
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      maxLongTask = Math.max(maxLongTask, e.duration);
+      console.warn(`longtask ${Math.round(e.duration)} ms`);
+    }
+  }).observe({ type: "longtask", buffered: false });
+}
+
+function setFades(on) {
+  state.fades = on;
+  $("map").classList.toggle("fades", on && !reducedMotion.matches);
+}
+reducedMotion.addEventListener("change", () => setFades(state.fades));
 
 function stopPlaying() {
-  clearInterval(state.timer);
-  state.timer = null;
+  const p = state.play;
+  if (!p) return;
+  cancelAnimationFrame(p.raf);
+  state.play = null;
   timebar.setPlaying(false);
+  timebar.setPlayhead(state.slot, 0);
+  placeLabels(); // labels keep their places while playing; re-place on pause
+  if (perfDebug) console.warn(`max longtask: ${Math.round(maxLongTask)} ms`);
 }
 
-function step() {
-  const next = stepSlot(state.doc.meta.days, state.day, state.slot, 1);
-  if (next) return select(next.day, next.slot);
-  stopPlaying();
+/** One animation frame of playback: glide the playhead, change the map on each new slot. */
+function frame(ts) {
+  const p = state.play;
+  if (!p) return;
+  if (p.t0 === null) {
+    p.t0 = ts;
+  } else {
+    const gap = ts - p.last;
+    if (gap > 1000) p.t0 += gap; // a hidden tab: carry on where it stopped, don't skip ahead
+    else if (ts - p.t0 <= 2000) p.intervals.push(gap);
+    if (!p.checked && ts - p.t0 > 2000) {
+      p.checked = true;
+      if (state.fades && dropFades(p.intervals)) setFades(false); // stays off until reload
+    }
+  }
+  p.last = ts;
+  const at = playhead(state.doc.meta.days, p.startDay, p.startSlot, ts - p.t0);
+  if (!at) {
+    const days = state.doc.meta.days;
+    stopPlaying();
+    select(days[days.length - 1], SLOTS - 1);
+    return;
+  }
+  if (at.day !== state.day || at.slot !== state.slot) select(at.day, at.slot);
+  timebar.setPlayhead(at.slot, reducedMotion.matches ? 0 : at.frac);
+  p.raf = requestAnimationFrame(frame);
 }
 
 function togglePlay() {
   if (!state.doc) return;
-  if (state.timer) return stopPlaying();
+  if (state.play) return stopPlaying();
   const days = state.doc.meta.days;
   if (state.day === days[days.length - 1] && state.slot === SLOTS - 1) select(days[0], 0);
-  state.timer = setInterval(step, 250); // one hour of map time a second
+  state.play = { startDay: state.day, startSlot: state.slot, t0: null, last: 0, intervals: [], checked: false };
+  state.play.raf = requestAnimationFrame(frame);
   timebar.setPlaying(true);
 }
 
@@ -607,12 +726,12 @@ async function load() {
   drawFeatures();
   if (!state.fitted) fitCovered();
   renderTopbar();
-  render();
+  renderDay();
 }
 
 $("show-cancelled").addEventListener("change", (e) => {
   state.showCancelled = e.target.checked;
-  if (state.doc) render();
+  if (state.doc) renderDay();
 });
 $("retry").addEventListener("click", start);
 $("clock-12").addEventListener("change", (e) => {
@@ -624,11 +743,11 @@ $("clock-12").addEventListener("change", (e) => {
   }
   if (!state.doc) return;
   renderTopbar();
-  render();
+  renderDay();
 });
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
-  if (state.doc) render();
+  if (state.doc) renderDay();
 });
 
 /** Show the 7 days from `from` (null: back to the default window around today). */
@@ -720,6 +839,7 @@ setInterval(() => {
 
 /** Pick the data source (live, or the snapshot named by snapshot.json), then load the week. */
 async function start() {
+  setFades(state.fades);
   if (isSnapshotPage() && !src.isSnapshot) {
     try {
       src = await pageSource();

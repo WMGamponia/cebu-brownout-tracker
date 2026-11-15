@@ -106,6 +106,14 @@ h1 { font-size: var(--fs-l); margin: 0; }
 .tb-band { position: absolute; top: 9px; bottom: 9px; border-radius: 3px; background: var(--band); opacity: 0.85; }
 .tb-head { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
 
+/* Short fades when the time changes (spec 5.2). map.js removes .fades under reduced motion or
+   on a device too slow for them. */
+.fades path.leaflet-interactive { transition: fill-opacity 0.2s, stroke 0.2s, stroke-opacity 0.2s, fill 0.2s; }
+.fades .map-label { transition: opacity 0.2s, color 0.2s, border-color 0.2s, background-color 0.2s; }
+@media (prefers-reduced-motion: reduce) {
+  .fades path.leaflet-interactive, .fades .map-label { transition: none; }
+}
+
 /* Short labels on barangays with an outage that day (map.js), as pills. Never block the map. */
 .leaflet-labels-pane { z-index: 450; pointer-events: none; }
 .map-label { position: absolute; left: 0; top: 0; pointer-events: none; }
