@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Map UI refresh **built** on `feat/ui-refresh` (2026-11-15), waiting on the owner's check; Streets v2 merged (PR #5, 2026-11-14). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
+**Current phase:** Map UI refresh **in review**: built on `feat/ui-refresh`, owner checked (2026-11-15), PR open; Streets v2 merged (PR #5, 2026-11-14). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
 **History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
@@ -215,6 +215,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - **Run the real thing in a real browser before calling a page done.** Fixture data happened to have ids in time order and a sized window; the real DB and a background tab exposed two bugs no unit test caught.
 - **Check what a metric rewards before letting it pick a winner.** The suggester comparison counted "none" on a null row as correct; with 44 of 51 dev rows null, an always-none arm would have won. The rule still compared two real arms, but the full run (Qwen picking for half the groups) showed dev said little about real precision.
 - **Let the owner use the tool before calling it done.** Ten minutes on the review page found two things no test did: the order (picks first) and the bold line not following the chosen street.
+- **Pages need revalidation headers too, not just their scripts.** A cached `index.html` with a new `map.js` broke the page; `/static` already had `no-cache`, `/` and `/history` didn't.
+- **Check the machine's motion setting before calling an animation missing.** The owner's system asked for reduced motion, so every animation was correctly off; the fix was a visible choice, not more animation code.
 - **`cmd | tail` hides a failing exit code.** One commit went in red because the pipe returned `tail`'s status; `set -o pipefail` before any chained check.
 - **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
