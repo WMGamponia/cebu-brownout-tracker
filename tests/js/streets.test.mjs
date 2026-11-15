@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { drawnCount, isPastWindow, lineState, whyText } from "../../src/outages/map/static/js/streets.js";
+import { drawnCount, isPastWindow, lineOrder, lineState, whyText } from "../../src/outages/map/static/js/streets.js";
 import { historyLabel, shiftDate } from "../../src/outages/map/static/js/timeline.js";
 
 const o = (status, start, end) => ({ status, start, end });
@@ -11,28 +11,34 @@ const day = "2026-11-12";
 
 test("active in the hour, faint the rest of the day, hidden other days", () => {
   const x = o("scheduled", "2026-11-12T08:00:00+08:00", "2026-11-12T17:00:00+08:00");
-  assert.equal(lineState(x, day, 8, true), "active");
-  assert.equal(lineState(x, day, 16, true), "active");
-  assert.equal(lineState(x, day, 17, true), "faint");
-  assert.equal(lineState(x, day, 7, true), "faint");
-  assert.equal(lineState(x, "2026-11-13", 8, true), "hidden");
-  assert.equal(lineState(o("additional", x.start, x.end), day, 9, true), "active");
+  assert.equal(lineState(x, day, 32, true), "active");
+  assert.equal(lineState(x, day, 64, true), "active");
+  assert.equal(lineState(x, day, 68, true), "faint");
+  assert.equal(lineState(x, day, 28, true), "faint");
+  assert.equal(lineState(x, "2026-11-13", 32, true), "hidden");
+  assert.equal(lineState(o("additional", x.start, x.end), day, 36, true), "active");
 });
 
 test("overnight outage: active at 23 on day 1 and 0 on day 2", () => {
   const x = o("scheduled", "2026-11-12T22:00:00+08:00", "2026-11-13T05:00:00+08:00");
-  assert.equal(lineState(x, day, 23, true), "active");
+  assert.equal(lineState(x, day, 92, true), "active");
   assert.equal(lineState(x, "2026-11-13", 0, true), "active");
-  assert.equal(lineState(x, "2026-11-13", 5, true), "faint");
-  assert.equal(lineState(x, day, 21, true), "faint");
+  assert.equal(lineState(x, "2026-11-13", 20, true), "faint");
+  assert.equal(lineState(x, day, 84, true), "faint");
 });
 
 test("cancelled: grey when shown, hidden when the toggle is off", () => {
   const x = o("cancelled", "2026-11-12T08:00:00+08:00", "2026-11-12T12:00:00+08:00");
-  assert.equal(lineState(x, day, 9, true), "active_cancelled");
-  assert.equal(lineState(x, day, 13, true), "faint");
-  assert.equal(lineState(x, day, 9, false), "hidden");
-  assert.equal(lineState(x, day, 13, false), "hidden");
+  assert.equal(lineState(x, day, 36, true), "active_cancelled");
+  assert.equal(lineState(x, day, 52, true), "faint");
+  assert.equal(lineState(x, day, 36, false), "hidden");
+  assert.equal(lineState(x, day, 52, false), "hidden");
+});
+
+test("half-hour start: faint at 08:15, active at 08:30", () => {
+  const x = o("scheduled", "2026-11-12T08:30:00+08:00", "2026-11-12T10:00:00+08:00");
+  assert.equal(lineState(x, day, 33, true), "faint");
+  assert.equal(lineState(x, day, 34, true), "active");
 });
 
 test("drawnCount", () => {
@@ -81,4 +87,15 @@ test("linesInGeometry: any node inside any polygon part", async () => {
   assert.equal(linesInGeometry(inside, multi), true);
   assert.equal(linesInGeometry([], poly), false);
   assert.equal(linesInGeometry(inside, null), false);
+});
+
+test("lineOrder paints faint, then cancelled, then active on top; stable within a state", () => {
+  const states = new Map([
+    ["a", "active"],
+    ["b", "faint"],
+    ["c", "active_cancelled"],
+    ["d", "faint"],
+    ["e", "active"],
+  ]);
+  assert.deepEqual(lineOrder(states), ["b", "d", "c", "a", "e"]);
 });

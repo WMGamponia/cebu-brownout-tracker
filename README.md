@@ -2,7 +2,7 @@
 
 Visayan Electric (VECO) announces scheduled power interruptions as blog posts written by hand:
 a date, a time, a purpose and a paragraph of places. This project turns those posts into data,
-then into per-barangay Telegram alerts, a map you can scrub hour by hour, and a history of where
+then into per-barangay Telegram alerts, a map you can play through in 15-minute steps, and a history of where
 the power goes out most. It runs on one PC with Python, httpx + selectolax, SQLite, APScheduler,
 FastAPI and Leaflet; the small LLM part is measured with evals and lost to plain rules.
 
@@ -10,7 +10,7 @@ FastAPI and Leaflet; the small LLM part is measured with evals and lost to plain
 a snapshot of 12 Nov 2026, not live. For current schedules see
 [VECO's advisories](https://www.visayanelectric.com/).
 
-![The map: barangays that may be without power at 15:00, with the snapshot banner](docs/images/map.png)
+![The map: barangays that may be without power at 16:45, with pills, the timeline bar and the snapshot notice](docs/images/map.png)
 
 ## What it does
 
@@ -22,7 +22,7 @@ a snapshot of 12 Nov 2026, not live. For current schedules see
   sitios and landmarks; what can't be placed is kept with the reason.
 - **Alerts on Telegram:** the evening before and the morning of an outage, and on any change,
   to people who subscribed to their barangays.
-- **Shows a map and a history:** the week's outages hour by hour, any past week, and outage
+- **Shows a map and a history:** the week's outages in 15-minute steps, any past week, and outage
   hours per barangay over a range.
 
 ## Architecture
@@ -117,8 +117,10 @@ applied without the owner. The owner decided 14 (13 Qwen picks accepted, 1 other
 
 | | |
 |---|---|
-| ![A barangay's popup: time, purpose, places, VECO's post](docs/images/popup.png) | ![Outages the map can't place, with the reason](docs/images/not-on-the-map.png) |
-| A barangay's popup | "Not on the map", with reasons |
+| ![A barangay's card on a phone: the week strip, time, purpose, places, VECO's post](docs/images/card-phone.jpg) | ![The map on a phone: folded title, pills, timeline bar](docs/images/map-phone.jpg) |
+| A selected barangay on a phone: zoomed, the rest dimmed, its card as a sheet | The map on a phone: search, Now, lanes on the track |
+
+![The menu: week picker, show cancelled, AM/PM, street lines, "Not on the map", History](docs/images/menu.jpg)
 
 ![History: scheduled outage hours per barangay over the last 12 months](docs/images/history.png)
 
@@ -198,18 +200,38 @@ ignored from then on. Chats in `TELEGRAM_ALLOWED_CHAT_IDS` never need approval.
 
 ## The map
 
-`serve` also serves the map at **http://127.0.0.1:8765** (or `python -m outages map` alone). Pick
-a day and an hour, or press ▶, and see which barangays **may** be without power then. Click a
-barangay for the time, purpose, streets and VECO's post. Times are Manila time whatever your
-computer's zone.
+`serve` also serves the map at **http://127.0.0.1:8765** (or `python -m outages map` alone). The
+map fills the screen; the controls float over it. Pick a day and a time on the bar at the bottom
+(‹ day ›, ‹ hour ›, or drag the track), or press ▶, and see which barangays **may** be without
+power then, in 15-minute steps. **Now** follows the clock until you move the time yourself.
+Hover a barangay for a quick popup; click (or tap) it to select it: the map zooms to it, dims
+the rest and pins its card (a strip of the week's days, then the selected day's times, purpose,
+streets and VECO's post). Click it again, press Esc or ✕ to go back to where you were; zooming
+well out also lets go of it. Times are Manila time whatever your computer's zone.
+
+- **Search:** type a barangay or town; each result shows its brownout status at the current
+  time (orange = on now, orange outline = coming up, grey outline = cancelled), whatever week
+  the map shows. Enter or a click selects it.
+- **Track:** each outage of the day is a segment; overlapping outages sit in separate rows (up
+  to 3, then "+n"). Hover the track for the time and the barangays out then; with a barangay
+  selected, its outages stay bright.
+
+- **Keys:** ← / → move 15 minutes, Shift + ← / → an hour, Space plays or pauses (with the page
+  or the track focused; a focused map pans with its arrows instead). Esc closes a menu or card.
+- **Labels:** pills name the barangay and its outage: orange edge = now, white = later today,
+  grey = ended, struck through = cancelled; "+1" counts more outages that day.
 
 - **"May be affected":** VECO writes "portion of" on nearly every line, so a whole barangay is
-  shaded; the places in the popup say which part.
-- **Never hidden:** an outage the map can't place is listed under **Not on the map** with the
-  reason. Cancelled outages are greyed (toggle "Show cancelled"); removed ones are counted.
+  shaded; the places in the card say which part.
+- **Never hidden:** an outage the map can't place is listed under **Not on the map** (⋮ menu)
+  with the reason. Cancelled outages are greyed (⋮ → Cancelled outages); removed ones are counted.
 - **Honest about age:** "Data as of …" is the last check; a warning shows past 15 h (a missed
   run), and outages from a post we couldn't re-read carry a caveat.
-- **Other weeks:** **Week of** (◀ ▶, a date, **Today**), or `?from=2026-10-01&days=7` (≤ 14 days).
+- **Other weeks:** ⋮ → **Week** (◀ ▶, a date, **Today**), or `?from=2026-10-01&days=7` (≤ 14 days).
+- **Credits:** ⓘ holds the map data, tile and library credits.
+- **Smooth animations** (⋮ menu): zooming to and back from a barangay, the gliding playhead and
+  the fades. Off by default when your system asks for reduced motion (on Windows: Settings →
+  Accessibility → Visual effects → Animation effects); switching it on is remembered.
 - **History:** `/history` shows scheduled outage hours per barangay for a range (default: the
   last 12 months), the 10 most-affected barangays, durations, towns, months, and what was left
   out. These are VECO's *scheduled* interruptions, not measured outages. `stats` prints the same.

@@ -1,15 +1,44 @@
 // Always-on short labels on shaded barangays. Pure: no DOM, no browser zone.
 // Labels that would overlap are dropped; the one nearest the map centre wins.
-import { shortRange } from "./timeline.js";
+import { SLOT_MIN, activeInSlot, dayStartMs, parseIso, shortRange } from "./timeline.js";
 
-/** "Mambaling · 22:00–06:00", "Apas · 2 outages", or null with no outage.
- *  `outages` are the barangay's `[id, outage]` pairs shown for the day. */
-export function shortLabel(name, outages, fmt = "24") {
+const isCancelled = ([, o]) => o.status === "cancelled";
+
+/** "now", "later" or "ended" for one outage at the slot (cancelled or not). */
+function timing(o, day, slot) {
+  if (activeInSlot(o, day, slot)) return "now";
+  const slotEnd = dayStartMs(day) + (slot + 1) * SLOT_MIN * 60 * 1000;
+  return parseIso(o.start) >= slotEnd ? "later" : "ended";
+}
+
+/** The pair a pill speaks of: the first "now", else the first "later", else the last "ended".
+ *  Cancelled outages count only when every outage is cancelled. `outages` are the `[id, outage]`
+ *  pairs shown for the day, by start. */
+export function pillOutage(outages, day, slot) {
   if (!outages.length) return null;
-  if (outages.length > 1) return `${name} · ${outages.length} outages`;
-  const o = outages[0][1];
+  const real = outages.filter((p) => !isCancelled(p));
+  const pool = real.length ? real : outages;
+  const at = (t) => pool.filter(([, o]) => timing(o, day, slot) === t);
+  return at("now")[0] || at("later")[0] || at("ended").at(-1);
+}
+
+/** "now" | "later" | "ended" | "cancelled" | null: the pill's colour at the selected slot. */
+export function pillState(outages, day, slot) {
+  if (!outages.length) return null;
+  if (outages.every(isCancelled)) return "cancelled";
+  return timing(pillOutage(outages, day, slot)[1], day, slot);
+}
+
+/** "Apas · 10 PM–6 AM +1": the pill outage's times and a count of the others of its kind
+ *  (non-cancelled, or cancelled when all are); null without outages. */
+export function shortLabel(name, outages, day, slot, fmt = "24") {
+  const pick = pillOutage(outages, day, slot);
+  if (!pick) return null;
+  const o = pick[1];
+  const allCancelled = outages.every(isCancelled);
+  const others = (allCancelled ? outages : outages.filter((p) => !isCancelled(p))).length - 1;
   const when = shortRange(o.start, o.end, fmt);
-  return o.status === "cancelled" ? `${name} · ${when} (cancelled)` : `${name} · ${when}`;
+  return `${name} · ${when}${allCancelled ? " (cancelled)" : ""}${others ? ` +${others}` : ""}`;
 }
 
 /** Keys of the labels to show, nearest the centre first. Each item is {key, x, y, w, h}: the

@@ -9,8 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Streets v2 **merged** (PR #5, 2026-11-14); Map UI refresh in review on `feat/ui-refresh`. Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
-**Next:** Discord alerts (per-barangay DMs), then the live site on Cloudflare Pages (decided 2026-11-15).
+**Current phase:** Map UI refresh **in review**: built on `feat/ui-refresh`, owner checked (2026-11-15), PR open; Streets v2 merged (PR #5, 2026-11-14). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
 **History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
@@ -170,6 +169,9 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 - **2026-11-15** — **Review page: search every street in the area.** The page offered only the 5 OSM names spelled closest to VECO's, so a local name for a differently named road (`SRP Road` → Cebu South Coastal Road) needed a CSV edit. A search box now lists any in-area name (the same set `--apply` accepts), draws it on demand (`/streets/review/lines`), and `/decide` accepts it after checking it on the server.
 
+- **2026-11-15** — **Map UI refresh: brainstorm, spec, plan, build** (`feat/ui-refresh`). Spec `docs/superpowers/specs/2026-11-15-ui-refresh-design.md`, plan `docs/superpowers/plans/2026-11-15-ui-refresh.md`. Owner decisions: map page and `/history`; one shared `base.css` and `map.js` split into modules; corner layout; dark cards; **15-minute steps** with smooth playback. Built: slot model in `timeline.js`, pill state, `frame.js` (playhead, change tracking, fade fallback), `timebar.js`, `cards.js`, `menu.js`, `bcard.js`, `dom.js`; a slot change restyles only the barangays, lines and pills that changed. **Real DB, read-only:** week 15–21 Nov, streets drawn (309 paths): per-slot script mean 0.73 ms, max 2.5 ms; day change max 5.9 ms; real play across two midnights 7,653 frames, max interval 6.7 ms (unthrottled; the 4× CPU DevTools run is the owner's). Snapshot built to a temp folder and checked (map + history, `history.html` link, snapshot notice). Waiting on the owner: ten minutes on the page (desktop and phone), the throttled run, then review and PR.
+- **2026-11-15** — **Map UI refresh addendum (owner, after first use).** Spec §15, plan Tasks 11–15. Owner asked for: a hover label on the track; per-outage **lanes** on the track (owner's pick of three) with the selected barangay's outages bright; select = zoom to fit (clear of the cards) + dim the rest, click again / Esc / ✕ / empty map revert to the view before the first selection, zooming 2 levels out deselects; search with each barangay's status **at the current time** (current window fetched separately when another week is shown); a **Now** button that follows the clock until the user moves the time. Found in the browser: `/` and `/history` had no `Cache-Control`, so a cached old page met new JS and broke; both now send `no-cache` (test first). Checked on the real DB (read-only) at desktop, 375 and 320 px, faked clock across a slot boundary, past week, snapshot build.
+- **2026-11-15** — **Smooth animations toggle (owner).** The owner saw no zoom animation: the system's reduced-motion setting was on, and the page honoured it everywhere; zooming back also used `setView`, which Leaflet doesn't animate past 4 zoom levels. Now ⋮ → Smooth animations (remembered; defaults to the system setting) drives fly-to, the animated revert (`flyTo`), the glide and the fades. Browser: on → ~95 animation frames each way, off → a jump; the revert still lands on the exact view.
 - **2026-11-15** — **Suggester skips names that already have an alias.** An alias draws only where its OSM street runs, so a name's mentions elsewhere stayed `not_found` and the suggester queued them again; the owner then decided 8 such rows (7 n, `N. Bacalso St.` → Natalio Bacalso Avenue) and `--apply` dropped all 8 without a word (one alias per town and name). Now `streets suggest` and the review page leave aliased names out (23 rows off the page), and `--apply` prints each decision it drops.
 
 - **2026-11-15** — **Next phases decided (owner): Discord alerts, then a live site.** Constraints: **everything free**; **no SMS** (paid per message, and PH gateways need a registered sender name).
@@ -219,6 +221,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 - **Run the real thing in a real browser before calling a page done.** Fixture data happened to have ids in time order and a sized window; the real DB and a background tab exposed two bugs no unit test caught.
 - **Check what a metric rewards before letting it pick a winner.** The suggester comparison counted "none" on a null row as correct; with 44 of 51 dev rows null, an always-none arm would have won. The rule still compared two real arms, but the full run (Qwen picking for half the groups) showed dev said little about real precision.
 - **Let the owner use the tool before calling it done.** Ten minutes on the review page found two things no test did: the order (picks first) and the bold line not following the chosen street.
+- **Pages need revalidation headers too, not just their scripts.** A cached `index.html` with a new `map.js` broke the page; `/static` already had `no-cache`, `/` and `/history` didn't.
+- **Check the machine's motion setting before calling an animation missing.** The owner's system asked for reduced motion, so every animation was correctly off; the fix was a visible choice, not more animation code.
 - **`cmd | tail` hides a failing exit code.** One commit went in red because the pipe returned `tail`'s status; `set -o pipefail` before any chained check.
 - **Never let a CLI fall through to the network.** An unhandled command reaching `check` cost ~16 unwanted requests to VECO. Dispatch explicitly, and make tests fail if an offline command builds the fetcher.
 
@@ -268,12 +272,13 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 ## Map UI refresh (after Streets v2)
 Owner, 2026-11-13: the page around the map looks bland; take cues from zoom.earth's interface elements (borrow the ideas only, not its branding or exact layout). **The map itself stays as is** (OSM tiles, current shading). Brainstorm and spec first, like a phase.
 - [x] Reading aids: short always-on labels ("Inayawan · 10 PM–6 AM", nearest the centre wins), hover outline, popups after a 500 ms hover, AM/PM toggle. → PR #3.
-- [ ] Full-bleed map: the top bar, controls and side panel become floating, collapsible cards over the map, so the map fills the screen on desktop and phone.
-- [ ] Bottom timeline bar: play, day and hour steppers in one floating control (replaces the control row); the week picker and toggles move to a menu.
-- [ ] Label chips as pills with a state colour (outage now / later today / cancelled), like the place chips on zoom.earth.
-- [ ] Barangay card: a click pins a side card for that barangay with its outages across the week (a 7-day strip), instead of only a popup.
-- [ ] Compact legend as a colour bar in a corner; credits behind an ⓘ button.
-- [ ] Floating cards and controls stay readable over the light map on a phone in daylight (WCAG AA contrast).
+- [x] Full-bleed map: the top bar, controls and side panel become floating, collapsible cards over the map, so the map fills the screen on desktop and phone. → dark cards in the corners (owner's pick); `/history` in the same look, still a scrolling page.
+- [x] Bottom timeline bar: play, day and hour steppers in one floating control (replaces the control row); the week picker and toggles move to a menu. → **15-minute steps** (owner, 2026-11-15), gliding playhead, a track with the day's outage bands, keys; ⋮ menu.
+- [x] Label chips as pills with a state colour (outage now / later today / cancelled), like the place chips on zoom.earth. → plus "ended today"; cancelled never counts as now; "+N" for more outages.
+- [x] Barangay card: a click pins a side card for that barangay with its outages across the week (a 7-day strip), instead of only a popup. → a sheet above the bar on a phone; hover popups stay.
+- [x] Compact legend as a colour bar in a corner; credits behind an ⓘ button.
+- [x] Owner's additions after first use (spec §15): track hover label and lanes per outage; select zooms and dims, with camera revert; barangay search with the status now; Now button.
+- [x] Floating cards and controls stay readable over the light map on a phone in daylight (WCAG AA contrast). → `tests/js/contrast.test.mjs` reads the tokens from `base.css`; checked by eye on a phone: owner.
 
 ## Discord alerts (after the UI refresh)
 Owner, 2026-11-15: per-barangay DMs, working like the Telegram bot. Brainstorm and spec first, like a phase.

@@ -1,30 +1,38 @@
 // The map page (Phase 4 spec 4.6): Leaflet + DOM over one GeoJSON document.
-// Data reaches the DOM only through textContent; links only through safePostUrl + setAttribute.
+// Data reaches the DOM only through textContent; links only through safePostUrl + setAttribute
+// (bcard.js postLink).
 /* global L */
 
 import {
-  STALE_AFTER_H,
-  activeInHour,
+  SLOTS,
+  activeInSlot,
   asOfLabel,
   byStart,
-  checkAgeHours,
-  dayLabel,
   defaultSelection,
-  historyLabel,
-  hourLabel,
   manila,
   needsRefetch,
   onDay,
+  parseIso,
   rangeLabel,
-  safePostUrl,
   shiftDate,
+  slotOf,
+  slotLabel,
+  stepSlot,
 } from "./timeline.js";
+import { mountTitleFold, notices, renderNotices } from "./cards.js";
+import { mountSearch, searchSource } from "./search.js";
+import { createSelection, uiPadding } from "./select.js";
+import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
+import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
-import { cullLabels, labelPoint, shortLabel } from "./labels.js";
+import { changedKeys, dropFades, followSlot, motionOn, playhead } from "./frame.js";
+import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
-import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
-import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
+import { isPastWindow, lineOrder, lineState, linesInGeometry } from "./streets.js";
+import { reasonText, removedText } from "./text.js";
+import { focusKind, keyStep, keysApply, mountTimebar, packLanes } from "./timebar.js";
 import { addTiles } from "./tiles.js";
 
 // Every data URL and every "now" come from the source (Phase 6 spec 4.3): the live server, or a
@@ -33,7 +41,6 @@ import { addTiles } from "./tiles.js";
 // them with history.replaceState.
 let src = makeSource("live", null);
 const pageParams = () => new URLSearchParams(location.search);
-const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
 
 const STYLES = {
@@ -51,7 +58,6 @@ const LINE_STYLES = {
   active_cancelled: { color: "#616161", weight: 4, opacity: 0.9, dashArray: "6 6" },
   faint: { color: "#c2410c", weight: 2, opacity: 0.35, dashArray: null },
 };
-const LINE_ORDER = { faint: 0, active_cancelled: 1, active: 2 };
 const LIGHT_FILL = 0.22;
 
 // The barangay under the mouse, and the one whose popup is open, get a dark outline.
@@ -67,37 +73,16 @@ function savedClock() {
   }
 }
 
-const $ = (id) => document.getElementById(id);
-
-/** A DOM element with text set via textContent and plain attributes. */
-function el(tag, opts = {}, children = []) {
-  const node = document.createElement(tag);
-  if (opts.class) node.className = opts.class;
-  if (opts.text != null) node.textContent = opts.text;
-  for (const [k, v] of Object.entries(opts.attrs || {})) node.setAttribute(k, v);
-  for (const c of children) if (c) node.append(c);
-  return node;
-}
-
-/** A link to VECO's post, or plain text when the URL isn't VECO's. */
-function postLink(post, text = "VECO post") {
-  const href = safePostUrl(post && post.url);
-  if (!href) return el("span", { class: "muted", text: "(no VECO link)" });
-  return el("a", { text, attrs: { href, target: "_blank", rel: "noopener noreferrer" } });
-}
-
-function badge(status) {
-  if (status === "additional") return el("span", { class: "badge badge-additional", text: "Additional" });
-  if (status === "cancelled") return el("span", { class: "badge badge-cancelled", text: "Cancelled" });
-  return null;
-}
-
 const state = {
   doc: null,
   day: null,
-  hour: 0,
+  slot: 0, // 15-minute slot of the day, 0–95
   showCancelled: true,
-  timer: null,
+  play: null, // {raf, startDay, startSlot, t0, last, intervals, checked} while playing
+  fades: true, // short fades on slot changes (off under reduced motion or on a slow device)
+  keys: { features: new Map(), lines: new Map(), labels: new Map() }, // last applied state per item
+  lines: [], // [{key, pl, outage}] street polylines of the selected day
+  labels: [], // [{key, node, name, os}] short labels of the selected day
   fetchedAt: 0,
   layer: null,
   openLayer: null,
@@ -109,19 +94,29 @@ const state = {
   hovered: null, // the barangay layer under the mouse
   cursor: null, // the mouse's latlng over a barangay: hover popups open there
   labelPane: null,
+  cardLayer: null, // the barangay whose card is pinned
+  follow: false, // the selection follows the clock (the Now button)
+  followAfterLoad: false, // Now from another week: follow once the current window is loaded
+  popupKey: null, // what the open hover popup shows (refreshPopup)
 };
+
+const cardCtx = () => ({ clock: state.clock, drawing: drawing() });
 
 const drawing = () => Boolean(state.doc && state.doc.meta.osm && state.doc.meta.osm.drawing);
 const streetsShown = () => drawing() && state.showStreets;
 
 // --- map ---------------------------------------------------------------------------------------
 
-const map = L.map("map", { zoomControl: true, attributionControl: true });
+const map = L.map("map", { zoomControl: false, attributionControl: true });
+L.control.zoom({ position: "topright" }).addTo(map);
 map.attributionControl.setPrefix(false);
 addTiles(L, map); // offline: polygons still draw on a blank background
 map.setView([10.32, 123.9], 11);
 
 // Short labels sit above the shading and lines, below tooltips and popups; hidden while zooming.
+// The dim mask over everything but the selected barangay: above shading and lines, below labels.
+map.createPane("dim").style.zIndex = "420";
+map.getPane("dim").style.pointerEvents = "none";
 state.labelPane = map.createPane("labels");
 state.labelPane.classList.add("leaflet-zoom-hide");
 
@@ -160,25 +155,34 @@ function featureState(props) {
   if (!props.covered) return "meco";
   const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
   if (!os.length) return "none";
-  const now = os.filter(([, o]) => activeInHour(o, state.day, state.hour));
+  const now = os.filter(([, o]) => activeInSlot(o, state.day, state.slot));
   if (now.some(([, o]) => SHADED.has(o.status))) return "active";
   if (now.length) return "cancelled";
   return "day";
 }
 
-function styleFor(feature) {
+/** Everything a barangay's style depends on, as a string: the slot pass restyles only the
+ *  barangays whose key changed. */
+function styleKey(feature) {
   const props = feature.properties;
   const st = featureState(props);
-  const style = { ...STYLES[st], fill: true, opacity: 1 };
   const marked = (layer) => layer && layer.feature === feature;
-  if (marked(state.hovered) || marked(state.openLayer)) Object.assign(style, HIGHLIGHT);
+  const hi = marked(state.hovered) || marked(state.openLayer) || marked(state.cardLayer);
+  let lit = false;
   if (st === "active" && streetsShown()) {
     const ids = state.linesIn.get(props.psgc);
-    const lit = visibleOutages(props.outage_ids).some(
-      ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInHour(o, state.day, state.hour),
+    lit = visibleOutages(props.outage_ids).some(
+      ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInSlot(o, state.day, state.slot),
     );
-    if (lit) style.fillOpacity = LIGHT_FILL;
   }
+  return `${st}|${hi ? 1 : 0}|${lit ? 1 : 0}`;
+}
+
+function styleFor(feature) {
+  const [st, hi, lit] = styleKey(feature).split("|");
+  const style = { ...STYLES[st], fill: true, opacity: 1 };
+  if (hi === "1") Object.assign(style, HIGHLIGHT);
+  if (lit === "1") style.fillOpacity = LIGHT_FILL;
   return style;
 }
 
@@ -188,49 +192,12 @@ function popupContent(props) {
     el("p", { class: "town", text: props.town }),
   ]);
   const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
-  const active = os.filter(([, o]) => activeInHour(o, state.day, state.hour));
-  const later = os.filter(([, o]) => !activeInHour(o, state.day, state.hour));
+  const active = os.filter(([, o]) => activeInSlot(o, state.day, state.slot));
+  const later = os.filter(([, o]) => !activeInSlot(o, state.day, state.slot));
   if (!os.length) box.append(el("p", { class: "empty", text: "No outage listed for this day." }));
   for (const [, o] of [...active, ...later]) {
-    box.append(outageBlock(o, props, active.some(([, a]) => a === o)));
+    box.append(outageBlock(o, props, active.some(([, a]) => a === o), cardCtx()));
   }
-  return box;
-}
-
-function outageBlock(o, props, isActive) {
-  const when = el("p", { class: "when", text: rangeLabel(o.start, o.end, state.clock) }, [badge(o.status)]);
-  const block = el("div", { class: isActive ? "outage active" : "outage" }, [when]);
-  if (o.purpose) block.append(el("p", { text: o.purpose }));
-  const places = placesLine(o.entities);
-  if (places) block.append(places);
-  const b = o.barangays.find((x) => x.psgc === props.psgc);
-  if (b && b.veco_name && b.veco_name !== b.name) {
-    block.append(el("p", { class: "muted", text: `VECO wrote: ${b.veco_name}` }));
-  }
-  const amb = b ? ambiguousText(b.name, b.town, b.ambiguous_with) : null;
-  if (amb) block.append(el("p", { class: "caveat", text: amb }));
-  if (o.stale) {
-    block.append(
-      el("p", {
-        class: "caveat",
-        text: "VECO updated this post and we couldn't read the update; this is from the earlier version.",
-      }),
-    );
-  }
-  const streets = streetsBlock(o);
-  if (streets) block.append(streets);
-  block.append(el("p", {}, [postLink(o.post)]));
-  return block;
-}
-
-/** "Streets drawn: k of n" and the others with the reason. Nothing when drawing is off: the
- *  places line already names the streets, and there are no lines to explain. */
-function streetsBlock(o) {
-  const { drawn, total } = drawnCount(o);
-  if (!total || !drawing()) return null;
-  const box = el("div", { class: "streets" }, [el("p", { text: `Streets drawn: ${drawn} of ${total}` })]);
-  const items = o.streets.not_drawn.map((s) => el("li", { text: `${s.name}: ${whyText(s.why)}` }));
-  if (items.length) box.append(el("ul", { class: "reasons" }, items));
   return box;
 }
 
@@ -242,7 +209,7 @@ function streetPopup(id, s) {
   if (s.osm_name && bare(s.osm_name) !== bare(s.name)) {
     box.append(el("p", { class: "muted", text: `OSM: ${s.osm_name}` }));
   }
-  box.append(outageBlock(o, { psgc: null }, activeInHour(o, state.day, state.hour)));
+  box.append(outageBlock(o, { psgc: null }, activeInSlot(o, state.day, state.slot), cardCtx()));
   return box;
 }
 
@@ -264,45 +231,50 @@ function indexLines() {
   }
 }
 
-function drawStreets() {
+/** The day's street lines, built once per day (and per toggle); renderSlot restyles them. */
+function buildStreets() {
   if (!state.streetLayer) state.streetLayer = L.layerGroup().addTo(map);
   state.streetLayer.clearLayers();
+  state.lines = [];
+  state.keys.lines = new Map();
   if (!streetsShown()) return;
-  const lines = [];
   for (const [id, o] of byStart(Object.entries(state.doc.outages))) {
-    const ls = lineState(o, state.day, state.hour, state.showCancelled);
-    if (ls === "hidden" || !o.streets) continue;
-    for (const s of o.streets.drawn) lines.push([LINE_ORDER[ls], ls, id, s]);
+    if (!o.streets || lineState(o, state.day, state.slot, state.showCancelled) === "hidden") continue;
+    o.streets.drawn.forEach((s, i) => {
+      const pl = L.polyline(linePoints(s.lines), { interactive: true });
+      pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
+      pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
+      pl.on("click", L.DomEvent.stopPropagation); // a street popup keeps the card open
+      state.streetLayer.addLayer(pl);
+      state.lines.push({ key: `${id}:${i}`, pl, outage: o });
+    });
   }
-  lines.sort((a, b) => a[0] - b[0]);
-  for (const [, ls, id, s] of lines) {
-    const pl = L.polyline(linePoints(s.lines), { ...LINE_STYLES[ls], interactive: true });
-    pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
-    pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
-    state.streetLayer.addLayer(pl);
+}
+
+/** Restyle the lines whose state changed; active lines go on top. */
+function restyleStreets() {
+  const next = new Map(state.lines.map((l) => [l.key, lineState(l.outage, state.day, state.slot, state.showCancelled)]));
+  const changed = new Set(changedKeys(state.keys.lines, next));
+  if (!changed.size) return;
+  for (const l of state.lines) {
+    if (!changed.has(l.key)) continue;
+    l.pl.setStyle(LINE_STYLES[next.get(l.key)]);
   }
+  state.keys.lines = next;
+  raiseLines();
+}
+
+/** Bring the street lines to the front in paint order (active on top): after a restyle, and
+ *  after the hover outlines are redrawn under them. */
+function raiseLines() {
+  const byKey = new Map(state.lines.map((l) => [l.key, l]));
+  for (const key of lineOrder(state.keys.lines)) byKey.get(key).pl.bringToFront();
 }
 
 function zoomToLines(o) {
   const pts = o.streets.drawn.flatMap((s) => linePoints(s.lines).flat());
   if (!pts.length) return;
   map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 17 });
-}
-
-function placesLine(entities) {
-  const all = entityList(entities, Infinity).shown;
-  if (!all.length) return null;
-  const { shown, more } = entityList(entities, PLACES_SHOWN);
-  const p = el("p", { class: "places", text: shown.join("; ") });
-  if (more) {
-    const btn = el("button", { class: "more", text: `+${more} more`, attrs: { type: "button" } });
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      p.textContent = all.join("; ");
-    });
-    p.append(" ", btn);
-  }
-  return p;
 }
 
 function tooltipFor(props) {
@@ -313,7 +285,18 @@ function tooltipFor(props) {
 /** Restyle one barangay and redraw the highlight outlines. */
 function restyle(layer) {
   layer.setStyle(styleFor(layer.feature));
+  state.keys.features.set(layer.feature.properties.psgc, styleKey(layer.feature));
   drawOutlines();
+}
+
+/** Restyle only the barangays whose style key changed since the last pass. */
+function restyleFeatures() {
+  if (!state.layer) return;
+  const layers = state.layer.getLayers();
+  const next = new Map(layers.map((l) => [l.feature.properties.psgc, styleKey(l.feature)]));
+  const changed = new Set(changedKeys(state.keys.features, next));
+  for (const l of layers) if (changed.has(l.feature.properties.psgc)) l.setStyle(styleFor(l.feature));
+  state.keys.features = next;
 }
 
 /** The hovered and open barangays' borders, drawn on top as non-interactive copies (under the
@@ -323,10 +306,10 @@ function restyle(layer) {
 function drawOutlines() {
   if (!state.outlines) state.outlines = L.layerGroup().addTo(map);
   state.outlines.clearLayers();
-  for (const l of new Set([state.hovered, state.openLayer])) {
+  for (const l of new Set([state.hovered, state.openLayer, state.cardLayer])) {
     if (l) state.outlines.addLayer(L.geoJSON(l.feature, { interactive: false, style: () => OUTLINE }));
   }
-  if (state.streetLayer) state.streetLayer.eachLayer((l) => l.bringToFront());
+  raiseLines();
 }
 
 const hooked = new WeakSet(); // popup elements already listening for the mouse
@@ -341,24 +324,31 @@ function wireFeature(feature, layer) {
     state.cursor = e.latlng;
     if (was && was !== layer) restyle(was);
     restyle(layer);
-    if (covered) dwell.enter(layer);
+    if (covered && state.cardLayer !== layer) dwell.enter(layer); // its card already shows it
   });
   layer.on("mousemove", (e) => {
     if (!mouseHover() || state.hovered !== layer) return;
     state.cursor = e.latlng;
-    if (covered) dwell.enter(layer); // still moving: restart the dwell
+    if (covered && state.cardLayer !== layer) dwell.enter(layer); // still moving: restart the dwell
   });
   layer.on("mouseout", () => {
     if (state.hovered === layer) state.hovered = null;
     restyle(layer);
     dwell.leave(layer);
   });
+  layer.on("click", (e) => {
+    L.DomEvent.stopPropagation(e); // a click on empty map deselects
+    toggleBarangay(layer);
+  });
   if (!covered) return;
   layer.bindPopup(() => popupContent(feature.properties), { maxWidth: 320 });
-  layer.on("click", () => dwell.pin(layer));
+  // The popup is for hover only: a click pins the card instead. Leaflet (1.9.4, vendored) opens
+  // a bound popup on click through _openPopup; drop just that handler.
+  layer.off("click", layer._openPopup, layer);
   layer.on("popupopen", (e) => {
     const was = state.openLayer;
     state.openLayer = layer;
+    state.popupKey = null; // freshly built by bindPopup; the next slot change compares from here
     if (was && was !== layer) restyle(was);
     restyle(layer);
     layer.closeTooltip(); // the popup already names the barangay
@@ -384,6 +374,7 @@ function drawFeatures() {
     { type: "FeatureCollection", features: state.doc.features },
     { style: styleFor, onEachFeature: wireFeature },
   ).addTo(map);
+  state.keys.features = new Map(state.doc.features.map((f) => [f.properties.psgc, styleKey(f)]));
 }
 
 // --- short labels -------------------------------------------------------------------------------
@@ -392,24 +383,36 @@ function drawFeatures() {
 function drawLabels() {
   const pane = state.labelPane;
   pane.replaceChildren();
+  state.labels = [];
+  state.keys.labels = new Map();
   if (!state.doc) return;
   for (const f of state.doc.features) {
     const props = f.properties;
     if (!props.covered) continue;
     const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
-    const text = shortLabel(props.name, os, state.clock);
-    const at = text && labelPoint(f.geometry);
+    const at = os.length && labelPoint(f.geometry);
     if (!at) continue;
-    const node = el("div", {
-      class: `map-label map-label-${featureState(props)}`,
-      text,
-      attrs: { "aria-hidden": "true" },
-    });
+    const node = el("div", { class: "map-label pill", attrs: { "aria-hidden": "true" } });
     node.dataset.lat = String(at[1]);
     node.dataset.lng = String(at[0]);
     pane.append(node);
+    state.labels.push({ key: props.psgc, node, name: props.name, os });
   }
+  updateLabels();
   placeLabels();
+}
+
+/** Each label's text and pill colour at the selected slot; only changed ones touch the DOM. */
+function updateLabels() {
+  for (const l of state.labels) {
+    const text = shortLabel(l.name, l.os, state.day, state.slot, state.clock);
+    const pill = pillState(l.os, state.day, state.slot);
+    const key = `${pill}|${text}`;
+    if (state.keys.labels.get(l.key) === key) continue;
+    state.keys.labels.set(l.key, key);
+    l.node.className = `map-label pill pill-${pill}`;
+    l.node.textContent = text;
+  }
 }
 
 /** Position the labels and hide the ones that would overlap (nearest the centre wins). */
@@ -448,18 +451,16 @@ new ResizeObserver(() => {
   if (state.doc && !state.fitted) fitCovered();
 }).observe(map.getContainer());
 
-// --- controls and panel ---------------------------------------------------------------------
+// --- cards and the timeline bar ---------------------------------------------------------------
 
 function renderTopbar() {
   const meta = state.doc.meta;
   const asOf = asOfLabel(meta.last_check_at, state.clock);
   $("asof").textContent = asOf ? `Data as of ${asOf}` : "No check has run yet";
+  const n = Object.values(state.doc.outages).filter((o) => o.status !== "cancelled").length;
+  const when = isPastWindow(meta, src.now()) ? "that week" : "this week";
+  $("outage-count").textContent = `${n} ${n === 1 ? "outage" : "outages"} ${when}`;
   $("clock-12").checked = state.clock === "12";
-  const age = checkAgeHours(meta.last_check_at, src.now());
-  const warn = $("old-warning");
-  const past = isPastWindow(meta, src.now());
-  $("history-banner").textContent = past ? historyLabel(meta.days) : "";
-  $("history-banner").hidden = !past;
   $("week").value = meta.window.from;
   $("week-prev").disabled = src.weekStep(meta.window.from, -1) === null;
   $("week-next").disabled = src.weekStep(meta.window.from, 1) === null;
@@ -468,49 +469,35 @@ function renderTopbar() {
   $("streets-note").textContent = drawing()
     ? "Lines: streets VECO names, found on OpenStreetMap inside the listed barangays. " +
       "The shading stays: VECO's lists also name sitios and buildings."
-    : "Streets and sitios are in each barangay's popup. Street lines are off: matching " +
+    : "Streets and sitios are in each barangay's card. Street lines are off: matching " +
       "VECO's street names to the map isn't precise enough yet.";
-  if (past) {
-    warn.hidden = true; // another week: the history banner replaces the old-data warning
-  } else if (age === null) {
-    warn.textContent = "No data check has run yet, so this map may be empty or out of date.";
-    warn.hidden = false;
-  } else if (age > STALE_AFTER_H) {
-    warn.textContent =
-      `This data may be out of date: the last check was ${Math.floor(age)} hours ago ` +
-      "(checks run at 06:00 and 20:00).";
-    warn.hidden = false;
-  } else {
-    warn.hidden = true;
-  }
-  const links = $("stale-links");
-  links.replaceChildren(...meta.stale_posts.map((p) => postLink(p, p.title || "VECO post")));
-  $("stale").hidden = meta.stale_posts.length === 0;
+  const staleLinks = meta.stale_posts.map((p) => postLink(p, p.title || "VECO post"));
+  renderNotices($("notices"), notices(meta, src.now(), state.clock), { stale: staleLinks });
   $("attribution").textContent = meta.attribution || "";
   const removed = removedText(meta.removed_count);
   $("removed").textContent = removed || "";
   $("removed").hidden = !removed;
 }
 
-function renderDays() {
-  const today = manila(src.now()).date;
-  const tabs = state.doc.meta.days.map((d) => {
-    const selected = d === state.day;
-    const b = el("button", {
-      text: dayLabel(d, today),
-      attrs: { type: "button", role: "tab", "aria-selected": String(selected), tabindex: selected ? "0" : "-1" },
-    });
-    b.addEventListener("click", () => select(d, state.hour));
-    return b;
+function renderBar() {
+  timebar.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    today: manila(src.now()).date,
+    clock: state.clock,
+    lanes: packLanes(state.doc.outages, state.day, state.showCancelled),
+    names: Object.fromEntries(
+      Object.entries(state.doc.outages).map(([id, o]) => [id, (o.barangays || []).map((b) => b.name)]),
+    ),
+    selected: selectedOutageIds(),
   });
-  $("days").replaceChildren(...tabs);
 }
 
-function renderHour() {
-  const input = $("hour");
-  input.value = String(state.hour);
-  input.setAttribute("aria-valuetext", hourLabel(state.hour, state.clock));
-  $("hour-label").textContent = hourLabel(state.hour, state.clock);
+/** The pinned barangay's outage ids: its segments stay bright on the track, the rest dim. */
+function selectedOutageIds() {
+  const props = state.cardLayer && state.cardLayer.feature.properties;
+  return new Set(props && props.covered ? props.outage_ids.map(String) : []);
 }
 
 function renderUnplaced() {
@@ -519,7 +506,7 @@ function renderUnplaced() {
     .filter((o) => o.unplaced.length && onDay(o, state.day))
     .filter((o) => o.status !== "cancelled" || state.showCancelled);
   $("unplaced-title").textContent = `Not on the map (${items.length})`;
-  $("panel-toggle").textContent = items.length ? `Details (${items.length} not on map)` : "Details";
+  $("unplaced-btn").textContent = `Not on the map (${items.length})`;
   const list = items.map((o) => {
     const reasons = el("ul", { class: "reasons" }, o.unplaced.map((u) => el("li", { class: "reason", text: reasonText(u) })));
     let byStreets = null;
@@ -540,50 +527,367 @@ function renderUnplaced() {
   $("unplaced").replaceChildren(...list);
 }
 
-function render() {
-  renderDays();
-  renderHour();
+/** Everything that depends on the day or a toggle: lanes, lists, street lines, labels. */
+function renderDay() {
+  renderBar();
   renderUnplaced();
-  drawStreets();
-  if (state.layer) state.layer.setStyle(styleFor);
+  buildStreets();
+  state.keys.features = new Map(); // a toggle can change any barangay: restyle them all
+  renderSlot();
   drawOutlines();
   drawLabels();
-  if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
 
-function select(day, hour) {
-  state.day = day;
-  state.hour = hour;
-  render();
+/** Everything that depends on the slot, touching only what changed. */
+function renderSlot() {
+  timebar.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    today: manila(src.now()).date,
+    clock: state.clock,
+    lanes: null, // the day's lanes are drawn by renderBar
+  });
+  restyleFeatures();
+  restyleStreets();
+  updateLabels();
+  if (!state.play) placeLabels();
+  refreshPopup();
+  renderCard();
 }
+
+/** Rebuild the open hover popup only when its content changes (day, clock, active outages). */
+function refreshPopup() {
+  const layer = state.openLayer;
+  if (!layer) return;
+  const props = layer.feature.properties;
+  const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
+  const active = os.filter(([, o]) => activeInSlot(o, state.day, state.slot)).map(([id]) => id);
+  const key = [props.psgc, state.day, state.clock, drawing() ? 1 : 0, os.map(([id]) => id).join(","), active.join(",")].join("|");
+  if (key === state.popupKey) return;
+  state.popupKey = key;
+  layer.setPopupContent(popupContent(props));
+}
+
+function renderCard() {
+  if (!bcard.isOpen()) return;
+  bcard.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    showCancelled: state.showCancelled,
+    outages: state.doc.outages,
+    ...cardCtx(),
+  });
+}
+
+function openCard(layer) {
+  dwell.reset();
+  layer.closePopup();
+  layer.closeTooltip(); // a tap opens the sticky "Name, Town" tooltip; the card names it already
+  showUnplaced(false);
+  const was = state.cardLayer;
+  state.cardLayer = layer;
+  if (was && was !== layer) restyle(was);
+  restyle(layer);
+  bcard.show(layer.feature.properties);
+  renderCard();
+  renderBar(); // dim the other outages on the track
+}
+
+// --- selection: zoom to the barangay, dim the rest, revert (spec 15.2) -------------------------
+
+const selection = createSelection();
+// Animations (fly-to and revert, playhead glide, fades): the menu's "Smooth animations",
+// remembered per browser; until it is set, the system's reduced-motion setting decides.
+const systemReduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+function savedMotion() {
+  try {
+    return localStorage.getItem("motion");
+  } catch {
+    return null; // storage blocked: follow the system
+  }
+}
+let motionChoice = savedMotion();
+const animate = () => motionOn(motionChoice, systemReduce.matches);
+const viewNow = () => ({ center: [map.getCenter().lat, map.getCenter().lng], zoom: map.getZoom() });
+
+/** A click or tap on a barangay: select it (zoom, dim, card), or deselect it when it is the
+ *  selected one. MECO areas only show their card. */
+function toggleBarangay(layer) {
+  const props = layer.feature.properties;
+  if (!props.covered) {
+    deselect();
+    openCard(layer);
+    return;
+  }
+  const act = selection.toggle(props.psgc, viewNow());
+  if (act.kind === "revert") return finishDeselect(act);
+  selectBarangay(layer);
+}
+
+/** Select by psgc (a search pick): same as a click on an unselected barangay. */
+function selectByPsgc(psgc) {
+  const layer = state.layer && state.layer.getLayers().find((l) => l.feature.properties.psgc === psgc);
+  if (!layer) return;
+  if (selection.current() === psgc) return;
+  selection.select(psgc, viewNow());
+  selectBarangay(layer);
+}
+
+function selectBarangay(layer) {
+  openCard(layer);
+  drawDim(layer.feature);
+  flyToBarangay(layer);
+}
+
+/** Deselect (Esc, ✕, empty map, "Not on the map"): back to the view before the first selection
+ *  of the sequence, unless `revert` is false (a reload). */
+function deselect(revert = true) {
+  const act = selection.clear();
+  finishDeselect(revert ? act : { kind: "none" });
+}
+
+function finishDeselect(act) {
+  closeCard();
+  drawDim(null);
+  if (act.kind === "revert" && act.to) {
+    // flyTo, not setView: Leaflet doesn't animate setView across more than 4 zoom levels.
+    const back = () =>
+      animate()
+        ? map.flyTo(act.to.center, act.to.zoom, { duration: 0.6 })
+        : map.setView(act.to.center, act.to.zoom, { animate: false });
+    moveCamera(back, act.to.zoom);
+  }
+}
+
+/** Run a camera move the selection must not mistake for the user zooming out. A moveend also
+ *  fires as a fly starts, so the move counts as done only once the map reaches `zoom` (or after
+ *  2 s, if something interrupts it). */
+function moveCamera(run, zoom) {
+  const token = selection.animating(true);
+  let timer = null;
+  const done = () => {
+    if (Math.abs(map.getZoom() - zoom) > 0.01) return;
+    finish();
+  };
+  const finish = () => {
+    map.off("moveend", done);
+    clearTimeout(timer);
+    selection.animating(false, token); // only the latest move ends the guard
+  };
+  map.on("moveend", done);
+  timer = setTimeout(finish, 2000);
+  run();
+}
+
+/** Fit the barangay in the part of the map the floating UI leaves free. */
+function flyToBarangay(layer) {
+  const box = map.getContainer().getBoundingClientRect();
+  // Shown elements only (fixed-position ones have no offsetParent, so test their boxes).
+  const rect = (el) => (el && !el.hidden && el.getClientRects().length ? el.getBoundingClientRect() : null);
+  const card = rect(bcard.card);
+  const sheet = card && bcard.card.classList.contains("sheet");
+  // The top-left stack: title, search and any notices; the lowest edge counts.
+  const tops = [$("title-card"), $("search"), $("notices")].map(rect).filter(Boolean);
+  const topEdge = tops.length ? Math.max(...tops.map((r) => r.bottom)) : 0;
+  const bar = rect($("timebar"));
+  const tr = rect(document.querySelector(".corner-tr .round-row"));
+  const pad = uiPadding(
+    { w: box.width, h: box.height },
+    {
+      left: card && !sheet ? card.right - box.left : 0,
+      top: topEdge ? topEdge - box.top : 0,
+      right: tr ? box.right - tr.left : 0,
+      bottom: Math.max(bar ? box.bottom - bar.top : 0, sheet ? box.bottom - card.top : 0),
+    },
+  );
+  const bounds = layer.getBounds();
+  const target = Math.min(
+    16,
+    map.getBoundsZoom(bounds, false, L.point(pad.paddingTopLeft).add(pad.paddingBottomRight)),
+  );
+  selection.fitted(target);
+  moveCamera(() => map.flyToBounds(bounds, { ...pad, maxZoom: 16, animate: animate(), duration: 0.6 }), target);
+}
+
+const WORLD = [
+  [-90, -360],
+  [-90, 360],
+  [90, 360],
+  [90, -360],
+];
+
+/** The dim mask: the world with the selected barangay's outer rings as holes; null removes it. */
+function drawDim(feature) {
+  if (state.dim) state.dim.remove();
+  state.dim = null;
+  if (!feature) return;
+  const g = feature.geometry;
+  const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+  const holes = polys.map((p) => p[0].map(([x, y]) => [y, x]));
+  state.dim = L.polygon([WORLD, ...holes], {
+    pane: "dim",
+    interactive: false,
+    stroke: false,
+    fillColor: "#111418",
+    fillOpacity: 0.35,
+  }).addTo(map);
+}
+
+map.on("zoomend", () => {
+  const act = selection.zoomed(map.getZoom());
+  if (act.kind === "deselect") finishDeselect(act); // zoomed out far enough: camera stays
+});
+
+/** After a same-window reload: put the card and dim back on the rebuilt layer, no camera move. */
+function reselect(psgc) {
+  const layer = state.layer.getLayers().find((l) => l.feature.properties.psgc === psgc);
+  if (!layer) return deselect(false); // the barangay left the document
+  openCard(layer);
+  drawDim(layer.feature);
+}
+
+function closeCard() {
+  if (!bcard.isOpen()) return;
+  bcard.hide();
+  const was = state.cardLayer;
+  state.cardLayer = null;
+  if (was) restyle(was);
+  if (state.doc) renderBar();
+}
+
+function select(day, slot) {
+  const newDay = day !== state.day;
+  state.day = day;
+  state.slot = slot;
+  if (newDay) renderDay();
+  else renderSlot();
+}
+
+const perfDebug = new URLSearchParams(location.search).get("debug") === "perf";
+let maxLongTask = 0;
+if (perfDebug && "PerformanceObserver" in window) {
+  new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) {
+      maxLongTask = Math.max(maxLongTask, e.duration);
+      console.warn(`longtask ${Math.round(e.duration)} ms`);
+    }
+  }).observe({ type: "longtask", buffered: false });
+}
+
+function setFades(on) {
+  state.fades = on;
+  $("map").classList.toggle("fades", on && animate());
+  $("smooth").checked = animate();
+}
+systemReduce.addEventListener("change", () => setFades(state.fades));
+$("smooth").addEventListener("change", (e) => {
+  motionChoice = e.target.checked ? "on" : "off";
+  try {
+    localStorage.setItem("motion", motionChoice);
+  } catch {
+    /* storage blocked: the choice lasts until the page closes */
+  }
+  setFades(true); // a fresh choice also gives the fades another chance
+});
 
 function stopPlaying() {
-  clearInterval(state.timer);
-  state.timer = null;
-  $("play").textContent = "▶";
-  $("play").setAttribute("aria-label", "Play");
+  const p = state.play;
+  if (!p) return;
+  cancelAnimationFrame(p.raf);
+  state.play = null;
+  timebar.setPlaying(false);
+  timebar.setPlayhead(state.slot, 0);
+  placeLabels(); // labels keep their places while playing; re-place on pause
+  if (perfDebug) console.warn(`max longtask: ${Math.round(maxLongTask)} ms`);
 }
 
-function step() {
-  const days = state.doc.meta.days;
-  const i = days.indexOf(state.day);
-  if (state.hour < 23) return select(state.day, state.hour + 1);
-  if (i < days.length - 1) return select(days[i + 1], 0);
-  stopPlaying();
+/** One animation frame of playback: glide the playhead, change the map on each new slot. */
+function frame(ts) {
+  const p = state.play;
+  if (!p) return;
+  if (p.t0 === null) {
+    p.t0 = ts;
+  } else {
+    const gap = ts - p.last;
+    if (gap > 1000) p.t0 += gap; // a hidden tab: carry on where it stopped, don't skip ahead
+    else if (ts - p.t0 <= 2000) p.intervals.push(gap);
+    if (!p.checked && ts - p.t0 > 2000) {
+      p.checked = true;
+      if (state.fades && dropFades(p.intervals)) setFades(false); // stays off until reload
+    }
+  }
+  p.last = ts;
+  const at = playhead(state.doc.meta.days, p.startDay, p.startSlot, ts - p.t0);
+  if (!at) {
+    const days = state.doc.meta.days;
+    stopPlaying();
+    select(days[days.length - 1], SLOTS - 1);
+    return;
+  }
+  if (at.day !== state.day || at.slot !== state.slot) select(at.day, at.slot);
+  timebar.setPlayhead(at.slot, animate() ? at.frac : 0);
+  p.raf = requestAnimationFrame(frame);
 }
 
 function togglePlay() {
-  if (state.timer) return stopPlaying();
+  if (!state.doc) return;
+  if (state.play) return stopPlaying();
+  setFollow(false);
   const days = state.doc.meta.days;
-  if (state.day === days[days.length - 1] && state.hour === 23) select(days[0], 0);
-  state.timer = setInterval(step, 1000);
-  $("play").textContent = "❚❚";
-  $("play").setAttribute("aria-label", "Pause");
+  if (state.day === days[days.length - 1] && state.slot === SLOTS - 1) select(days[0], 0);
+  state.play = { startDay: state.day, startSlot: state.slot, t0: null, last: 0, intervals: [], checked: false };
+  state.play.raf = requestAnimationFrame(frame);
+  timebar.setPlaying(true);
 }
 
-function setPanel(open) {
-  $("panel").classList.toggle("open", open);
-  $("panel-toggle").setAttribute("aria-expanded", String(open));
+/** A manual change of day or time: pause, then select. */
+function pick(day, slot) {
+  if (!state.doc) return;
+  stopPlaying();
+  setFollow(false); // any manual change stops following the clock
+  select(day, slot);
+}
+
+// --- Now: follow the current time (spec 15.4) ---------------------------------------------------
+
+function setFollow(on) {
+  state.follow = on;
+  timebar.setFollowing(on);
+}
+
+/** While following, move to the current slot; stop once the clock leaves the window. */
+function followTick() {
+  if (!state.follow || !state.doc || state.play) return;
+  const at = followSlot(src.now(), state.doc.meta.days);
+  if (!at) return setFollow(false);
+  if (at.day !== state.day || at.slot !== state.slot) select(at.day, at.slot);
+}
+setInterval(followTick, 15 * 1000);
+
+function nowClicked() {
+  if (!state.doc) return;
+  stopPlaying();
+  const at = followSlot(src.now(), state.doc.meta.days);
+  if (!at || isPastWindow(state.doc.meta, src.now())) {
+    state.followAfterLoad = true; // another week: load the current window, then follow
+    goToWeek(null);
+    return;
+  }
+  setFollow(true);
+  select(at.day, at.slot);
+}
+
+function stepBy(delta) {
+  const next = state.doc && stepSlot(state.doc.meta.days, state.day, state.slot, delta);
+  if (next) pick(next.day, next.slot);
+}
+
+function showUnplaced(open) {
+  if (open) deselect();
+  $("unplaced-card").hidden = !open;
+  if (open) $("unplaced-close").focus({ preventScroll: true });
 }
 
 // --- data ---------------------------------------------------------------------------------------
@@ -620,28 +924,47 @@ async function load() {
   }
   $("banner").hidden = true;
   const first = state.doc === null;
+  const prevFrom = first ? null : state.doc.meta.window.from;
   state.doc = doc;
   state.fetchedAt = src.now();
   const days = doc.meta.days;
   if (first || !days.includes(state.day)) {
     const sel = defaultSelection(src.now(), days);
     state.day = sel.day;
-    state.hour = sel.hour;
+    state.slot = sel.slot;
+  }
+  if (first || state.followAfterLoad) {
+    const at = followSlot(src.now(), days); // the page starts following the clock
+    if (at) {
+      state.day = at.day;
+      state.slot = at.slot;
+    }
+    setFollow(Boolean(at));
+    state.followAfterLoad = false;
+  } else if (state.follow) {
+    const at = followSlot(src.now(), days);
+    if (at) [state.day, state.slot] = [at.day, at.slot];
+    else setFollow(false);
   }
   state.openLayer = null;
+  // A refetch of the same window keeps the selection (and its way back); another week drops it.
+  const keepPsgc = prevFrom === doc.meta.window.from ? selection.current() : null;
+  if (keepPsgc) closeCard();
+  else deselect(false); // the barangay layers are rebuilt; keep the camera where it is
+  state.current = null; // refetch the current window for search if this isn't it
   map.closePopup();
   indexLines();
   drawFeatures();
+  if (keepPsgc) reselect(keepPsgc);
   if (!state.fitted) fitCovered();
   renderTopbar();
-  render();
+  renderDay();
+  updateSearch();
 }
 
-$("hour").addEventListener("input", (e) => select(state.day, Number(e.target.value)));
-$("play").addEventListener("click", () => state.doc && togglePlay());
 $("show-cancelled").addEventListener("change", (e) => {
   state.showCancelled = e.target.checked;
-  if (state.doc) render();
+  if (state.doc) renderDay();
 });
 $("retry").addEventListener("click", start);
 $("clock-12").addEventListener("change", (e) => {
@@ -653,11 +976,12 @@ $("clock-12").addEventListener("change", (e) => {
   }
   if (!state.doc) return;
   renderTopbar();
-  render();
+  renderDay();
+  updateSearch();
 });
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
-  if (state.doc) render();
+  if (state.doc) renderDay();
 });
 
 /** Show the 7 days from `from` (null: back to the default window around today). */
@@ -674,6 +998,7 @@ function goToWeek(from) {
   history.replaceState(null, "", qs ? `${location.pathname}?${qs}` : location.pathname);
   $("week-missing").hidden = true;
   stopPlaying();
+  if (!state.followAfterLoad) setFollow(false);
   load();
 }
 $("week").addEventListener("change", (e) => goToWeek(e.target.value ? src.snapWeek(e.target.value) : null));
@@ -684,31 +1009,129 @@ function stepWeek(dir) {
 $("week-prev").addEventListener("click", () => stepWeek(-1));
 $("week-next").addEventListener("click", () => stepWeek(1));
 $("week-today").addEventListener("click", () => goToWeek(null));
-$("panel-toggle").addEventListener("click", () => setPanel(!$("panel").classList.contains("open")));
-$("panel-close").addEventListener("click", () => setPanel(false));
-$("days").addEventListener("keydown", (e) => {
-  if (!state.doc || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-  const days = state.doc.meta.days;
-  const i = days.indexOf(state.day) + (e.key === "ArrowRight" ? 1 : -1);
-  if (i < 0 || i >= days.length) return;
-  select(days[i], state.hour);
-  $("days").children[i].focus();
+
+// --- floating controls ------------------------------------------------------------------------
+
+const timebar = mountTimebar($("timebar"), {
+  select: (day, slot) => pick(day, slot),
+  stepDay(dir) {
+    const days = state.doc ? state.doc.meta.days : [];
+    const i = days.indexOf(state.day) + dir;
+    if (i >= 0 && i < days.length) pick(days[i], state.slot);
+  },
+  stepHour: (dir) => stepBy(4 * dir),
+  togglePlay,
+  now: nowClicked,
+  dragStart() {
+    stopPlaying();
+    setFollow(false); // a drag is a manual change: stop following before the first move
+  },
+  dragEnd() {},
 });
+// The card sheet, the legend and the attribution sit above the bar: use its real height (it wraps
+// to more rows on a narrow phone or with larger text).
+new ResizeObserver(() => {
+  const h = $("timebar").offsetHeight;
+  if (h) document.documentElement.style.setProperty("--bar-h", `${h}px`);
+}).observe($("timebar"));
+
+const bcard = mountBarangayCard($("left-slot"), {
+  selectDay(day) {
+    const first = dayOutages(day)[0];
+    const at = first && slotOf(parseIso(first.start));
+    pick(day, at && at.date === day ? at.slot : 0);
+  },
+  close: () => deselect(),
+});
+map.on("click", () => deselect());
+
+/** The pinned barangay's shown outages on `day`, by start. */
+function dayOutages(day) {
+  const props = state.cardLayer && state.cardLayer.feature.properties;
+  if (!props) return [];
+  return visibleOutages(props.outage_ids)
+    .filter(([, o]) => onDay(o, day))
+    .map(([, o]) => o);
+}
+
+// A browser that cached the page before the search box existed still gets a working map.
+if (!$("search")) $("notices").before(el("div", { class: "card search", attrs: { id: "search", role: "search" } }));
+const search = mountSearch($("search"), { pick: (psgc) => selectByPsgc(psgc) });
+
+/** Search shows each barangay's status at the current time, from the current window's data:
+ *  the loaded document when it is the current window, else a separate fetch of the default
+ *  window (kept until the next load). */
+async function updateSearch() {
+  if (!state.doc) return;
+  let { doc, fetch: needed } = searchSource(state.doc, state.current, src.now());
+  if (needed) {
+    try {
+      const r = await fetch(src.mapUrl(new URLSearchParams()), { cache: "no-store" });
+      if (r.ok) doc = state.current = await r.json();
+    } catch {
+      /* search then shows no statuses; the map itself is unaffected */
+    }
+  }
+  const data = doc || { features: state.doc.features, outages: {} };
+  search.setData(data.features, data.outages, src.now(), state.clock);
+}
+
+const menu = mountPopover($("menu-btn"), $("menu"));
+mountPopover($("info-btn"), $("info"));
+mountTitleFold($("title-card"), $("title-fold"));
+$("unplaced-btn").addEventListener("click", () => {
+  menu.close(false);
+  showUnplaced(true);
+});
+$("unplaced-close").addEventListener("click", () => {
+  showUnplaced(false);
+  $("menu-btn").focus({ preventScroll: true });
+});
+$("legend-btn").addEventListener("click", () => {
+  const open = !$("legend").classList.contains("open");
+  $("legend").classList.toggle("open", open);
+  $("legend-btn").setAttribute("aria-expanded", String(open));
+});
+
+// Time keys: only with focus on the page or the track (a focused map pans with its arrows, and
+// Space presses a focused control).
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  if (e.key === "Escape") {
+    if (closeOpenPopover()) return;
+    if (!$("unplaced-card").hidden) showUnplaced(false);
+    deselect();
+    return;
+  }
+  if (!state.doc) return;
+  const k = keyStep(e.key, e.shiftKey);
+  if (k === null) return;
+  if (!keysApply(focusKind(e.target, { track: timebar.track, bar: $("timebar"), map: $("map") }), k)) return;
+  e.preventDefault();
+  if (k === "toggle") togglePlay();
+  else stepBy(k);
+});
+
 // A snapshot never refetches (its data and its "now" are fixed), not even while snapshot.json loads.
 document.addEventListener("visibilitychange", () => {
   if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
 });
+document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && followTick());
 // A tab left open (a wall display) never changes visibility: refetch it too, and let the
 // old-data warning appear when runs are missed.
 setInterval(() => {
   if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
-  else if (state.doc) renderTopbar();
+  else if (state.doc) {
+    renderTopbar();
+    updateSearch(); // statuses follow the clock
+  }
 }, 5 * 60 * 1000);
 
 /** Pick the data source (live, or the snapshot named by snapshot.json), then load the week. */
 async function start() {
+  setFades(state.fades);
   if (isSnapshotPage() && !src.isSnapshot) {
     try {
       src = await pageSource();
@@ -720,6 +1143,13 @@ async function start() {
     const week = $("week");
     week.min = src.weeks[0];
     week.max = shiftDate(src.snap.snapshot_week, 6);
+  }
+  // Debug only: ?debug=clock&at=<ISO> runs the live page at another time (to check Now).
+  const q = pageParams();
+  if (!src.isSnapshot && q.get("debug") === "clock" && q.get("at")) {
+    const base = src.now;
+    const offset = parseIso(q.get("at")) - base();
+    if (Number.isFinite(offset)) src = { ...src, now: () => base() + offset };
   }
   load();
 }
