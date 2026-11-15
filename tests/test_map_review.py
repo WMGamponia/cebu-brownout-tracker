@@ -125,6 +125,13 @@ def test_review_absent_on_lan_bind(world):
     assert c.get("/streets/review/static/review.js").status_code == 404
 
 
+def test_review_static_is_revalidated(world):
+    """A review.js cached from before an update left the new Back button dead (2026-11-15)."""
+    r = _client(world).get("/streets/review/static/review.js")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+
+
 def test_page_carries_token(world):
     r = _client(world).get("/streets/review")
     assert r.status_code == 200

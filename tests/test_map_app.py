@@ -70,6 +70,16 @@ def test_index_and_static(db_path):
     assert c.get("/static/map.css").status_code == 200
 
 
+def test_static_files_are_revalidated(db_path):
+    """After an update + restart the browser must ask again, not reuse a stale map.js."""
+    c = _client(db_path)
+    r = c.get("/static/js/map.js")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "no-cache"
+    again = c.get("/static/js/map.js", headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304  # unchanged: nothing re-sent
+
+
 def test_healthz(db_path):
     r = _client(db_path).get("/healthz")
     assert r.status_code == 200

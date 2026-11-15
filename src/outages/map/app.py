@@ -37,6 +37,17 @@ NOT_READY = "database not ready: run python -m outages areas"
 NOT_MIGRATED = "database needs migrations: run python -m outages streets match"
 
 
+class RevalidatedStatic(StaticFiles):
+    """Static files the browser must recheck (ETag → 304 when unchanged) on every load: with no
+    Cache-Control it reused a review.js from before an update and the new Back button never
+    woke up (2026-11-15)."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class _NotReady(Exception):
     pass
 
@@ -144,8 +155,8 @@ def create_app(
         app.include_router(build_router(review, ro, boundaries))
         app.mount(
             "/streets/review/static",
-            StaticFiles(directory=REVIEW_STATIC),
+            RevalidatedStatic(directory=REVIEW_STATIC),
             name="review-static",
         )
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/static", RevalidatedStatic(directory=STATIC), name="static")
     return app
