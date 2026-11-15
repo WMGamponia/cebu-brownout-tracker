@@ -31,7 +31,7 @@ def test_no_referrer_policy():
 
 
 def test_pages_never_read_the_clock_directly():
-    """"Now" comes from the page source (live or snapshot), never the browser clock.
+    """ "Now" comes from the page source (live or snapshot), never the browser clock.
     source.js is that source: its live mode is the one place that reads Date.now()."""
     assert OWN_JS
     for js in OWN_JS:
