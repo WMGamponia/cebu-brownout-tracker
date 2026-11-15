@@ -22,7 +22,7 @@ import {
   stepSlot,
 } from "./timeline.js";
 import { createDwell } from "./hover.js";
-import { cullLabels, labelPoint, shortLabel } from "./labels.js";
+import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
@@ -399,11 +399,11 @@ function drawLabels() {
     const props = f.properties;
     if (!props.covered) continue;
     const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
-    const text = shortLabel(props.name, os, state.clock);
+    const text = shortLabel(props.name, os, state.day, state.slot, state.clock);
     const at = text && labelPoint(f.geometry);
     if (!at) continue;
     const node = el("div", {
-      class: `map-label map-label-${featureState(props)}`,
+      class: `map-label map-label-${pillState(os, state.day, state.slot)}`,
       text,
       attrs: { "aria-hidden": "true" },
     });
