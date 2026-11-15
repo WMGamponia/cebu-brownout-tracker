@@ -10,7 +10,9 @@ export function nextIndex(items, i) {
   return -1;
 }
 
-const KEYS = { y: "y", n: "n", s: "s", b: "b" };
+// Owner's keys (2026-11-15). The page calls preventDefault on them, so Enter / Space don't
+// also click a focused button and Space doesn't scroll.
+const KEYS = { Enter: "y", Delete: "n", " ": "s", Backspace: "b" };
 
 /** Where Back goes: the last step taken on this page, and whether its decision must be
  *  cleared on the server (a skip wrote nothing); null when there is nothing to go back to. */
@@ -21,12 +23,13 @@ export function backStep(history) {
 }
 const TYPING = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
-/** "y" | "n" | "s" | "b" for a plain key press outside a text field; otherwise null. */
+/** "y" | "n" | "s" | "b" for a plain Enter / Delete / Space / Backspace outside a text field;
+ *  otherwise null. */
 export function keyFor(event) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return null;
   const t = event.target || {};
   if (TYPING.has(t.tagName) || t.isContentEditable) return null;
-  return KEYS[String(event.key || "").toLowerCase()] || null;
+  return Object.hasOwn(KEYS, event.key) ? KEYS[event.key] : null;
 }
 
 const MESSAGES = {

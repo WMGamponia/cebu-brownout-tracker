@@ -78,7 +78,7 @@ function choose(name) {
   $("yes").textContent = "";
   $("yes").append(target ? `Yes: ${target} ` : "Yes ");
   const k = document.createElement("kbd");
-  k.textContent = "y";
+  k.textContent = "Enter";
   $("yes").appendChild(k);
   $("yes").disabled = !target;
 }
