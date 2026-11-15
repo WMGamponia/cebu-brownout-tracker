@@ -18,6 +18,8 @@
   --focus-halo: #111418;
   --track: rgba(255, 255, 255, 0.10);
   --band: #f28c28;
+  --chart-bar: #fdbb84;
+  --chart-worst: #e34a33;
   --radius: 12px;
   --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   --fs-s: 13px;

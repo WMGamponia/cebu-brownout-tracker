@@ -68,6 +68,9 @@ const TEXT_PAIRS = [
 const UI_PAIRS = [
   ["focus", "card"],
   ["band", "track", ["card"]],
+  // /history's month chart: bars on a card (the map's own bins are not checked: they sit on tiles)
+  ["chart-bar", "card"],
+  ["chart-worst", "card"],
 ];
 
 test("text pairs reach 4.5:1 over a white map and the active shading", () => {
