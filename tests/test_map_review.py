@@ -325,11 +325,8 @@ def test_items_picks_first_by_mentions(world):
         r["mentions"] = "1"  # the CSV's frozen count; the page uses the live one
     queue.write(world["queue"], rows)
     seq = iter(range(20, 100))
-    _add_streets(
-        world,
-        [("hA", next(seq), f"{k.title()} Street") for k, n in (("a", 9), ("b", 2), ("c", 5), ("d", 3))
-         for _ in range(n)],
-    )
+    counts = (("a", 9), ("b", 2), ("c", 5), ("d", 3))
+    _add_streets(world, [("hA", next(seq), f"{k} Street") for k, n in counts for _ in range(n)])
     items = _client(world).get("/streets/review/items").json()
     assert [i["veco_key"] for i in items] == ["c street", "b street", "a street", "d street"]
     assert [i["has_pick"] for i in items] == [True, True, False, False]

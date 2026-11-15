@@ -43,14 +43,18 @@
 def _set_status(world, h, seq, status):
     c = db.connect(world["db"])
     with c:
-        c.execute("UPDATE street_matches SET status = ? WHERE areas_hash = ? AND seq = ?",
-                  (status, h, seq))
+        c.execute(
+            "UPDATE street_matches SET status = ? WHERE areas_hash = ? AND seq = ?",
+            (status, h, seq),
+        )
     c.close()
 
+
 def test_items_count_live_mentions(world):
-    _set_status(world, "hC", 5, "matched")          # CSV still says 2
+    _set_status(world, "hC", 5, "matched")  # CSV still says 2
     items = _client(world).get("/streets/review/items").json()
     assert {i["veco_key"]: i["mentions"] for i in items}["gorordo avnue"] == 1
+
 
 def test_items_drop_rows_with_no_mentions_left(world):
     _set_status(world, "hA", 6, "matched")
