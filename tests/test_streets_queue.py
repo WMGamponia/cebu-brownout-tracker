@@ -395,7 +395,9 @@ def test_committed_alias_files_have_provenance_columns():
 
     rows = _dicts(ALIASES_PATH)
     assert rows and all(r["source"] for r in rows)
-    assert REJECTS_PATH.read_text(encoding="utf-8").strip() == "town_psgc,veco_key,decided"
+    rejects = REJECTS_PATH.read_text(encoding="utf-8").splitlines()
+    assert rejects[0] == "town_psgc,veco_key,decided"
+    assert all(len(line.split(",")) == 3 for line in rejects[1:])  # the owner's real rejects
 
 
 # --- review grouping ----------------------------------------------------------------------
