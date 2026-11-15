@@ -383,7 +383,7 @@ test("shortLabel names the relevant outage and counts the rest", () => {
 - Modify: `README.md` (screenshots replaced; mention 15-minute steps and the keys), `ROADMAP.md` (tick the six Map UI refresh items with notes; add a progress-log entry)
 
 - [ ] **Step 1:** Add the snapshot assertion → `pytest -q tests/test_snapshot.py` → PASS (the snapshot copies all of `static/`).
-- [ ] **Step 2: Browser pass** on the real-DB copy at desktop and 375 × 667. Check each of these:
+- [ ] **Step 2: Browser pass** on the real DB (read-only, hash checked) at desktop and 375 × 667. Check each of these:
   - play a full week;
   - drag the track;
   - ← / → / Shift / Space with focus on the page, the map and a menu button (Review Focus 3);
