@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from outages.config import STREET_BUFFER_M
 from outages.osm.extract import StreetIndex
 from outages.streets import queue
-from outages.streets.match import match_street, scope_for, search_towns
+from outages.streets.match import ALIASES_PATH, load_aliases, match_street, scope_for, search_towns
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 from outages.streets.store import scope_inputs
 from outages.streets.suggest import SCOPE_MENTIONS, candidates, groups
@@ -37,6 +37,7 @@ class ReviewConfig:
     queue_path: Path
     osm_dir: Path
     token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    aliases_path: Path = ALIASES_PATH
 
 
 @dataclass
@@ -98,8 +99,10 @@ def build_router(
         try:
             # Live, not the CSV's count (frozen when the row was queued): a name VECO keeps
             # using climbs past the page's filter, and a name with nothing left to draw drops.
+            # A name that already has an alias can't take a decision (--apply drops it).
+            aliased = set(load_aliases(cfg.aliases_path)) if cfg.aliases_path.is_file() else set()
             with ro() as conn:
-                live = {(g.town_psgc, g.key): len(g.mentions) for g in groups(conn, set(), set())}
+                live = {(g.town_psgc, g.key): len(g.mentions) for g in groups(conn, set(), aliased)}
         except Exception:
             log.exception("review: /streets/review/items failed")
             return _error(500, "internal error")

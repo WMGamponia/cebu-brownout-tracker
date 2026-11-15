@@ -35,7 +35,14 @@ from outages.map.build import load_boundaries
 from outages.osm.extract import StreetIndex
 from outages.streets import queue
 from outages.streets.evaluate import EVAL_DIR, INPUT_LOG_NAME, TEST_ROWS, street_rows
-from outages.streets.match import REJECTS_PATH, load_rejects, scope_for, search_towns
+from outages.streets.match import (
+    ALIASES_PATH,
+    REJECTS_PATH,
+    load_aliases,
+    load_rejects,
+    scope_for,
+    search_towns,
+)
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 from outages.streets.store import scope_inputs
 
@@ -362,6 +369,7 @@ class ApplySummary:
     accepted_by_source: dict[str, int]
     rejected: int
     refused: list[str]
+    dropped: list[str]  # decided, but the name already had an alias or reject: nothing applied
     decided_by_source: dict[str, int]  # by the queue row's pick_source: the acceptance-rate base
     took_pick_by_source: dict[str, int]  # `y` or the pick's own name
 
@@ -386,14 +394,19 @@ def run(
     budget_s: float | None = None,
     primary: str | None = None,
     rejects_path: Path = REJECTS_PATH,
+    aliases_path: Path = ALIASES_PATH,
 ) -> RunSummary:
-    """New groups only (not in the queue, not rejected, test rows removed); both arms pick,
+    """New groups only (not in the queue, not rejected, no alias yet, test rows removed); both
+    arms pick,
     the primary fills `pick`. Ollama down raises before anything is written."""
     primary = primary or config.STREET_SUGGEST_PRIMARY
     picker.check()
     qpath = queue_path(data_dir)
     existing = queue.read(qpath)
     skip = {(r["town_psgc"], r["veco_key"]) for r in existing} | load_rejects(rejects_path)
+    # A name with an alias keeps not_found mentions where its OSM street doesn't run; there is
+    # one alias per (town, name), so --apply would drop any decision on them.
+    skip |= set(load_aliases(aliases_path)) if aliases_path.is_file() else set()
     todo = groups(conn, load_test_ids(eval_dir), skip)
     if limit is not None:
         todo = todo[:limit]
@@ -494,6 +507,7 @@ def _apply(
     decided: Counter[str] = Counter()
     took: Counter[str] = Counter()
     refused: list[str] = []
+    dropped: list[str] = []
     keep: list[dict] = []
     n_rejected = 0
     stamp = today.isoformat()
@@ -504,7 +518,10 @@ def _apply(
             keep.append(r)
             continue
         if (r["town_psgc"], street_key(r["veco_key"])) in done:
-            continue  # applied by an earlier --apply whose queue write failed: just drop it
+            # applied by an earlier --apply whose queue write failed, or queued before its name
+            # got an alias: nothing to add, but say so
+            dropped.append(label)
+            continue
         src = r["pick_source"] or "none"
         if d == "n":
             rejects.append(
@@ -546,7 +563,7 @@ def _apply(
     _write_csv(aliases_path, ALIAS_COLUMNS, aliases)
     _write_csv(rejects_path, REJECT_COLUMNS, rejects)
     queue.write(queue_file, keep)
-    return ApplySummary(dict(accepted), n_rejected, refused, dict(decided), dict(took))
+    return ApplySummary(dict(accepted), n_rejected, refused, dropped, dict(decided), dict(took))
 
 
 # --- serve hook (spec 7.8) ------------------------------------------------------------------

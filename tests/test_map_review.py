@@ -478,3 +478,14 @@ def test_decide_a_named_street_when_nothing_is_left_to_draw_is_409(world):
     assert r.status_code == 409
     row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
     assert row["decision"] == ""
+
+
+def test_items_leave_out_names_that_already_have_an_alias(world, tmp_path):
+    a = tmp_path / "aliases.csv"
+    a.write_text(f"town_psgc,veco_key,osm_name\n{CEBU},escarrio street,Escario Street\n", "utf-8")
+    cfg = ReviewConfig(world["queue"], world["osm"], TOKEN, aliases_path=a)
+    app = create_app(world["db"], boundaries(), gazetteer(), clock=lambda: NOW, review=cfg)
+    keys = [
+        i["veco_key"] for i in TestClient(app, base_url=ORIGIN).get("/streets/review/items").json()
+    ]
+    assert keys == ["gorordo avnue"]

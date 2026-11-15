@@ -179,6 +179,7 @@ class FakeQwen:
 def _run(tmp_path, conn, picker, **kw):
     data = tmp_path / "data"
     kw.setdefault("rejects_path", tmp_path / "rejects.csv")
+    kw.setdefault("aliases_path", tmp_path / "no-aliases.csv")
     return run(conn, INDEX, boundaries(), picker, tmp_path / "evals", data, NOW, **kw)
 
 
@@ -661,4 +662,28 @@ def test_generic_names_never_candidates_nor_applied(tmp_path):
     a, rj = _aliases(tmp_path), tmp_path / "rejects.csv"
     s = apply(q, a, rj, idx, boundaries(), conn, TODAY)
     assert len(s.refused) == 1 and len(_dicts(a)) == 1
+    conn.close()
+
+
+def test_run_skips_names_that_already_have_an_alias(tmp_path):
+    """An alias draws only where its OSM street runs; the leftover mentions stay not_found.
+    They are not queued again: --apply would drop any decision on them (one alias per name)."""
+    conn = _conn(tmp_path, STREETS)
+    a = tmp_path / "aliases.csv"
+    a.write_text(f"town_psgc,veco_key,osm_name\n{CEBU},gorordo avnue,Gorordo Avenue\n", "utf-8")
+    _run(tmp_path, conn, FakeQwen(), aliases_path=a)
+    keys = [r["veco_key"] for r in queue.read(tmp_path / "data" / "streets" / "alias_queue.csv")]
+    assert keys == ["escarrio street"]
+    conn.close()
+
+
+def test_apply_reports_decisions_dropped_for_an_existing_alias(tmp_path):
+    conn = _conn(tmp_path, STREETS)
+    q = tmp_path / "q.csv"
+    queue.write(q, [_row(key="gorordo avnue", mentions=2, decision="n", pick="Gorordo Avenue")])
+    a = tmp_path / "aliases.csv"
+    a.write_text(f"town_psgc,veco_key,osm_name\n{CEBU},gorordo avnue,Gorordo Avenue\n", "utf-8")
+    s = apply(q, a, tmp_path / "rejects.csv", INDEX, boundaries(), conn, TODAY)
+    assert s.rejected == 0 and len(s.dropped) == 1 and s.dropped[0].endswith("'gorordo avnue'")
+    assert queue.read(q) == []
     conn.close()
