@@ -20,6 +20,7 @@ import {
   stepSlot,
 } from "./timeline.js";
 import { mountTitleFold, notices, renderNotices } from "./cards.js";
+import { mountSearch } from "./search.js";
 import { createSelection, uiPadding } from "./select.js";
 import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
@@ -865,12 +866,14 @@ async function load() {
   }
   state.openLayer = null;
   deselect(false); // the barangay layers are rebuilt; keep the camera where it is
+  state.current = null; // refetch the current window for search if this isn't it
   map.closePopup();
   indexLines();
   drawFeatures();
   if (!state.fitted) fitCovered();
   renderTopbar();
   renderDay();
+  updateSearch();
 }
 
 $("show-cancelled").addEventListener("change", (e) => {
@@ -888,6 +891,7 @@ $("clock-12").addEventListener("change", (e) => {
   if (!state.doc) return;
   renderTopbar();
   renderDay();
+  updateSearch();
 });
 $("show-streets").addEventListener("change", (e) => {
   state.showStreets = e.target.checked;
@@ -959,6 +963,29 @@ function dayOutages(day) {
     .map(([, o]) => o);
 }
 
+const search = mountSearch($("search"), { pick: (psgc) => selectByPsgc(psgc) });
+
+/** Search shows each barangay's status at the current time, from the current window's data:
+ *  the loaded document when it is the current window, else a separate fetch of the default
+ *  window (kept until the next load). */
+async function updateSearch() {
+  if (!state.doc) return;
+  let doc = state.doc;
+  if (isPastWindow(state.doc.meta, src.now())) {
+    if (!state.current) {
+      try {
+        const r = await fetch(src.mapUrl(new URLSearchParams()), { cache: "no-store" });
+        if (r.ok) state.current = await r.json();
+      } catch {
+        /* search then shows no statuses; the map itself is unaffected */
+      }
+    }
+    doc = state.current;
+  }
+  const data = doc || { features: state.doc.features, outages: {} };
+  search.setData(data.features, data.outages, src.now(), state.clock);
+}
+
 const menu = mountPopover($("menu-btn"), $("menu"));
 mountPopover($("info-btn"), $("info"));
 mountTitleFold($("title-card"), $("title-fold"));
@@ -1005,7 +1032,10 @@ document.addEventListener("visibilitychange", () => {
 setInterval(() => {
   if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
-  else if (state.doc) renderTopbar();
+  else if (state.doc) {
+    renderTopbar();
+    updateSearch(); // statuses follow the clock
+  }
 }, 5 * 60 * 1000);
 
 /** Pick the data source (live, or the snapshot named by snapshot.json), then load the week. */

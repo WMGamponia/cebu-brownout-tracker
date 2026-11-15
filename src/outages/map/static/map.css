@@ -22,6 +22,49 @@ h1 { font-size: var(--fs-l); margin: 0; }
 .title-card.folded .title-more { display: none; }
 .title-more p { margin: 2px 0 0; font-size: var(--fs-s); }
 
+/* Search (search.js): rows coloured by the barangay's status at the current time. */
+.search { position: relative; padding: 0; }
+.search-input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 14px;
+}
+.search-input::placeholder { color: var(--muted); }
+.search-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border-top: 1px solid var(--hairline);
+  max-height: min(360px, 50dvh);
+  overflow-y: auto;
+}
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  padding: 6px 10px;
+  margin: 3px 0;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+}
+.search-row[aria-selected="true"] { background: rgba(255, 255, 255, 0.08); }
+.search-name { font-weight: 600; }
+.search-town { color: var(--muted); font-size: var(--fs-s); text-align: right; }
+.search-status { grid-column: 1 / -1; font-size: var(--fs-s); }
+.search-row.res-now { background: var(--accent); color: #1d2125; }
+.search-row.res-now .search-town { color: #3a2a12; }
+.search-row.res-now[aria-selected="true"] { box-shadow: 0 0 0 2px var(--text); }
+.search-row.res-upcoming { border-color: var(--accent); }
+.search-row.res-upcoming .search-status { color: var(--accent); }
+.search-row.res-cancelled { border-color: var(--muted); }
+.search-row.res-cancelled .search-status { color: var(--muted); }
+.search-empty { padding: 6px 10px; }
+
 .notices { display: flex; flex-direction: column; gap: 6px; }
 .notices:empty { display: none; }
 .banner { display: flex; align-items: center; gap: 10px; }
