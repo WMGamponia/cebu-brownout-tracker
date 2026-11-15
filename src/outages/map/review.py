@@ -228,8 +228,9 @@ def build_router(
             log.exception("review: /streets/review/lines failed")
             return _error(500, "internal error")
 
-    def _extra_names(town: str, key: str, decision: str) -> list[str]:
-        """The area's names when `decision` names a street outside the row's 5 choices."""
+    def _extra_names(town: str, key: str, decision: str) -> list[str] | JSONResponse:
+        """The area's names when `decision` names a street outside the row's 5 choices; the
+        error when the row is decided or has nothing left to draw."""
         if decision in ("y", "n", "skip"):
             return []
         row = next(
@@ -243,7 +244,7 @@ def build_router(
         if row is None or decision in queue.choices(row):
             return []
         ctx = _context(town, key)
-        return [] if isinstance(ctx, JSONResponse) else _area_names(ctx)
+        return ctx if isinstance(ctx, JSONResponse) else _area_names(ctx)
 
     async def _checked_body(request: Request) -> dict | JSONResponse:
         """The JSON body of a same-origin POST carrying the page's token, or the error."""
@@ -270,6 +271,8 @@ def build_router(
             return _error(422, "town, key and decision are required")
         try:
             extra = _extra_names(town, key, decision)
+            if isinstance(extra, JSONResponse):
+                return extra
             queue.set_decision(cfg.queue_path, town, key, decision, extra=extra)
         except KeyError:
             return _error(409, "no such row")

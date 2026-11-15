@@ -469,3 +469,12 @@ def test_decide_refuses_a_name_outside_the_area(world):
     assert r.status_code == 422
     row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
     assert row["decision"] == ""
+
+
+def test_decide_a_named_street_when_nothing_is_left_to_draw_is_409(world):
+    for h, seq in (("hA", 5), ("hC", 5)):
+        _set_status(world, h, seq, "matched")
+    r = _post(_client(world), _body(decision="Cebu South Road"))
+    assert r.status_code == 409
+    row = next(r for r in queue.read(world["queue"]) if r["veco_key"] == "gorordo avnue")
+    assert row["decision"] == ""

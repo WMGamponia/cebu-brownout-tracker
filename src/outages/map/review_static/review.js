@@ -41,6 +41,7 @@ let stopped = false;
 const MIN_KEY = "review.minMentions";
 let min = readMin(stored());
 const loads = loadGuard(); // a filter change can start a load while another is in flight
+const picks = loadGuard(); // two quick search picks: only the last one may select
 
 function stored() {
   try {
@@ -175,6 +176,7 @@ function showResults() {
 async function pickArea(name) {
   const doc = current;
   if (!doc || at < 0) return;
+  const seq = picks.next();
   if (!doc.candidates.some((c) => c.name === name)) {
     const it = items[at];
     const q = new URLSearchParams({ town: it.town_psgc, key: it.veco_key, name });
@@ -185,13 +187,13 @@ async function pickArea(name) {
       say("The server isn't answering; is `serve` or `map` still running?");
       return;
     }
-    if (current !== doc) return;
+    if (current !== doc || !picks.isLatest(seq)) return;
     if (!r.ok) {
       say(messageFor(r.status));
       return;
     }
     const c = { ...(await r.json()), is_pick: false, generic: false };
-    if (current !== doc) return;
+    if (current !== doc || !picks.isLatest(seq)) return;
     if (!doc.candidates.some((x) => x.name === name)) {
       doc.candidates.push(c);
       addCandidate(c);
