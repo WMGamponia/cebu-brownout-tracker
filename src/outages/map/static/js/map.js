@@ -20,7 +20,7 @@ import {
   stepSlot,
 } from "./timeline.js";
 import { mountTitleFold, notices, renderNotices } from "./cards.js";
-import { mountSearch } from "./search.js";
+import { mountSearch, searchSource } from "./search.js";
 import { createSelection, uiPadding } from "./select.js";
 import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
@@ -649,7 +649,7 @@ function finishDeselect(act) {
  *  fires as a fly starts, so the move counts as done only once the map reaches `zoom` (or after
  *  2 s, if something interrupts it). */
 function moveCamera(run, zoom) {
-  selection.animating(true);
+  const token = selection.animating(true);
   let timer = null;
   const done = () => {
     if (Math.abs(map.getZoom() - zoom) > 0.01) return;
@@ -658,7 +658,7 @@ function moveCamera(run, zoom) {
   const finish = () => {
     map.off("moveend", done);
     clearTimeout(timer);
-    selection.animating(false);
+    selection.animating(false, token); // only the latest move ends the guard
   };
   map.on("moveend", done);
   timer = setTimeout(finish, 2000);
@@ -723,6 +723,14 @@ map.on("zoomend", () => {
   const act = selection.zoomed(map.getZoom());
   if (act.kind === "deselect") finishDeselect(act); // zoomed out far enough: camera stays
 });
+
+/** After a same-window reload: put the card and dim back on the rebuilt layer, no camera move. */
+function reselect(psgc) {
+  const layer = state.layer.getLayers().find((l) => l.feature.properties.psgc === psgc);
+  if (!layer) return deselect(false); // the barangay left the document
+  openCard(layer);
+  drawDim(layer.feature);
+}
 
 function closeCard() {
   if (!bcard.isOpen()) return;
@@ -891,6 +899,7 @@ async function load() {
   }
   $("banner").hidden = true;
   const first = state.doc === null;
+  const prevFrom = first ? null : state.doc.meta.window.from;
   state.doc = doc;
   state.fetchedAt = src.now();
   const days = doc.meta.days;
@@ -913,11 +922,15 @@ async function load() {
     else setFollow(false);
   }
   state.openLayer = null;
-  deselect(false); // the barangay layers are rebuilt; keep the camera where it is
+  // A refetch of the same window keeps the selection (and its way back); another week drops it.
+  const keepPsgc = prevFrom === doc.meta.window.from ? selection.current() : null;
+  if (keepPsgc) closeCard();
+  else deselect(false); // the barangay layers are rebuilt; keep the camera where it is
   state.current = null; // refetch the current window for search if this isn't it
   map.closePopup();
   indexLines();
   drawFeatures();
+  if (keepPsgc) reselect(keepPsgc);
   if (!state.fitted) fitCovered();
   renderTopbar();
   renderDay();
@@ -984,7 +997,10 @@ const timebar = mountTimebar($("timebar"), {
   stepHour: (dir) => stepBy(4 * dir),
   togglePlay,
   now: nowClicked,
-  dragStart: stopPlaying,
+  dragStart() {
+    stopPlaying();
+    setFollow(false); // a drag is a manual change: stop following before the first move
+  },
   dragEnd() {},
 });
 // The card sheet, the legend and the attribution sit above the bar: use its real height (it wraps
@@ -1013,6 +1029,8 @@ function dayOutages(day) {
     .map(([, o]) => o);
 }
 
+// A browser that cached the page before the search box existed still gets a working map.
+if (!$("search")) $("notices").before(el("div", { class: "card search", attrs: { id: "search", role: "search" } }));
 const search = mountSearch($("search"), { pick: (psgc) => selectByPsgc(psgc) });
 
 /** Search shows each barangay's status at the current time, from the current window's data:
@@ -1020,17 +1038,14 @@ const search = mountSearch($("search"), { pick: (psgc) => selectByPsgc(psgc) });
  *  window (kept until the next load). */
 async function updateSearch() {
   if (!state.doc) return;
-  let doc = state.doc;
-  if (isPastWindow(state.doc.meta, src.now())) {
-    if (!state.current) {
-      try {
-        const r = await fetch(src.mapUrl(new URLSearchParams()), { cache: "no-store" });
-        if (r.ok) state.current = await r.json();
-      } catch {
-        /* search then shows no statuses; the map itself is unaffected */
-      }
+  let { doc, fetch: needed } = searchSource(state.doc, state.current, src.now());
+  if (needed) {
+    try {
+      const r = await fetch(src.mapUrl(new URLSearchParams()), { cache: "no-store" });
+      if (r.ok) doc = state.current = await r.json();
+    } catch {
+      /* search then shows no statuses; the map itself is unaffected */
     }
-    doc = state.current;
   }
   const data = doc || { features: state.doc.features, outages: {} };
   search.setData(data.features, data.outages, src.now(), state.clock);

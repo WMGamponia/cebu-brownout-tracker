@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { searchBarangays, searchStatus } from "../../src/outages/map/static/js/search.js";
+import { searchBarangays, searchSource, searchStatus } from "../../src/outages/map/static/js/search.js";
 import { parseIso } from "../../src/outages/map/static/js/timeline.js";
 
 const f = (psgc, name, town, covered = true) => ({ properties: { psgc, name, town, covered, outage_ids: [] } });
@@ -69,4 +69,17 @@ test("an overnight outage is now at 02:00 on its second day", () => {
     state: "now",
     text: "Now · 10 PM–5 AM",
   });
+});
+
+test("searchSource: the viewed week when it holds today, else the current window", () => {
+  const nowMs = parseIso("2026-11-15T10:00:00+08:00");
+  const viewed = (days) => ({ meta: { days } });
+  const cur = viewed(["2026-11-15", "2026-11-16"]);
+  const thisWeek = viewed(["2026-11-14", "2026-11-15"]);
+  assert.deepEqual(searchSource(thisWeek, null, nowMs), { doc: thisWeek, fetch: false });
+  const past = viewed(["2026-11-08", "2026-11-09"]);
+  assert.deepEqual(searchSource(past, null, nowMs), { doc: null, fetch: true });
+  assert.deepEqual(searchSource(past, cur, nowMs), { doc: cur, fetch: false });
+  const future = viewed(["2026-11-22"]);
+  assert.deepEqual(searchSource(future, null, nowMs), { doc: null, fetch: true });
 });

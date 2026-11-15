@@ -85,3 +85,17 @@ test("keysApply: never on the map, other controls, text fields or menus", () => 
     assert.equal(keysApply(k, "toggle"), false, k);
   }
 });
+
+test("the hover label also names outages that went to +n", () => {
+  const outages = {
+    1: o(at("08"), at("12")),
+    2: o(at("09"), at("12")),
+    3: o(at("10"), at("12")),
+    4: o(at("11"), at("12")),
+  };
+  const lanes = packLanes(outages, D, true);
+  assert.deepEqual(lanes.overflow, ["4"]);
+  const names = { 1: ["A"], 2: ["B"], 3: ["C"], 4: ["D"] };
+  assert.equal(hoverText(45, lanes.items, names, "24"), "11:15 · A, B, C +1");
+  assert.equal(lanes.items.length, 4);
+});

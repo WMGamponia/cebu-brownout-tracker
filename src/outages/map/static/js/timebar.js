@@ -6,7 +6,8 @@ import { SLOTS, activeInSlot, dateLabel, dayLabel, onDay, slotLabel, stepSlot } 
 
 /** The day's outages as track segments, packed into rows so overlapping ones sit apart (greedy
  *  by start, then id). Each segment covers its first to last active slot of `day`. Outages that
- *  fit none of the `rows` go to `overflow` (their ids). */
+ *  fit none of the `rows` go to `overflow` (their ids); `items` has every outage, drawn or not
+ *  (the hover label names them all). */
 export function packLanes(outages, day, showCancelled, rows = 3) {
   const items = [];
   for (const [id, o] of Object.entries(outages)) {
@@ -34,7 +35,7 @@ export function packLanes(outages, day, showCancelled, rows = 3) {
     ends[row] = it.b;
     segments.push({ ...it, row });
   }
-  return { segments, overflow };
+  return { segments, overflow, items };
 }
 
 /** "10:30 AM · Binaliw, Pit-os": the time at `slot`, then the barangays of the segments covering
@@ -158,7 +159,7 @@ export function mountTimebar(root, hooks) {
   const showTip = (e) => {
     if (!view || !view.lanes) return;
     const x = xOf(e);
-    tip.textContent = hoverText(slotAtX(x, width()), view.lanes.segments, view.names || {}, view.clock);
+    tip.textContent = hoverText(slotAtX(x, width()), view.lanes.items, view.names || {}, view.clock);
     tip.style.left = `${x}px`;
     tip.hidden = false;
   };

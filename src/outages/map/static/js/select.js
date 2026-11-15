@@ -11,12 +11,15 @@ export function createSelection() {
   let psgc = null;
   let before = null; // the view before the first selection of the sequence
   let fittedZoom = null;
-  let moving = false;
+  let lastZoom = null; // the zoom at the previous zoomend: only a zoom-out can deselect
+  let move = 0; // the latest camera move's token; 0 when none is running
+  let moves = 0;
 
   const reset = () => {
     psgc = null;
     before = null;
     fittedZoom = null;
+    lastZoom = null;
   };
 
   const api = {
@@ -38,14 +41,25 @@ export function createSelection() {
     },
     fitted(zoom) {
       fittedZoom = zoom;
+      lastZoom = zoom;
     },
-    animating(on) {
-      moving = on;
+    /** animating(true) starts a camera move and returns its token; animating(false, token) ends
+     *  it, but only the latest move's end clears the guard (an earlier move can finish late). */
+    animating(on, token) {
+      if (on) {
+        move = ++moves;
+        return move;
+      }
+      if (token === undefined || token === move) move = 0;
+      return move;
     },
-    /** The user zoomed: far enough out (2 levels below the fit) deselects, camera stays. */
+    /** The user zoomed: out to 2 levels below the fit deselects, camera stays. Zooming in never
+     *  does (an interrupted fly can leave a fraction below the line). */
     zoomed(zoom) {
-      if (psgc === null || moving || fittedZoom === null) return { kind: "none" };
-      if (zoom > fittedZoom - 2) return { kind: "none" };
+      const prev = lastZoom;
+      lastZoom = zoom;
+      if (psgc === null || move || fittedZoom === null) return { kind: "none" };
+      if (zoom > fittedZoom - 2 || (prev !== null && zoom >= prev)) return { kind: "none" };
       reset();
       return { kind: "deselect" };
     },

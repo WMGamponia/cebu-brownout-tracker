@@ -1,7 +1,15 @@
 // Barangay search (UI refresh spec 15.3): matching, and each result's brownout status at the
 // current time (never the timeline's). Pure helpers first; the DOM part renders the listbox.
 import { el } from "./dom.js";
+import { isPastWindow } from "./streets.js";
 import { byStart, manila, parseIso, rangeLabel, shortRange } from "./timeline.js";
+
+/** Which document search reads statuses from: the viewed one when it holds today, else the
+ *  current window's (`fetch` asks the caller to load it when it isn't there yet). */
+export function searchSource(viewed, current, nowMs) {
+  if (!isPastWindow(viewed.meta, nowMs)) return { doc: viewed, fetch: false };
+  return current ? { doc: current, fetch: false } : { doc: null, fetch: true };
+}
 
 /** Lower case, accents removed ("Santo Niño" → "santo nino"). */
 const fold = (s) =>

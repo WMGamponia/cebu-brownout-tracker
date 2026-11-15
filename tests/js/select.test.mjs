@@ -71,3 +71,25 @@ test("uiPadding caps each axis so 20 % of the viewport stays free", () => {
   assert.ok(freeH >= 0.2 * 812 - 1 && freeH < 0.2 * 812 + 2, `free height ${freeH}`);
   assert.equal(p.paddingTopLeft[0], 12);
 });
+
+test("only the latest camera move ends the animation guard", () => {
+  const s = createSelection();
+  s.select("A", V0);
+  s.fitted(15);
+  const a = s.animating(true);
+  const b = s.animating(true);
+  s.animating(false, a); // A's late finish must not end B's guard
+  assert.equal(s.zoomed(11).kind, "none");
+  s.animating(false, b);
+  assert.equal(s.zoomed(10).kind, "deselect"); // the user zooms out further once B has landed
+});
+
+test("zooming in never deselects, even below the fitted zoom", () => {
+  const s = createSelection();
+  s.select("A", V0);
+  s.fitted(15);
+  s.zoomed(14); // the user zoomed out one level
+  assert.equal(s.zoomed(14.6).kind, "none"); // an interrupted fly left a fraction; zooming in
+  assert.equal(s.current(), "A");
+  assert.equal(s.zoomed(13).kind, "deselect");
+});
