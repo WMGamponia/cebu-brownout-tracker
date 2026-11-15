@@ -9,7 +9,8 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Streets v2 **merged** (PR #5, 2026-11-14); next phase not chosen yet. Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
+**Current phase:** Streets v2 **merged** (PR #5, 2026-11-14); Map UI refresh in review on `feat/ui-refresh`. Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
+**Next:** Discord alerts (per-barangay DMs), then the live site on Cloudflare Pages (decided 2026-11-15).
 **History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
@@ -171,6 +172,12 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 - **2026-11-15** — **Suggester skips names that already have an alias.** An alias draws only where its OSM street runs, so a name's mentions elsewhere stayed `not_found` and the suggester queued them again; the owner then decided 8 such rows (7 n, `N. Bacalso St.` → Natalio Bacalso Avenue) and `--apply` dropped all 8 without a word (one alias per town and name). Now `streets suggest` and the review page leave aliased names out (23 rows off the page), and `--apply` prints each decision it drops.
 
+- **2026-11-15** — **Next phases decided (owner): Discord alerts, then a live site.** Constraints: **everything free**; **no SMS** (paid per message, and PH gateways need a registered sender name).
+  - **Discord: per-barangay DMs, like Telegram.** Considered and dropped by the owner: town channels fed by webhooks (no per-barangay alerts), barangay roles (232 roles vs Discord's 250 cap, onboarding questions hold too few options for Cebu City's 80, and a role shows where a member lives).
+  - **Commands over the Gateway from `serve`** (a WebSocket in a thread, like Telegram's long polling); replies and alerts over httpx REST, behind the existing `Notifier`. `websockets` only, not `discord.py` (asyncio + aiohttp, the same reason `python-telegram-bot` was skipped). Subscriber data stays on the PC. **Kept open (owner):** a Cloudflare Worker taking commands for both bots (Discord interactions endpoint, Telegram webhook), so commands get answered while the PC sleeps; costs: subscriptions in the cloud and two stores to sync. Rejected: a tunnel to the PC (a free quick tunnel's address changes each restart, a fixed one needs a domain, and Discord expects the endpoint to answer).
+  - **Accepted limits:** a bot can only DM someone who shares a server with it, so users join a small server once; commands go unanswered while the PC sleeps (as on Telegram).
+  - **Live site: the PC publishes after each run.** After the 06:00 / 20:00 run, `serve` builds the snapshot and uploads it to Cloudflare Pages with `wrangler` (token in `.env`), leak scan first. The site stays static JSON, no database; the pages use the real clock instead of `taken_at`. A slept-through run leaves the site up with older data. Not used: R2 (asks for a payment card even on the free tier), D1, a tunnel to the live server (the site would go down whenever the PC sleeps).
+
 ### Known issues
 - **A run slept through is caught up, not on time:** the watchdog runs it within ~5 min of waking, and only once per slot; if VECO or the network is down at that moment (as right after a wake), the next try is the next 06:00 / 20:00 (the admin chat gets "VECO not reachable").
 - **Phase 6 review minors (deferred):** (1) `snapshot` reads its 53 weeks and 4 ranges without one read transaction, so a `check` committing mid-snapshot could make weeks and stats disagree (take snapshots away from 06:00 / 20:00); (2) `static/` in the snapshot folder is neither checked nor pruned, so a renamed JS/CSS file lingers in `site/static/`; (3) the lock file is opened in text mode (a CRLF after the PID on Windows, harmless); (4) no test kills a lock holder mid-run (a by-hand probe passed on Windows); (5) the leak scan reads `.env` from the working directory, and only current subscribers' chat IDs; (6) committed docs show local paths (`E:\Work\…`); (7) `/history`'s "See that week on the map" bound uses `snapshot_week + 6` even for a short snapshot week.
@@ -268,8 +275,22 @@ Owner, 2026-11-13: the page around the map looks bland; take cues from zoom.eart
 - [ ] Compact legend as a colour bar in a corner; credits behind an ⓘ button.
 - [ ] Floating cards and controls stay readable over the light map on a phone in daylight (WCAG AA contrast).
 
+## Discord alerts (after the UI refresh)
+Owner, 2026-11-15: per-barangay DMs, working like the Telegram bot. Brainstorm and spec first, like a phase.
+- [ ] Discord bot in `serve`: Gateway over `websockets` in a thread for slash commands; REST over httpx for replies and alerts; a `DiscordNotifier` behind `Notifier`. Token redacted in logs, as with Telegram.
+- [ ] Same rules as Telegram: approve-to-join (admin button), `/add`, `/list`, `/remove`, `/privacy`, `/forget`, admin `/pending`, `/users`, `/revoke`; the same limits and rate limit.
+- [ ] Same alert model (`day_before`, `day_of`, `change`) and a ledger written only after Discord accepts the message.
+- [ ] A small server users join so the bot can DM them; the welcome text says alerts can be late or missed.
+
+## Live site on Cloudflare Pages (after Discord)
+Owner, 2026-11-15: replace the hand-refreshed GitHub Pages demo with a site the PC updates on each run. Free only.
+- [ ] After each 06:00 / 20:00 run: `snapshot`, leak scan, `wrangler pages deploy` (~60 deploys a month of the free plan's 500); a failed upload never blocks alerts and goes to the admin chat.
+- [ ] Pages use the real clock; a notice appears only when the data is old.
+- [ ] What happens to the GitHub Pages demo (redirect or retire): decide in the spec.
+
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.
+- [ ] Maybe: a Cloudflare Worker takes both bots' commands (Discord interactions endpoint, Telegram webhook) so they answer while the PC sleeps; alerts still sent from the PC. Open questions: where subscriptions live (Worker storage vs the PC's SQLite, and how they sync), barangay data in the cloud, and staying on the free plan.
 
 ---
 
