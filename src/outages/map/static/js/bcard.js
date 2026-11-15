@@ -38,6 +38,14 @@ export function dayOutages(outageIds, outages, day, slot, showCancelled) {
     .map(([id, o]) => ({ id, o, now: activeInSlot(o, day, slot) }));
 }
 
+/** Everything the card shows, as a string: while playing, the card is rebuilt only when this
+ *  changes (a rebuild every slot would swallow clicks and close "+N more"). */
+export function cardKey(props, v) {
+  const strip = weekStrip(props.outage_ids, v.outages, v.days, v.showCancelled).map((c) => c.state[0]);
+  const list = dayOutages(props.outage_ids, v.outages, v.day, v.slot, v.showCancelled).map((x) => `${x.id}${x.now ? "*" : ""}`);
+  return [props.psgc, v.day, v.clock, v.drawing ? 1 : 0, strip.join(""), list.join(",")].join("|");
+}
+
 // --- outage blocks (card and hover popup) -----------------------------------------------------
 
 /** A link to VECO's post, or plain text when the URL isn't VECO's. */
@@ -128,6 +136,7 @@ export function mountBarangayCard(slotEl, hooks) {
   close.addEventListener("click", () => hooks.close());
 
   let props = null;
+  let shownKey = null;
   const sheet = window.matchMedia("(max-width: 599px), (pointer: coarse)");
   const fitSheet = () => card.classList.toggle("sheet", sheet.matches);
   sheet.addEventListener("change", fitSheet);
@@ -137,6 +146,7 @@ export function mountBarangayCard(slotEl, hooks) {
     card,
     show(p) {
       props = p;
+      shownKey = null;
       card.hidden = false;
     },
     hide() {
@@ -148,6 +158,9 @@ export function mountBarangayCard(slotEl, hooks) {
     /** view = {day, slot, days, clock, drawing, showCancelled, outages} */
     render(v) {
       if (!props) return;
+      const key = props.covered ? cardKey(props, v) : `meco|${props.psgc}`;
+      if (key === shownKey) return;
+      shownKey = key;
       title.textContent = props.name;
       if (!props.covered) {
         town.textContent = "MECO area, not covered";

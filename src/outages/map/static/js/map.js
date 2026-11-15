@@ -28,7 +28,7 @@ import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
-import { isPastWindow, lineState, linesInGeometry } from "./streets.js";
+import { isPastWindow, lineOrder, lineState, linesInGeometry } from "./streets.js";
 import { reasonText, removedText } from "./text.js";
 import { bands, focusKind, keyStep, keysApply, mountTimebar } from "./timebar.js";
 import { addTiles } from "./tiles.js";
@@ -56,7 +56,6 @@ const LINE_STYLES = {
   active_cancelled: { color: "#616161", weight: 4, opacity: 0.9, dashArray: "6 6" },
   faint: { color: "#c2410c", weight: 2, opacity: 0.35, dashArray: null },
 };
-const LINE_ORDER = { faint: 0, active_cancelled: 1, active: 2 };
 const LIGHT_FILL = 0.22;
 
 // The barangay under the mouse, and the one whose popup is open, get a dark outline.
@@ -94,6 +93,7 @@ const state = {
   cursor: null, // the mouse's latlng over a barangay: hover popups open there
   labelPane: null,
   cardLayer: null, // the barangay whose card is pinned
+  popupKey: null, // what the open hover popup shows (refreshPopup)
 };
 
 const cardCtx = () => ({ clock: state.clock, drawing: drawing() });
@@ -253,10 +253,15 @@ function restyleStreets() {
     if (!changed.has(l.key)) continue;
     l.pl.setStyle(LINE_STYLES[next.get(l.key)]);
   }
-  // Paint order: faint, then cancelled, then active on top (LINE_ORDER).
-  const order = [...state.lines].sort((a, b) => LINE_ORDER[next.get(a.key)] - LINE_ORDER[next.get(b.key)]);
-  for (const l of order) if (LINE_ORDER[next.get(l.key)] > 0) l.pl.bringToFront();
   state.keys.lines = next;
+  raiseLines();
+}
+
+/** Bring the street lines to the front in paint order (active on top): after a restyle, and
+ *  after the hover outlines are redrawn under them. */
+function raiseLines() {
+  const byKey = new Map(state.lines.map((l) => [l.key, l]));
+  for (const key of lineOrder(state.keys.lines)) byKey.get(key).pl.bringToFront();
 }
 
 function zoomToLines(o) {
@@ -297,7 +302,7 @@ function drawOutlines() {
   for (const l of new Set([state.hovered, state.openLayer, state.cardLayer])) {
     if (l) state.outlines.addLayer(L.geoJSON(l.feature, { interactive: false, style: () => OUTLINE }));
   }
-  if (state.streetLayer) state.streetLayer.eachLayer((l) => l.bringToFront());
+  raiseLines();
 }
 
 const hooked = new WeakSet(); // popup elements already listening for the mouse
@@ -336,6 +341,7 @@ function wireFeature(feature, layer) {
   layer.on("popupopen", (e) => {
     const was = state.openLayer;
     state.openLayer = layer;
+    state.popupKey = null; // freshly built by bindPopup; the next slot change compares from here
     if (was && was !== layer) restyle(was);
     restyle(layer);
     layer.closeTooltip(); // the popup already names the barangay
@@ -529,8 +535,21 @@ function renderSlot() {
   restyleStreets();
   updateLabels();
   if (!state.play) placeLabels();
-  if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
+  refreshPopup();
   renderCard();
+}
+
+/** Rebuild the open hover popup only when its content changes (day, clock, active outages). */
+function refreshPopup() {
+  const layer = state.openLayer;
+  if (!layer) return;
+  const props = layer.feature.properties;
+  const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
+  const active = os.filter(([, o]) => activeInSlot(o, state.day, state.slot)).map(([id]) => id);
+  const key = [props.psgc, state.day, state.clock, drawing() ? 1 : 0, os.map(([id]) => id).join(","), active.join(",")].join("|");
+  if (key === state.popupKey) return;
+  state.popupKey = key;
+  layer.setPopupContent(popupContent(props));
 }
 
 function renderCard() {
@@ -770,6 +789,13 @@ const timebar = mountTimebar($("timebar"), {
   dragStart: stopPlaying,
   dragEnd() {},
 });
+// The card sheet, the legend and the attribution sit above the bar: use its real height (it wraps
+// to more rows on a narrow phone or with larger text).
+new ResizeObserver(() => {
+  const h = $("timebar").offsetHeight;
+  if (h) document.documentElement.style.setProperty("--bar-h", `${h}px`);
+}).observe($("timebar"));
+
 const bcard = mountBarangayCard($("left-slot"), {
   selectDay(day) {
     const first = dayOutages(day)[0];
@@ -817,9 +843,9 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (!state.doc) return;
-  if (!keysApply(focusKind(e.target, { track: timebar.track, map: $("map") }))) return;
   const k = keyStep(e.key, e.shiftKey);
   if (k === null) return;
+  if (!keysApply(focusKind(e.target, { track: timebar.track, bar: $("timebar"), map: $("map") }), k)) return;
   e.preventDefault();
   if (k === "toggle") togglePlay();
   else stepBy(k);

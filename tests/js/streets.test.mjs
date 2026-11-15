@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { drawnCount, isPastWindow, lineState, whyText } from "../../src/outages/map/static/js/streets.js";
+import { drawnCount, isPastWindow, lineOrder, lineState, whyText } from "../../src/outages/map/static/js/streets.js";
 import { historyLabel, shiftDate } from "../../src/outages/map/static/js/timeline.js";
 
 const o = (status, start, end) => ({ status, start, end });
@@ -87,4 +87,15 @@ test("linesInGeometry: any node inside any polygon part", async () => {
   assert.equal(linesInGeometry(inside, multi), true);
   assert.equal(linesInGeometry([], poly), false);
   assert.equal(linesInGeometry(inside, null), false);
+});
+
+test("lineOrder paints faint, then cancelled, then active on top; stable within a state", () => {
+  const states = new Map([
+    ["a", "active"],
+    ["b", "faint"],
+    ["c", "active_cancelled"],
+    ["d", "faint"],
+    ["e", "active"],
+  ]);
+  assert.deepEqual(lineOrder(states), ["b", "d", "c", "a", "e"]);
 });

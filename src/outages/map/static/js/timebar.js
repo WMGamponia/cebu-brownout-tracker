@@ -36,16 +36,19 @@ export function keyStep(key, shiftKey) {
   return dir * (shiftKey ? 4 : 1);
 }
 
-/** The page-wide time keys apply only with focus on the page body or the track: a focused map
- *  pans with its arrows, and Space presses a focused control. */
-export function keysApply(kind) {
-  return kind === "body" || kind === "track";
+/** Whether a time key (keyStep's result) applies with focus of this kind: everything on the
+ *  page body or the track; arrows also on the bar's buttons (Space presses the button itself);
+ *  nothing on the map (it pans with its arrows), other controls, text fields or menus. */
+export function keysApply(kind, step) {
+  if (kind === "body" || kind === "track") return true;
+  return kind === "bar" && step !== "toggle";
 }
 
 /** What has focus, as keysApply's kind. */
-export function focusKind(node, { track, map }) {
+export function focusKind(node, { track, bar, map }) {
   if (!node || node === document.body || node === document.documentElement) return "body";
   if (track && track.contains(node)) return "track";
+  if (bar && bar.contains(node)) return "bar";
   if (node.closest && node.closest(".popover")) return "popover";
   if (map && map.contains(node)) return "map";
   const tag = node.tagName;

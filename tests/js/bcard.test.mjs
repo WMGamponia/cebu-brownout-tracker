@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { dayOutages, weekStrip } from "../../src/outages/map/static/js/bcard.js";
+import { cardKey, dayOutages, weekStrip } from "../../src/outages/map/static/js/bcard.js";
 
 const o = (start, end, status = "scheduled") => ({ start, end, status });
 const DAYS3 = ["2026-11-12", "2026-11-13", "2026-11-14"];
@@ -38,4 +38,15 @@ test("dayOutages lists the day's outages by start and marks the one at the slot"
   assert.deepEqual(list.map((x) => [x.id, x.now]), [["1", true], ["3", false]]);
   assert.deepEqual(dayOutages([2], OUTAGES, "2026-11-14", 52, false), []);
   assert.deepEqual(dayOutages([2], OUTAGES, "2026-11-14", 52, true).map((x) => x.now), [true]);
+});
+
+test("cardKey changes only when what the card shows changes", () => {
+  const props = { psgc: "1", outage_ids: [1, 3], covered: true };
+  const v = (slot, more = {}) => ({ day: "2026-11-12", slot, days: DAYS3, clock: "24", drawing: true, showCancelled: true, outages: OUTAGES, ...more });
+  assert.equal(cardKey(props, v(33)), cardKey(props, v(34))); // 08:15 and 08:30: outage 1 is now in both
+  assert.notEqual(cardKey(props, v(31)), cardKey(props, v(32))); // 07:45 → 08:00: outage 1 starts
+  assert.notEqual(cardKey(props, v(33)), cardKey(props, v(33, { clock: "12" })));
+  assert.notEqual(cardKey(props, v(33)), cardKey(props, v(33, { day: "2026-11-13" })));
+  assert.notEqual(cardKey(props, v(33)), cardKey(props, v(33, { showCancelled: false, outages: { ...OUTAGES, 1: { ...OUTAGES[1], status: "cancelled" } } })));
+  assert.notEqual(cardKey(props, v(33)), cardKey({ ...props, psgc: "2" }, v(33)));
 });

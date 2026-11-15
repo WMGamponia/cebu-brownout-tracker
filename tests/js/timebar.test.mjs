@@ -45,8 +45,22 @@ test("keyStep: arrows step a slot, Shift an hour, Space toggles", () => {
   assert.equal(keyStep("a", false), null);
 });
 
-test("keysApply only on the page body or the track", () => {
-  assert.equal(keysApply("body"), true);
-  assert.equal(keysApply("track"), true);
-  for (const k of ["map", "control", "text", "popover"]) assert.equal(keysApply(k), false, k);
+test("keysApply: everything on the page body or the track", () => {
+  for (const step of [1, -4, "toggle"]) {
+    assert.equal(keysApply("body", step), true);
+    assert.equal(keysApply("track", step), true);
+  }
+});
+
+test("keysApply: arrows on a timeline-bar button, but Space presses the button itself", () => {
+  assert.equal(keysApply("bar", 1), true);
+  assert.equal(keysApply("bar", -4), true);
+  assert.equal(keysApply("bar", "toggle"), false);
+});
+
+test("keysApply: never on the map, other controls, text fields or menus", () => {
+  for (const k of ["map", "control", "text", "popover"]) {
+    assert.equal(keysApply(k, 1), false, k);
+    assert.equal(keysApply(k, "toggle"), false, k);
+  }
 });

@@ -19,6 +19,17 @@ export function lineState(outage, day, slot, showCancelled) {
   return cancelled ? "active_cancelled" : "active";
 }
 
+export const LINE_ORDER = { hidden: -1, faint: 0, active_cancelled: 1, active: 2 };
+
+/** Keys in paint order (bottom first): faint, then cancelled, then active on top. Stable within
+ *  a state, so lines keep their start order. `states` maps key → lineState. */
+export function lineOrder(states) {
+  return [...states.keys()]
+    .map((k, i) => [k, i])
+    .sort(([a, i], [b, j]) => LINE_ORDER[states.get(a)] - LINE_ORDER[states.get(b)] || i - j)
+    .map(([k]) => k);
+}
+
 /** {drawn, total} street mentions of an outage. */
 export function drawnCount(outage) {
   const s = outage.streets || { drawn: [], not_drawn: [] };
