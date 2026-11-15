@@ -110,6 +110,19 @@ def test_set_decision_rules(tmp_path):
     assert {r["veco_key"]: r["decision"] for r in queue.read(p)} == {"a": "B Street", "b": "n"}
 
 
+def test_clear_decision_undoes_and_is_idempotent(tmp_path):
+    p = tmp_path / "q.csv"
+    queue.write(p, [_row(key="a", pick="A Street"), _row(key="b", pick="B Street")])
+    queue.set_decision(p, CEBU, "a", "y")
+    queue.set_decision(p, CEBU, "b", "n")
+    queue.clear_decision(p, CEBU, "a")
+    assert {r["veco_key"]: r["decision"] for r in queue.read(p)} == {"a": "", "b": "n"}
+    queue.clear_decision(p, CEBU, "a")  # already undecided: nothing to do
+    queue.set_decision(p, CEBU, "a", "n")  # decidable again
+    with pytest.raises(KeyError):  # gone from the queue (applied): can't be undone here
+        queue.clear_decision(p, CONSOLACION, "a")
+
+
 # --- suggest run --------------------------------------------------------------------------
 
 

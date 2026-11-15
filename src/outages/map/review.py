@@ -176,8 +176,8 @@ def build_router(
             )
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
 
-    @router.post("/streets/review/decide")
-    async def decide(request: Request) -> Response:
+    async def _checked_body(request: Request) -> dict | JSONResponse:
+        """The JSON body of a same-origin POST carrying the page's token, or the error."""
         if request.headers.get("origin") != f"http://{request.url.netloc}":
             return _error(403, "forbidden")
         try:
@@ -189,6 +189,13 @@ def build_router(
         token = body.get("token")
         if not isinstance(token, str) or not secrets.compare_digest(token, cfg.token):
             return _error(403, "forbidden")
+        return body
+
+    @router.post("/streets/review/decide")
+    async def decide(request: Request) -> Response:
+        body = await _checked_body(request)
+        if isinstance(body, JSONResponse):
+            return body
         town, key, decision = body.get("town"), body.get("key"), body.get("decision")
         if not all(isinstance(x, str) and x for x in (town, key, decision)):
             return _error(422, "town, key and decision are required")
@@ -205,6 +212,26 @@ def build_router(
             return _error(500, "queue unreadable")
         except ValueError as e:
             return _error(422, str(e))
+        return Response(status_code=204)
+
+    @router.post("/streets/review/undo")
+    async def undo(request: Request) -> Response:
+        """Back: clear a decision that `--apply` hasn't taken yet."""
+        body = await _checked_body(request)
+        if isinstance(body, JSONResponse):
+            return body
+        town, key = body.get("town"), body.get("key")
+        if not all(isinstance(x, str) and x for x in (town, key)):
+            return _error(422, "town and key are required")
+        try:
+            queue.clear_decision(cfg.queue_path, town, key)
+        except KeyError:
+            return _error(409, "no such row (already applied?)")
+        except queue.QueueBusy:
+            return _error(409, "queue busy")
+        except queue.QueueError:
+            log.exception("review: queue unreadable")
+            return _error(500, "queue unreadable")
         return Response(status_code=204)
 
     return router

@@ -10,10 +10,18 @@ export function nextIndex(items, i) {
   return -1;
 }
 
-const KEYS = { y: "y", n: "n", s: "s" };
+const KEYS = { y: "y", n: "n", s: "s", b: "b" };
+
+/** Where Back goes: the last step taken on this page, and whether its decision must be
+ *  cleared on the server (a skip wrote nothing); null when there is nothing to go back to. */
+export function backStep(history) {
+  if (!history.length) return null;
+  const last = history[history.length - 1];
+  return { index: last.index, undo: last.decision !== "skip" };
+}
 const TYPING = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
-/** "y" | "n" | "s" for a plain key press outside a text field; otherwise null. */
+/** "y" | "n" | "s" | "b" for a plain key press outside a text field; otherwise null. */
 export function keyFor(event) {
   if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return null;
   const t = event.target || {};
