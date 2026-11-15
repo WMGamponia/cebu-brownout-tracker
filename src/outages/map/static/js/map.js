@@ -21,6 +21,7 @@ import {
   slotLabel,
   stepSlot,
 } from "./timeline.js";
+import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
@@ -67,18 +68,6 @@ function savedClock() {
   } catch {
     return "24";
   }
-}
-
-const $ = (id) => document.getElementById(id);
-
-/** A DOM element with text set via textContent and plain attributes. */
-function el(tag, opts = {}, children = []) {
-  const node = document.createElement(tag);
-  if (opts.class) node.className = opts.class;
-  if (opts.text != null) node.textContent = opts.text;
-  for (const [k, v] of Object.entries(opts.attrs || {})) node.setAttribute(k, v);
-  for (const c of children) if (c) node.append(c);
-  return node;
 }
 
 /** A link to VECO's post, or plain text when the URL isn't VECO's. */

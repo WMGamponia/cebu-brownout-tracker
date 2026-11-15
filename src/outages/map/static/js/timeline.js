@@ -95,7 +95,8 @@ export function clockText(m, fmt = "24", compact = false) {
   return compact && m.minute === 0 ? `${h} ${half}` : `${h}:${pad(m.minute)} ${half}`;
 }
 
-function dateLabel(dateStr) {
+/** "Tue 17 Nov". */
+export function dateLabel(dateStr) {
   const p = dayParts(dateStr);
   return `${p.dow} ${p.day} ${p.mon}`;
 }
