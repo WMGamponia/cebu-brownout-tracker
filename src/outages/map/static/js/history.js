@@ -143,18 +143,22 @@ function renderTables() {
   $("coverage").textContent = cov.first_outage
     ? `Posts from ${dateLabel(cov.first_outage)}; ${cov.posts_parsed} of ${cov.posts} posts read.`
     : "No posts stored yet.";
+  const most = d.top.length ? d.top[0].hours || 1 : 1;
   $("top").replaceChildren(
     ...d.top.map((b, i) =>
       el("tr", {}, [
         el("td", { text: String(i + 1) }),
         el("td", { text: b.name }),
         el("td", { text: b.town }),
+        el("td", { attrs: { "aria-hidden": "true" } }, [
+          el("span", { class: "hbar", attrs: { style: `width:${Math.max(2, (100 * b.hours) / most).toFixed(1)}%` } }),
+        ]),
         el("td", { class: "num", text: h1(b.hours) }),
         el("td", { class: "num", text: String(b.outages) }),
       ]),
     ),
   );
-  if (!d.top.length) $("top").replaceChildren(el("tr", {}, [el("td", { text: "No outages in this range.", attrs: { colspan: "5" } })]));
+  if (!d.top.length) $("top").replaceChildren(el("tr", {}, [el("td", { text: "No outages in this range.", attrs: { colspan: "6" } })]));
   const du = d.duration;
   $("duration").textContent = du.n
     ? `Mean ${h1(du.mean_h)} h, median ${h1(du.median_h)} h, over ${du.n} outages (each outage's full scheduled length).`

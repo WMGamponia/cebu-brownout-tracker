@@ -3,16 +3,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { asOfLabel, hourLabel, rangeLabel, shortRange } from "../../src/outages/map/static/js/timeline.js";
+import { asOfLabel, rangeLabel, shortRange, slotLabel } from "../../src/outages/map/static/js/timeline.js";
 
-test("hourLabel in 12-hour time", () => {
-  assert.equal(hourLabel(0, "12"), "12:00 AM–1:00 AM");
-  assert.equal(hourLabel(11, "12"), "11:00 AM–12:00 PM");
-  assert.equal(hourLabel(12, "12"), "12:00 PM–1:00 PM");
-  assert.equal(hourLabel(22, "12"), "10:00 PM–11:00 PM");
-  assert.equal(hourLabel(23, "12"), "11:00 PM–12:00 AM");
-  assert.equal(hourLabel(23, "24"), "23:00–24:00");
-  assert.equal(hourLabel(23), "23:00–24:00");
+test("slotLabel in 12- and 24-hour time", () => {
+  assert.equal(slotLabel(0, "12"), "12:00 AM");
+  assert.equal(slotLabel(47, "12"), "11:45 AM");
+  assert.equal(slotLabel(48, "12"), "12:00 PM");
+  assert.equal(slotLabel(95, "12"), "11:45 PM");
+  assert.equal(slotLabel(95, "24"), "23:45");
+  assert.equal(slotLabel(95), "23:45");
 });
 
 test("rangeLabel in 12-hour time", () => {

@@ -5,61 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cebu Brownout History</title>
   <link rel="stylesheet" href="static/vendor/leaflet-1.9.4/leaflet.css">
+  <link rel="stylesheet" href="static/base.css">
   <link rel="stylesheet" href="static/history.css">
   <script src="static/vendor/leaflet-1.9.4/leaflet.js"></script>
   <script type="module" src="static/js/history.js"></script>
 </head>
 <body>
   <header class="top">
-    <div class="title-row">
-      <h1>Cebu Brownout History</h1>
-      <a href="./">Back to the map</a>
-    </div>
-    <p id="snapshot-banner" class="snapshot" hidden></p>
-    <p class="note">These are VECO's scheduled interruptions, not measured outages.</p>
-    <p id="coverage" class="muted">Loading…</p>
-    <form id="range" class="range">
-      <label>From <input id="from" type="date" required></label>
-      <label>To <input id="to" type="date" required></label>
-      <button type="submit">Show</button>
-    </form>
-    <div id="range-pick" class="range" hidden>
-      <label>Range <select id="range-select"></select></label>
+    <div class="top-inner">
+      <div class="title-row">
+        <a class="back text-btn" href="./">← Map</a>
+        <h1>Cebu Brownout History</h1>
+      </div>
+      <form id="range" class="range">
+        <label>From <input id="from" type="date" required></label>
+        <label>To <input id="to" type="date" required></label>
+        <button class="text-btn" type="submit">Show</button>
+      </form>
+      <div id="range-pick" class="range" hidden>
+        <label>Range <select id="range-select"></select></label>
+      </div>
     </div>
   </header>
 
-  <div id="banner" class="banner" role="alert" hidden>
-    <span id="banner-text"></span>
-  </div>
-
   <main>
-    <section class="map-wrap">
-      <div id="map" role="region" aria-label="Map of scheduled outage hours per barangay"></div>
-      <div class="legend-box">
-        <p class="legend-title">Scheduled outage hours (union of intervals)</p>
-        <ul id="legend" class="legend"></ul>
+    <div class="notices">
+      <p id="snapshot-banner" class="notice snapshot" hidden></p>
+      <p class="notice note">These are VECO's scheduled interruptions, not measured outages.</p>
+      <p id="coverage" class="muted">Loading…</p>
+      <div id="banner" class="notice notice-error banner" role="alert" hidden>
+        <span id="banner-text"></span>
       </div>
-      <aside id="detail" class="detail" aria-live="polite">
-        <p class="muted">Click a barangay for its numbers.</p>
-      </aside>
+    </div>
+
+    <section class="map-wrap">
+      <div class="card map-card">
+        <div id="map" role="region" aria-label="Map of scheduled outage hours per barangay"></div>
+      </div>
+      <div class="side">
+        <div class="card legend-box">
+          <p class="legend-title">Scheduled outage hours (union of intervals)</p>
+          <ul id="legend" class="legend"></ul>
+        </div>
+        <aside id="detail" class="card detail" aria-live="polite">
+          <p class="muted">Click a barangay for its numbers.</p>
+        </aside>
+      </div>
     </section>
 
-    <section>
+    <section class="card block">
       <h2>Most affected barangays</h2>
       <table class="tbl">
-        <thead><tr><th>#</th><th>Barangay</th><th>Town</th><th class="num">Hours</th><th class="num">Outages</th></tr></thead>
+        <thead><tr><th>#</th><th>Barangay</th><th>Town</th><th class="barcol"><span class="visually-hidden">Relative hours</span></th><th class="num">Hours</th><th class="num">Outages</th></tr></thead>
         <tbody id="top"></tbody>
       </table>
     </section>
 
-    <section>
+    <section class="card block">
       <h2>By month</h2>
       <p id="worst" class="muted"></p>
       <svg id="months" role="img" aria-label="Scheduled outage-hours per month"></svg>
     </section>
 
     <section class="cols">
-      <div>
+      <div class="card block">
         <h2>Durations</h2>
         <p id="duration"></p>
         <h2>Towns</h2>
@@ -68,7 +77,7 @@
           <tbody id="towns"></tbody>
         </table>
       </div>
-      <div>
+      <div class="card block">
         <h2>What was counted</h2>
         <ul id="counts" class="plain"></ul>
         <h2>Left out</h2>

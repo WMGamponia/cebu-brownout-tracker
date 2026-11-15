@@ -134,6 +134,13 @@ def test_build_files_layout(conn, world):
         "static/js/map.js",
         "static/js/source.js",
         "static/map.css",
+        "static/base.css",
+        "static/js/timebar.js",
+        "static/js/bcard.js",
+        "static/js/cards.js",
+        "static/js/menu.js",
+        "static/js/frame.js",
+        "static/js/dom.js",
         "static/vendor/leaflet-1.9.4/leaflet.js",
     ):
         assert key in files, key
