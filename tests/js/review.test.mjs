@@ -4,6 +4,12 @@ import { test } from "node:test";
 
 import {
   backStep,
+  counterText,
+  DEFAULT_MIN,
+  emptyText,
+  loadGuard,
+  MIN_CHOICES,
+  readMin,
   keyFor,
   labelEl,
   lineStyle,
@@ -98,4 +104,43 @@ test("labelEl: a street name becomes text, never HTML (review #4)", () => {
   assert.equal(el.tag, "span");
   assert.equal(el.textContent, '<img src=x onerror="alert(1)">');
   assert.equal(el.innerHTML, undefined);
+});
+
+test("nextIndex skips items under the threshold", () => {
+  const xs = [
+    { decided: false, mentions: 3 },
+    { decided: false, mentions: 1 },
+    { decided: false, mentions: 2 },
+  ];
+  assert.equal(nextIndex(xs, 0, 2), 2);
+  assert.equal(nextIndex(xs, 2, 2), 0);
+  assert.equal(nextIndex(xs, 0, 5), -1);
+  assert.equal(nextIndex(xs, 0), 1); // default 1: unchanged
+  assert.equal(nextIndex(xs, -1, 2), 0); // the first visible, for the initial load
+});
+
+test("readMin: a listed choice, else 2", () => {
+  assert.deepEqual(MIN_CHOICES, [1, 2, 3, 5]);
+  assert.equal(DEFAULT_MIN, 2);
+  assert.equal(readMin("3"), 3);
+  for (const raw of [null, "", "7", "abc", "0", "2.5"]) assert.equal(readMin(raw), 2);
+});
+
+test("counterText", () => {
+  assert.equal(counterText(204, 720), "204 left · 720 hidden");
+  assert.equal(counterText(1, 0), "1 left");
+  assert.equal(counterText(0, 3), "0 left · 3 hidden");
+});
+
+test("emptyText: null with nothing hidden, else names the hidden count", () => {
+  assert.equal(emptyText(0), null);
+  assert.match(emptyText(720), /720 hidden/);
+});
+
+test("loadGuard: only the latest load may render", () => {
+  const g = loadGuard();
+  const a = g.next();
+  const b = g.next();
+  assert.equal(g.isLatest(a), false);
+  assert.equal(g.isLatest(b), true);
 });

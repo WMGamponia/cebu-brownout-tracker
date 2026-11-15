@@ -321,10 +321,38 @@ def test_items_picks_first_by_mentions(world):
         _row("c street", mentions=5, pick="C Street", candidates="C Street"),
         _row("d street", mentions=3, pick="", status="invalid", candidates="D Street"),
     ]
+    for r in rows:
+        r["mentions"] = "1"  # the CSV's frozen count; the page uses the live one
     queue.write(world["queue"], rows)
+    seq = iter(range(20, 100))
+    counts = (("a", 9), ("b", 2), ("c", 5), ("d", 3))
+    _add_streets(world, [("hA", next(seq), f"{k} Street") for k, n in counts for _ in range(n)])
     items = _client(world).get("/streets/review/items").json()
     assert [i["veco_key"] for i in items] == ["c street", "b street", "a street", "d street"]
     assert [i["has_pick"] for i in items] == [True, True, False, False]
+    assert [i["mentions"] for i in items] == [5, 2, 9, 3]
+
+
+def _set_status(world, h, seq, status):
+    c = db.connect(world["db"])
+    with c:
+        c.execute(
+            "UPDATE street_matches SET status = ? WHERE areas_hash = ? AND seq = ?",
+            (status, h, seq),
+        )
+    c.close()
+
+
+def test_items_count_live_mentions(world):
+    _set_status(world, "hC", 5, "matched")  # the CSV still says 2
+    items = _client(world).get("/streets/review/items").json()
+    assert {i["veco_key"]: i["mentions"] for i in items}["gorordo avnue"] == 1
+
+
+def test_items_drop_rows_with_no_mentions_left(world):
+    _set_status(world, "hA", 6, "matched")
+    keys = [i["veco_key"] for i in _client(world).get("/streets/review/items").json()]
+    assert keys == ["gorordo avnue"]
 
 
 def _add_streets(world, streets):

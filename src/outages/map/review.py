@@ -43,13 +43,6 @@ def _error(status: int, message: str) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status)
 
 
-def _mentions(r: dict) -> int:
-    try:
-        return int(r["mentions"] or 0)
-    except ValueError:
-        return 0
-
-
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
@@ -90,18 +83,28 @@ def build_router(
         except Exception:
             log.exception("review: /streets/review/items failed")
             return _error(500, "queue unreadable")
+        try:
+            # Live, not the CSV's count (frozen when the row was queued): a name VECO keeps
+            # using climbs past the page's filter, and a name with nothing left to draw drops.
+            with ro() as conn:
+                live = {(g.town_psgc, g.key): len(g.mentions) for g in groups(conn, set(), set())}
+        except Exception:
+            log.exception("review: /streets/review/items failed")
+            return _error(500, "internal error")
         out = [
             {
                 "town_psgc": r["town_psgc"],
                 "town": r["town"],
                 "veco_key": r["veco_key"],
                 "veco_name": r["veco_name"],
-                "mentions": _mentions(r),
+                "mentions": live[(r["town_psgc"], r["veco_key"])],
                 "status": r["status"],
                 "has_pick": bool(r["pick"]),
             }
             for r in rows
-            if not r["decision"] and r["status"] in REVIEWABLE
+            if not r["decision"]
+            and r["status"] in REVIEWABLE
+            and (r["town_psgc"], r["veco_key"]) in live
         ]
         # Owner's order (2026-11-13): rows with a pick first, each part by mentions.
         out.sort(key=lambda i: (not i["has_pick"], -i["mentions"]))

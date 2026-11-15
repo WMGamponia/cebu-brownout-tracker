@@ -37,7 +37,9 @@ body {
 h1 { font-size: 1.05rem; margin: 0; }
 h2 { font-size: 1.35rem; margin: 0 0 4px; overflow-wrap: anywhere; }
 
-.left { color: var(--muted); margin: 2px 0 12px; }
+.left { color: var(--muted); margin: 2px 0 4px; }
+.filter { display: block; color: var(--muted); margin: 0 0 12px; }
+.filter select { font: inherit; margin: 0 4px; }
 .label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 2px; }
 .meta { color: var(--muted); margin: 2px 0; }
 .pick { font-size: 1.15rem; font-weight: 600; color: var(--pick); margin: 0; overflow-wrap: anywhere; }
