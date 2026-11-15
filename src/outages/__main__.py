@@ -627,6 +627,8 @@ def _streets_apply(paths: Paths) -> int:
         print(f"acceptance rate {src}: {took}/{n} ({took / n:.0%})")
     for line in s.refused:
         print(f"refused: {line}")
+    for line in s.dropped:
+        print(f"dropped (the name already has an alias or reject): {line}")
     print("next: python -m outages streets match --dry-run")
     return 0
 
