@@ -96,10 +96,12 @@ export function focusKind(node, { track, bar, map }) {
 const pct = (slots) => `${(slots / SLOTS) * 100}%`;
 
 /** Build the bar inside `root`. hooks: select(day, slot), stepDay(dir), stepHour(dir),
- *  togglePlay(), dragStart(), dragEnd(). */
+ *  togglePlay(), now(), dragStart(), dragEnd(). */
 export function mountTimebar(root, hooks) {
   const btn = (cls, label, text) => el("button", { class: cls, text, attrs: { type: "button", "aria-label": label } });
   const play = btn("tb-play", "Play", "▶");
+  const now = btn("tb-now", "Follow the current time", "Now");
+  now.setAttribute("aria-pressed", "false");
   const dayPrev = btn("tb-arrow", "Previous day", "‹");
   const dayNext = btn("tb-arrow", "Next day", "›");
   const dayText = el("span", { class: "tb-value tb-day" });
@@ -133,6 +135,7 @@ export function mountTimebar(root, hooks) {
   );
   root.replaceChildren(
     play,
+    now,
     el("div", { class: "tb-step tb-step-day" }, [dayPrev, dayText, dayNext]),
     el("div", { class: "tb-step tb-step-time" }, [hourPrev, timeText, hourNext]),
     track,
@@ -140,6 +143,7 @@ export function mountTimebar(root, hooks) {
 
   let view = null;
   play.addEventListener("click", () => hooks.togglePlay());
+  now.addEventListener("click", () => hooks.now());
   dayPrev.addEventListener("click", () => hooks.stepDay(-1));
   dayNext.addEventListener("click", () => hooks.stepDay(1));
   hourPrev.addEventListener("click", () => hooks.stepHour(-1));
@@ -232,6 +236,11 @@ export function mountTimebar(root, hooks) {
       setPlayhead(v.slot, 0);
     },
     setPlayhead,
+    /** The Now button shows whether the selection follows the clock. */
+    setFollowing(on) {
+      now.classList.toggle("active", on);
+      now.setAttribute("aria-pressed", String(on));
+    },
     setPlaying(on) {
       play.textContent = on ? "❚❚" : "▶";
       play.setAttribute("aria-label", on ? "Pause" : "Play");

@@ -25,7 +25,7 @@ import { createSelection, uiPadding } from "./select.js";
 import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
-import { changedKeys, dropFades, playhead } from "./frame.js";
+import { changedKeys, dropFades, followSlot, playhead } from "./frame.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
@@ -95,6 +95,8 @@ const state = {
   cursor: null, // the mouse's latlng over a barangay: hover popups open there
   labelPane: null,
   cardLayer: null, // the barangay whose card is pinned
+  follow: false, // the selection follows the clock (the Now button)
+  followAfterLoad: false, // Now from another week: follow once the current window is loaded
   popupKey: null, // what the open hover popup shows (refreshPopup)
 };
 
@@ -797,6 +799,7 @@ function frame(ts) {
 function togglePlay() {
   if (!state.doc) return;
   if (state.play) return stopPlaying();
+  setFollow(false);
   const days = state.doc.meta.days;
   if (state.day === days[days.length - 1] && state.slot === SLOTS - 1) select(days[0], 0);
   state.play = { startDay: state.day, startSlot: state.slot, t0: null, last: 0, intervals: [], checked: false };
@@ -808,7 +811,37 @@ function togglePlay() {
 function pick(day, slot) {
   if (!state.doc) return;
   stopPlaying();
+  setFollow(false); // any manual change stops following the clock
   select(day, slot);
+}
+
+// --- Now: follow the current time (spec 15.4) ---------------------------------------------------
+
+function setFollow(on) {
+  state.follow = on;
+  timebar.setFollowing(on);
+}
+
+/** While following, move to the current slot; stop once the clock leaves the window. */
+function followTick() {
+  if (!state.follow || !state.doc || state.play) return;
+  const at = followSlot(src.now(), state.doc.meta.days);
+  if (!at) return setFollow(false);
+  if (at.day !== state.day || at.slot !== state.slot) select(at.day, at.slot);
+}
+setInterval(followTick, 15 * 1000);
+
+function nowClicked() {
+  if (!state.doc) return;
+  stopPlaying();
+  const at = followSlot(src.now(), state.doc.meta.days);
+  if (!at || isPastWindow(state.doc.meta, src.now())) {
+    state.followAfterLoad = true; // another week: load the current window, then follow
+    goToWeek(null);
+    return;
+  }
+  setFollow(true);
+  select(at.day, at.slot);
 }
 
 function stepBy(delta) {
@@ -864,6 +897,19 @@ async function load() {
     state.day = sel.day;
     state.slot = sel.slot;
   }
+  if (first || state.followAfterLoad) {
+    const at = followSlot(src.now(), days); // the page starts following the clock
+    if (at) {
+      state.day = at.day;
+      state.slot = at.slot;
+    }
+    setFollow(Boolean(at));
+    state.followAfterLoad = false;
+  } else if (state.follow) {
+    const at = followSlot(src.now(), days);
+    if (at) [state.day, state.slot] = [at.day, at.slot];
+    else setFollow(false);
+  }
   state.openLayer = null;
   deselect(false); // the barangay layers are rebuilt; keep the camera where it is
   state.current = null; // refetch the current window for search if this isn't it
@@ -912,6 +958,7 @@ function goToWeek(from) {
   history.replaceState(null, "", qs ? `${location.pathname}?${qs}` : location.pathname);
   $("week-missing").hidden = true;
   stopPlaying();
+  if (!state.followAfterLoad) setFollow(false);
   load();
 }
 $("week").addEventListener("change", (e) => goToWeek(e.target.value ? src.snapWeek(e.target.value) : null));
@@ -934,6 +981,7 @@ const timebar = mountTimebar($("timebar"), {
   },
   stepHour: (dir) => stepBy(4 * dir),
   togglePlay,
+  now: nowClicked,
   dragStart: stopPlaying,
   dragEnd() {},
 });
@@ -1027,6 +1075,7 @@ document.addEventListener("visibilitychange", () => {
   if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;
   if (document.visibilityState === "visible" && needsRefetch(state.fetchedAt, src.now())) load();
 });
+document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && followTick());
 // A tab left open (a wall display) never changes visibility: refetch it too, and let the
 // old-data warning appear when runs are missed.
 setInterval(() => {
@@ -1052,6 +1101,13 @@ async function start() {
     const week = $("week");
     week.min = src.weeks[0];
     week.max = shiftDate(src.snap.snapshot_week, 6);
+  }
+  // Debug only: ?debug=clock&at=<ISO> runs the live page at another time (to check Now).
+  const q = pageParams();
+  if (!src.isSnapshot && q.get("debug") === "clock" && q.get("at")) {
+    const base = src.now;
+    const offset = parseIso(q.get("at")) - base();
+    if (Number.isFinite(offset)) src = { ...src, now: () => base() + offset };
   }
   load();
 }

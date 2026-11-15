@@ -70,6 +70,15 @@ def test_index_and_static(db_path):
     assert c.get("/static/map.css").status_code == 200
 
 
+def test_pages_are_revalidated(db_path):
+    """The pages too: a stale index.html (no search box) with a new map.js broke the page."""
+    c = _client(db_path)
+    for path in ("/", "/history"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert r.headers["cache-control"] == "no-cache", path
+
+
 def test_static_files_are_revalidated(db_path):
     """After an update + restart the browser must ask again, not reuse a stale map.js."""
     c = _client(db_path)

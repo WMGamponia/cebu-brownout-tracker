@@ -2,7 +2,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MS_PER_SLOT, changedKeys, dropFades, playhead } from "../../src/outages/map/static/js/frame.js";
+import { parseIso } from "../../src/outages/map/static/js/timeline.js";
+
+import { MS_PER_SLOT, changedKeys, dropFades, followSlot, playhead } from "../../src/outages/map/static/js/frame.js";
 
 const D1 = "2026-11-12";
 const D2 = "2026-11-13";
@@ -33,4 +35,12 @@ test("dropFades: more than 2 slow frames (> 50 ms)", () => {
   assert.equal(dropFades([16, 16, 60, 70, 16]), false);
   assert.equal(dropFades([60, 70, 80]), true);
   assert.equal(dropFades([50, 50, 50]), false);
+});
+
+test("followSlot: the current Manila slot while it is in the window", () => {
+  const t = (iso) => parseIso(iso);
+  assert.deepEqual(followSlot(t("2026-11-12T10:37:00+08:00"), days2), { day: D1, slot: 42 });
+  assert.deepEqual(followSlot(t("2026-11-12T23:59:59+08:00"), days2), { day: D1, slot: 95 });
+  assert.deepEqual(followSlot(t("2026-11-13T00:00:00+08:00"), days2), { day: D2, slot: 0 });
+  assert.equal(followSlot(t("2026-11-14T00:00:00+08:00"), days2), null);
 });

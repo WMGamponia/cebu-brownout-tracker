@@ -1,6 +1,6 @@
 // Playback position and change tracking for the map page (UI refresh spec 5.2).
 // Pure: no DOM, no clock reads; the caller passes elapsed time.
-import { SLOTS, stepSlot } from "./timeline.js";
+import { SLOTS, slotOf, stepSlot } from "./timeline.js";
 
 export const MS_PER_SLOT = 250; // one hour of map time a second
 
@@ -11,6 +11,13 @@ export function playhead(days, startDay, startSlot, elapsedMs) {
   const at = stepSlot(days, startDay, startSlot, steps);
   if (!at) return null;
   return { ...at, frac: (elapsedMs - steps * MS_PER_SLOT) / MS_PER_SLOT };
+}
+
+/** The current Manila slot while its date is in the window (the Now button follows it); null
+ *  once the clock has left the window. */
+export function followSlot(nowMs, days) {
+  const at = slotOf(nowMs);
+  return days.includes(at.date) ? { day: at.date, slot: at.slot } : null;
 }
 
 /** Keys whose value differs between two maps, including keys in only one of them. */
