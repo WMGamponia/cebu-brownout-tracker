@@ -4,14 +4,10 @@
 
 import {
   SLOTS,
-  STALE_AFTER_H,
   activeInSlot,
   asOfLabel,
   byStart,
-  checkAgeHours,
-  dayLabel,
   defaultSelection,
-  historyLabel,
   manila,
   needsRefetch,
   onDay,
@@ -21,13 +17,16 @@ import {
   slotLabel,
   stepSlot,
 } from "./timeline.js";
+import { mountTitleFold, notices, renderNotices } from "./cards.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
 import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
+import { bands, focusKind, keyStep, keysApply, mountTimebar } from "./timebar.js";
 import { addTiles } from "./tiles.js";
 
 // Every data URL and every "now" come from the source (Phase 6 spec 4.3): the live server, or a
@@ -107,7 +106,8 @@ const streetsShown = () => drawing() && state.showStreets;
 
 // --- map ---------------------------------------------------------------------------------------
 
-const map = L.map("map", { zoomControl: true, attributionControl: true });
+const map = L.map("map", { zoomControl: false, attributionControl: true });
+L.control.zoom({ position: "topright" }).addTo(map);
 map.attributionControl.setPrefix(false);
 addTiles(L, map); // offline: polygons still draw on a blank background
 map.setView([10.32, 123.9], 11);
@@ -392,7 +392,7 @@ function drawLabels() {
     const at = text && labelPoint(f.geometry);
     if (!at) continue;
     const node = el("div", {
-      class: `map-label map-label-${pillState(os, state.day, state.slot)}`,
+      class: `map-label pill pill-${pillState(os, state.day, state.slot)}`,
       text,
       attrs: { "aria-hidden": "true" },
     });
@@ -439,18 +439,16 @@ new ResizeObserver(() => {
   if (state.doc && !state.fitted) fitCovered();
 }).observe(map.getContainer());
 
-// --- controls and panel ---------------------------------------------------------------------
+// --- cards and the timeline bar ---------------------------------------------------------------
 
 function renderTopbar() {
   const meta = state.doc.meta;
   const asOf = asOfLabel(meta.last_check_at, state.clock);
   $("asof").textContent = asOf ? `Data as of ${asOf}` : "No check has run yet";
+  const n = Object.values(state.doc.outages).filter((o) => o.status !== "cancelled").length;
+  const when = isPastWindow(meta, src.now()) ? "that week" : "this week";
+  $("outage-count").textContent = `${n} ${n === 1 ? "outage" : "outages"} ${when}`;
   $("clock-12").checked = state.clock === "12";
-  const age = checkAgeHours(meta.last_check_at, src.now());
-  const warn = $("old-warning");
-  const past = isPastWindow(meta, src.now());
-  $("history-banner").textContent = past ? historyLabel(meta.days) : "";
-  $("history-banner").hidden = !past;
   $("week").value = meta.window.from;
   $("week-prev").disabled = src.weekStep(meta.window.from, -1) === null;
   $("week-next").disabled = src.weekStep(meta.window.from, 1) === null;
@@ -459,49 +457,25 @@ function renderTopbar() {
   $("streets-note").textContent = drawing()
     ? "Lines: streets VECO names, found on OpenStreetMap inside the listed barangays. " +
       "The shading stays: VECO's lists also name sitios and buildings."
-    : "Streets and sitios are in each barangay's popup. Street lines are off: matching " +
+    : "Streets and sitios are in each barangay's card. Street lines are off: matching " +
       "VECO's street names to the map isn't precise enough yet.";
-  if (past) {
-    warn.hidden = true; // another week: the history banner replaces the old-data warning
-  } else if (age === null) {
-    warn.textContent = "No data check has run yet, so this map may be empty or out of date.";
-    warn.hidden = false;
-  } else if (age > STALE_AFTER_H) {
-    warn.textContent =
-      `This data may be out of date: the last check was ${Math.floor(age)} hours ago ` +
-      "(checks run at 06:00 and 20:00).";
-    warn.hidden = false;
-  } else {
-    warn.hidden = true;
-  }
-  const links = $("stale-links");
-  links.replaceChildren(...meta.stale_posts.map((p) => postLink(p, p.title || "VECO post")));
-  $("stale").hidden = meta.stale_posts.length === 0;
+  const staleLinks = meta.stale_posts.map((p) => postLink(p, p.title || "VECO post"));
+  renderNotices($("notices"), notices(meta, src.now(), state.clock), { stale: staleLinks });
   $("attribution").textContent = meta.attribution || "";
   const removed = removedText(meta.removed_count);
   $("removed").textContent = removed || "";
   $("removed").hidden = !removed;
 }
 
-function renderDays() {
-  const today = manila(src.now()).date;
-  const tabs = state.doc.meta.days.map((d) => {
-    const selected = d === state.day;
-    const b = el("button", {
-      text: dayLabel(d, today),
-      attrs: { type: "button", role: "tab", "aria-selected": String(selected), tabindex: selected ? "0" : "-1" },
-    });
-    b.addEventListener("click", () => select(d, state.slot));
-    return b;
+function renderBar() {
+  timebar.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    today: manila(src.now()).date,
+    clock: state.clock,
+    bands: bands(state.doc.outages, state.day, state.showCancelled),
   });
-  $("days").replaceChildren(...tabs);
-}
-
-function renderHour() {
-  const input = $("hour");
-  input.value = String(state.slot);
-  input.setAttribute("aria-valuetext", slotLabel(state.slot, state.clock));
-  $("hour-label").textContent = slotLabel(state.slot, state.clock);
 }
 
 function renderUnplaced() {
@@ -510,7 +484,7 @@ function renderUnplaced() {
     .filter((o) => o.unplaced.length && onDay(o, state.day))
     .filter((o) => o.status !== "cancelled" || state.showCancelled);
   $("unplaced-title").textContent = `Not on the map (${items.length})`;
-  $("panel-toggle").textContent = items.length ? `Details (${items.length} not on map)` : "Details";
+  $("unplaced-btn").textContent = `Not on the map (${items.length})`;
   const list = items.map((o) => {
     const reasons = el("ul", { class: "reasons" }, o.unplaced.map((u) => el("li", { class: "reason", text: reasonText(u) })));
     let byStreets = null;
@@ -532,8 +506,7 @@ function renderUnplaced() {
 }
 
 function render() {
-  renderDays();
-  renderHour();
+  renderBar();
   renderUnplaced();
   drawStreets();
   if (state.layer) state.layer.setStyle(styleFor);
@@ -551,8 +524,7 @@ function select(day, slot) {
 function stopPlaying() {
   clearInterval(state.timer);
   state.timer = null;
-  $("play").textContent = "▶";
-  $("play").setAttribute("aria-label", "Play");
+  timebar.setPlaying(false);
 }
 
 function step() {
@@ -562,17 +534,29 @@ function step() {
 }
 
 function togglePlay() {
+  if (!state.doc) return;
   if (state.timer) return stopPlaying();
   const days = state.doc.meta.days;
   if (state.day === days[days.length - 1] && state.slot === SLOTS - 1) select(days[0], 0);
   state.timer = setInterval(step, 250); // one hour of map time a second
-  $("play").textContent = "❚❚";
-  $("play").setAttribute("aria-label", "Pause");
+  timebar.setPlaying(true);
 }
 
-function setPanel(open) {
-  $("panel").classList.toggle("open", open);
-  $("panel-toggle").setAttribute("aria-expanded", String(open));
+/** A manual change of day or time: pause, then select. */
+function pick(day, slot) {
+  if (!state.doc) return;
+  stopPlaying();
+  select(day, slot);
+}
+
+function stepBy(delta) {
+  const next = state.doc && stepSlot(state.doc.meta.days, state.day, state.slot, delta);
+  if (next) pick(next.day, next.slot);
+}
+
+function showUnplaced(open) {
+  $("unplaced-card").hidden = !open;
+  if (open) $("unplaced-close").focus({ preventScroll: true });
 }
 
 // --- data ---------------------------------------------------------------------------------------
@@ -626,8 +610,6 @@ async function load() {
   render();
 }
 
-$("hour").addEventListener("input", (e) => select(state.day, Number(e.target.value)));
-$("play").addEventListener("click", () => state.doc && togglePlay());
 $("show-cancelled").addEventListener("change", (e) => {
   state.showCancelled = e.target.checked;
   if (state.doc) render();
@@ -673,16 +655,56 @@ function stepWeek(dir) {
 $("week-prev").addEventListener("click", () => stepWeek(-1));
 $("week-next").addEventListener("click", () => stepWeek(1));
 $("week-today").addEventListener("click", () => goToWeek(null));
-$("panel-toggle").addEventListener("click", () => setPanel(!$("panel").classList.contains("open")));
-$("panel-close").addEventListener("click", () => setPanel(false));
-$("days").addEventListener("keydown", (e) => {
-  if (!state.doc || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
-  const days = state.doc.meta.days;
-  const i = days.indexOf(state.day) + (e.key === "ArrowRight" ? 1 : -1);
-  if (i < 0 || i >= days.length) return;
-  select(days[i], state.slot);
-  $("days").children[i].focus();
+
+// --- floating controls ------------------------------------------------------------------------
+
+const timebar = mountTimebar($("timebar"), {
+  select: (day, slot) => pick(day, slot),
+  stepDay(dir) {
+    const days = state.doc ? state.doc.meta.days : [];
+    const i = days.indexOf(state.day) + dir;
+    if (i >= 0 && i < days.length) pick(days[i], state.slot);
+  },
+  stepHour: (dir) => stepBy(4 * dir),
+  togglePlay,
+  dragStart: stopPlaying,
+  dragEnd() {},
 });
+const menu = mountPopover($("menu-btn"), $("menu"));
+mountPopover($("info-btn"), $("info"));
+mountTitleFold($("title-card"), $("title-fold"));
+$("unplaced-btn").addEventListener("click", () => {
+  menu.close(false);
+  showUnplaced(true);
+});
+$("unplaced-close").addEventListener("click", () => {
+  showUnplaced(false);
+  $("menu-btn").focus({ preventScroll: true });
+});
+$("legend-btn").addEventListener("click", () => {
+  const open = !$("legend").classList.contains("open");
+  $("legend").classList.toggle("open", open);
+  $("legend-btn").setAttribute("aria-expanded", String(open));
+});
+
+// Time keys: only with focus on the page or the track (a focused map pans with its arrows, and
+// Space presses a focused control).
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  if (e.key === "Escape") {
+    if (closeOpenPopover()) return;
+    if (!$("unplaced-card").hidden) showUnplaced(false);
+    return;
+  }
+  if (!state.doc) return;
+  if (!keysApply(focusKind(e.target, { track: timebar.track, map: $("map") }))) return;
+  const k = keyStep(e.key, e.shiftKey);
+  if (k === null) return;
+  e.preventDefault();
+  if (k === "toggle") togglePlay();
+  else stepBy(k);
+});
+
 // A snapshot never refetches (its data and its "now" are fixed), not even while snapshot.json loads.
 document.addEventListener("visibilitychange", () => {
   if (!refetchAllowed(document.documentElement.dataset.mode, src)) return;

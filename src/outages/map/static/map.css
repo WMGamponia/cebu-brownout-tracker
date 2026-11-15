@@ -1,210 +1,143 @@
-/* Cebu Brownout Map (Phase 4 spec 4.6). Barangay styles live in map.js (Leaflet paths). */
-:root {
-  --bg: #ffffff;
-  --fg: #1d2125;
-  --muted: #5f6b76;
-  --line: #d8dde2;
-  --soft: #f4f6f8;
-  --accent: #c2410c;
-  --active-fill: #f28c28;
-  --active-line: #c2410c;
-  --warn-bg: #fff4e5;
-  --warn-fg: #7a3e00;
-  --panel-w: 360px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color: var(--fg);
-}
+/* Cebu Brownout Map: full-bleed map with floating cards (UI refresh spec 5.1). Shared tokens,
+   cards, pills and Leaflet overrides live in base.css; barangay styles live in map.js. */
+:root { --gutter: 12px; --bar-h: 56px; }
 
-* { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; background: var(--bg); }
-body { display: flex; flex-direction: column; }
-[hidden] { display: none !important; }
-button { font: inherit; cursor: pointer; }
+html, body { height: 100%; overflow: hidden; }
+#map { position: fixed; inset: 0; height: 100dvh; z-index: 0; }
 
-#topbar { padding: 8px 16px; border-bottom: 1px solid var(--line); }
-.title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
-h1 { font-size: 1.1rem; margin: 0; }
-.asof { margin: 0; color: var(--muted); font-size: 0.9rem; }
-.warn {
-  margin: 6px 0 0;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  font-size: 0.9rem;
-}
-.warn a { color: inherit; }
-#stale-links a { margin-left: 6px; }
+/* Corners: floating stacks above the map (Leaflet panes sit at z 400–700). */
+.corner { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.corner > * { pointer-events: auto; }
+.corner-tl { top: var(--gutter); left: var(--gutter); width: min(340px, calc(100vw - 2 * var(--gutter) - 56px)); max-height: calc(100dvh - var(--bar-h) - 120px); }
+.corner-tr { top: var(--gutter); right: var(--gutter); align-items: flex-end; }
+.corner-bl { left: var(--gutter); bottom: var(--gutter); align-items: flex-start; max-width: 360px; }
 
-.banner {
+/* Title card */
+.title-card { padding: 10px 14px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1 { font-size: var(--fs-l); margin: 0; }
+.fold { border: none; background: none; color: var(--muted); font-size: var(--fs-l); padding: 0 4px; transition: transform 0.15s; }
+.title-card.folded .fold { transform: rotate(-90deg); }
+.title-card.folded .title-more { display: none; }
+.title-more p { margin: 2px 0 0; font-size: var(--fs-s); }
+
+.notices { display: flex; flex-direction: column; gap: 6px; }
+.notices:empty { display: none; }
+.banner { display: flex; align-items: center; gap: 10px; }
+.snapshot { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+
+/* The left slot holds the barangay card or the "Not on the map" card, never both. */
+.left-slot { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.side-card { padding: 12px 14px; overflow-y: auto; min-height: 0; }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.side-head h2 { font-size: var(--fs-l); margin: 0; }
+.close { border: none; background: none; color: var(--muted); font-size: var(--fs-l); padding: 0 2px; }
+
+.items { list-style: none; padding: 0; margin: 8px 0 0; }
+.items > li { padding: 8px 0; border-top: 1px solid var(--hairline); }
+.items p { margin: 3px 0; }
+.items .when { font-weight: 600; }
+.items .reasons { margin: 2px 0 4px 16px; padding: 0; }
+.items .reason { color: var(--warn-text); }
+.more { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+
+/* Top right: menu and info */
+.round-row { display: flex; gap: 8px; }
+.corner-tr .popover { position: static; }
+.menu h2, .info h2 { font-size: var(--fs-s); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 10px 0 6px; }
+.menu h2:first-child, .info h2:first-child { margin-top: 0; }
+.week-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.week-row input[type="date"] { font: inherit; background: transparent; color: var(--text); border: 1px solid var(--hairline); border-radius: 6px; padding: 3px 6px; }
+.check { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.menu-links { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.info p { margin: 6px 0; font-size: var(--fs-s); }
+.leaflet-top.leaflet-right { top: calc(var(--gutter) + 48px); right: calc(var(--gutter) - 10px); }
+
+/* Legend */
+.legend-card { padding: 8px 12px; }
+.legend { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-s); }
+.legend + .legend { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.sw { width: 16px; height: 12px; border-radius: 3px; flex: none; }
+.sw-active { background: rgba(242, 140, 40, 0.75); border: 2px solid #c2410c; }
+.sw-cancelled { background: rgba(189, 189, 189, 0.6); border: 2px dashed #9aa0a6; }
+.sw-day { border: 2px solid #f5a25d; }
+.sw-none { border: 1px solid #a7adb3; }
+.sw-meco { background: rgba(158, 158, 158, 0.6); border: 1px solid #8a8a8a; }
+.ln { display: inline-block; width: 20px; height: 0; vertical-align: middle; }
+.ln-active { border-top: 5px solid #ea580c; }
+.ln-cancelled { border-top: 4px dashed #9aa0a6; }
+.ln-faint { border-top: 2px solid rgba(242, 140, 40, 0.6); }
+.legend-btn { display: none; }
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; background: rgba(242, 140, 40, 0.75); border: 2px solid #c2410c; }
+
+/* Timeline bar (timebar.js) */
+.timebar {
+  position: fixed;
+  z-index: 1000;
+  bottom: var(--gutter);
+  left: calc(var(--gutter) + 380px);
+  right: calc(var(--gutter) + 120px);
   display: flex;
-  gap: 12px;
   align-items: center;
-  padding: 8px 16px;
-  background: #fde8e8;
-  color: #8a1c1c;
+  gap: 10px;
+  padding: 8px 12px;
 }
-
-#controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--soft);
-}
-#days { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
-#days button {
-  border: 1px solid var(--line);
-  background: var(--bg);
-  border-radius: 999px;
-  padding: 4px 12px;
-  white-space: nowrap;
-}
-#days button[aria-selected="true"] {
-  background: var(--fg);
-  color: var(--bg);
-  border-color: var(--fg);
-}
-.hour-row { display: flex; align-items: center; gap: 8px; flex: 1 1 260px; }
-#hour { flex: 1; min-width: 120px; accent-color: var(--accent); }
-#hour-label { font-variant-numeric: tabular-nums; min-width: 7.5em; }
-#play {
+.tb-play {
+  flex: none;
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--bg);
+  border: none;
+  background: var(--accent);
+  color: #1d2125;
+  font-size: 13px;
 }
-.toggles { display: flex; align-items: center; gap: 12px; }
-#panel-toggle, #panel-close { display: none; }
+.tb-step { display: flex; align-items: center; flex: none; }
+.tb-arrow { border: none; background: none; color: var(--muted); font-size: var(--fs-xl); line-height: 1; padding: 2px 6px; }
+.tb-arrow:hover:not(:disabled) { color: var(--text); }
+.tb-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
+.tb-day { min-width: 9.5em; }
+.tb-time { min-width: 5.2em; }
+.tb-track { position: relative; flex: 1; min-width: 120px; height: 28px; border-radius: 6px; background: var(--track); cursor: pointer; touch-action: none; }
+.tb-ticks, .tb-bands { position: absolute; inset: 0; }
+.tb-tick { position: absolute; top: 6px; bottom: 6px; width: 1px; background: var(--hairline); }
+.tb-band { position: absolute; top: 9px; bottom: 9px; border-radius: 3px; background: var(--band); opacity: 0.85; }
+.tb-head { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
 
-main { flex: 1; display: flex; min-height: 0; position: relative; }
-#map { flex: 1; min-height: 300px; background: #eef1f3; }
-#panel {
-  width: var(--panel-w);
-  overflow-y: auto;
-  border-left: 1px solid var(--line);
-  padding: 8px 16px 16px;
-  font-size: 0.92rem;
-}
-#panel h2 { font-size: 1rem; margin: 12px 0 8px; }
-.muted { color: var(--muted); }
-.credits { color: var(--muted); font-size: 0.8rem; border-top: 1px solid var(--line); margin-top: 12px; }
+/* Short labels on barangays with an outage that day (map.js), as pills. Never block the map. */
+.leaflet-labels-pane { z-index: 450; pointer-events: none; }
+.map-label { position: absolute; left: 0; top: 0; pointer-events: none; }
 
-.items { list-style: none; padding: 0; margin: 0; }
-.items > li { padding: 8px 0; border-bottom: 1px solid var(--line); }
-.items .when { font-weight: 600; }
-.items .veco-text { margin: 4px 0; }
-.items .reason { color: var(--warn-fg); }
-
-.legend { list-style: none; padding: 0; margin: 0; }
-.legend li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-.legend-lead { font-weight: 600; }
-.sw { width: 18px; height: 14px; border-radius: 3px; flex: none; }
-.sw-active { background: rgba(242, 140, 40, 0.45); border: 2px solid var(--active-line); }
-.sw-cancelled { background: rgba(189, 189, 189, 0.5); border: 2px dashed #757575; }
-.sw-day { border: 2px solid #f5a25d; }
-.sw-none { border: 1px solid #a7adb3; }
-.sw-meco { background: rgba(158, 158, 158, 0.4); border: 1px solid #8a8a8a; }
-
-.badge {
-  display: inline-block;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 6px;
-  vertical-align: 1px;
-}
-.badge-additional { background: #e0ecff; color: #1d4ed8; }
-.badge-cancelled { background: #eceff1; color: #455a64; text-decoration: line-through; }
-
-/* Popups */
-.pop { max-width: 300px; font-size: 0.9rem; }
-.pop h3 { margin: 0; font-size: 1rem; }
+/* Barangay popups (hover) */
+.pop { max-width: 300px; font-size: var(--fs-s); }
+.pop h3 { margin: 0; font-size: var(--fs-l); }
 .pop .town { margin: 0 0 6px; color: var(--muted); }
-.pop .outage { padding: 6px 0; border-top: 1px solid var(--line); }
-.pop .outage.active { border-left: 4px solid var(--active-fill); padding-left: 8px; }
+.pop .outage { padding: 6px 0; border-top: 1px solid var(--hairline); }
+.pop .outage.active { border-left: 3px solid var(--accent); padding-left: 8px; }
 .pop .outage.active .when::after { content: " · now"; color: var(--accent); font-weight: 600; }
 .pop .when { font-weight: 600; }
 .pop p { margin: 3px 0; }
-.pop .places { color: var(--fg); }
-.pop .more { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
-.pop .caveat { color: var(--warn-fg); }
+.pop .caveat { color: var(--warn-text); }
 .pop .empty { color: var(--muted); }
-
-/* Phone: the side panel becomes a drawer over the map. */
-@media (max-width: 767px) {
-  #topbar, #controls { padding-left: 12px; padding-right: 12px; }
-  h1 { font-size: 1rem; }
-  #panel-toggle, #panel-close { display: inline-block; }
-  #panel-toggle {
-    border: 1px solid var(--line);
-    background: var(--bg);
-    border-radius: 6px;
-    padding: 4px 10px;
-  }
-  #panel {
-    position: absolute;
-    inset: auto 0 0 0;
-    width: auto;
-    max-height: 70%;
-    background: var(--bg);
-    border-left: none;
-    border-top: 1px solid var(--line);
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    transform: translateY(100%);
-    transition: transform 0.2s ease;
-    visibility: hidden;
-  }
-  #panel.open { transform: none; visibility: visible; }
-  #panel-close {
-    position: sticky;
-    top: 0;
-    float: right;
-    border: none;
-    background: var(--bg);
-    font-size: 1.4rem;
-    line-height: 1;
-  }
-}
-
-/* Phase 5: week picker, history banner, street lines in the legend */
-.week-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
-.week-row input[type="date"] { font: inherit; padding: 2px 4px; }
-.week-row .history-link { margin-left: auto; }
-.snapshot { background: #fff4d6; color: #5c4400; padding: 4px 8px; margin: 4px 0 0; border-radius: 4px; }
-.snapshot a { color: inherit; }
-.history { background: #e8f0fe; color: #1a3d7c; padding: 4px 8px; margin: 4px 0 0; border-radius: 4px; }
-.ln { display: inline-block; width: 22px; height: 0; margin-right: 6px; vertical-align: middle; }
-.ln-active { border-top: 5px solid #9a3412; }
-.ln-cancelled { border-top: 4px dashed #616161; }
-.ln-faint { border-top: 2px solid rgba(194, 65, 12, 0.35); }
 .streets ul.reasons { margin: 2px 0 4px 16px; padding: 0; }
 
-/* Short labels on barangays with an outage that day (map.js drawLabels). Never block the map. */
-.leaflet-labels-pane { z-index: 450; pointer-events: none; }
-.map-label {
-  position: absolute;
-  left: 0;
-  top: 0;
-  white-space: nowrap;
-  font-size: 12px;
-  line-height: 1.2;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--fg);
-  border: 1px solid #f5a25d;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
+/* Narrow screens: the bar spans the width, with the track on its own row; the legend folds. */
+@media (max-width: 1099px) {
+  .timebar { left: calc(var(--gutter) + 56px); right: var(--gutter); }
+  .legend-btn { display: inline-flex; }
+  .legend-card { display: none; position: absolute; bottom: 52px; left: 0; width: max-content; max-width: calc(100vw - 2 * var(--gutter)); }
+  .legend-card.open { display: block; }
+  /* OSM's attribution must stay visible: lift it above the full-width bar. */
+  .leaflet-bottom.leaflet-right { margin-bottom: calc(var(--bar-h) + var(--gutter)); }
 }
-.map-label-now { border-color: var(--active-line); font-weight: 600; }
-.map-label-later { border-color: var(--active-fill); }
-.map-label-ended { color: var(--muted); }
-.map-label-cancelled { border-color: #757575; border-style: dashed; color: var(--muted); text-decoration: line-through; }
-/* Our own polygon outline marks the hovered or open barangay, not the browser's focus box. */
-path.leaflet-interactive:focus { outline: none; }
+@media (max-width: 599px) {
+  :root { --gutter: 8px; --bar-h: 96px; }
+  .corner-bl { bottom: calc(var(--bar-h) + 2 * var(--gutter)); }
+  .timebar { left: var(--gutter); flex-wrap: wrap; gap: 4px 6px; padding: 8px 10px; }
+  .tb-track { flex-basis: 100%; order: 4; }
+  .tb-step-day { flex: 1; justify-content: center; }
+  .tb-day { min-width: 0; }
+  .corner-tl { width: calc(100vw - 2 * var(--gutter) - 104px); }
+}

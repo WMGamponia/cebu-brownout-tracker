@@ -152,6 +152,13 @@ def test_page_assets_served(db_path):
         "/static/js/map.js",
         "/static/js/timeline.js",
         "/static/js/text.js",
+        "/static/js/dom.js",
+        "/static/js/frame.js",
+        "/static/js/timebar.js",
+        "/static/js/cards.js",
+        "/static/js/menu.js",
+        "/static/base.css",
+        "/static/map.css",
         "/static/vendor/leaflet-1.9.4/leaflet.js",
         "/static/vendor/leaflet-1.9.4/leaflet.css",
     ):

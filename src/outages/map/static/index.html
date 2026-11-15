@@ -2,89 +2,103 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Cebu Brownout Map</title>
   <link rel="stylesheet" href="static/vendor/leaflet-1.9.4/leaflet.css">
+  <link rel="stylesheet" href="static/base.css">
   <link rel="stylesheet" href="static/map.css">
   <script src="static/vendor/leaflet-1.9.4/leaflet.js"></script>
   <script type="module" src="static/js/map.js"></script>
 </head>
 <body>
-  <header id="topbar">
-    <div class="title-row">
-      <h1>Cebu Brownout Map</h1>
-      <p id="asof" class="asof">Loading…</p>
-    </div>
-    <p id="snapshot-banner" class="snapshot" hidden></p>
-    <p id="history-banner" class="history" hidden></p>
-    <p id="week-missing" class="warn" hidden>This week isn't in the snapshot; showing the snapshot week.</p>
-    <p id="old-warning" class="warn" hidden></p>
-    <div id="stale" class="warn" hidden>
-      <span>VECO updated this post and we couldn't read the update; this is from the earlier version.</span>
-      <span id="stale-links"></span>
-    </div>
-  </header>
+  <div id="map" role="region" aria-label="Map of barangays"></div>
 
-  <div id="banner" class="banner" role="alert" hidden>
-    <span id="banner-text"></span>
-    <button id="retry" type="button">Retry</button>
-  </div>
+  <div class="corner corner-tl">
+    <header id="title-card" class="card title-card">
+      <div class="title-row">
+        <h1>Cebu Brownout Map</h1>
+        <button id="title-fold" class="fold" type="button" aria-label="Hide details">▾</button>
+      </div>
+      <div class="title-more">
+        <p id="asof" class="muted">Loading…</p>
+        <p id="outage-count" class="muted"></p>
+      </div>
+    </header>
 
-  <nav id="controls" aria-label="Week, day and time">
-    <div class="week-row">
-      <button id="week-prev" type="button" aria-label="Previous week">◀</button>
-      <label>Week of <input id="week" type="date"></label>
-      <button id="week-next" type="button" aria-label="Next week">▶</button>
-      <button id="week-today" type="button">Today</button>
-      <a class="history-link" href="history">History</a>
+    <div id="notices" class="notices" aria-live="polite">
+      <p id="snapshot-banner" class="notice snapshot" hidden></p>
+      <p id="week-missing" class="notice notice-warn" hidden>This week isn't in the snapshot; showing the snapshot week.</p>
+      <div id="banner" class="notice notice-error banner" role="alert" hidden>
+        <span id="banner-text"></span>
+        <button id="retry" class="text-btn" type="button">Retry</button>
+      </div>
     </div>
-    <div id="days" role="tablist" aria-label="Day"></div>
-    <div class="hour-row">
-      <button id="play" type="button" aria-label="Play">▶</button>
-      <input id="hour" type="range" min="0" max="95" step="1" value="0" aria-label="Time">
-      <output id="hour-label" for="hour"></output>
-    </div>
-    <div class="toggles">
-      <label><input type="checkbox" id="show-cancelled" checked> Show cancelled</label>
-      <label><input type="checkbox" id="clock-12"> AM/PM time</label>
-      <label id="streets-toggle" hidden><input type="checkbox" id="show-streets" checked> Show streets</label>
-      <button id="panel-toggle" type="button" aria-controls="panel" aria-expanded="false">Details</button>
-    </div>
-  </nav>
 
-  <main>
-    <div id="map" role="region" aria-label="Map of barangays"></div>
-    <aside id="panel" aria-label="Details">
-      <button id="panel-close" type="button" aria-label="Close details">×</button>
-      <section>
-        <h2 id="unplaced-title">Not on the map</h2>
+    <div id="left-slot" class="left-slot">
+      <section id="unplaced-card" class="card side-card" aria-labelledby="unplaced-title" hidden>
+        <div class="side-head">
+          <h2 id="unplaced-title">Not on the map</h2>
+          <button id="unplaced-close" class="close" type="button" aria-label="Close">✕</button>
+        </div>
         <ol id="unplaced" class="items"></ol>
         <p id="removed" class="muted" hidden></p>
       </section>
-      <section>
-        <h2>Legend</h2>
-        <p class="legend-lead">Shaded: parts of these barangays may be affected.</p>
-        <ul class="legend">
-          <li><span class="sw sw-active"></span>Outage at this time (scheduled or additional)</li>
-          <li><span class="sw sw-cancelled"></span>Only a cancelled outage at this time</li>
-          <li><span class="sw sw-day"></span>Outage this day, not at this time</li>
-          <li><span class="sw sw-none"></span>Nothing this day</li>
-          <li><span class="sw sw-meco"></span>MECO area, not covered</li>
-        </ul>
-        <ul id="legend-lines" class="legend" hidden>
-          <li><span class="ln ln-active"></span>Street named for an outage at this time</li>
-          <li><span class="ln ln-cancelled"></span>Street of a cancelled outage at this time</li>
-          <li><span class="ln ln-faint"></span>Street with an outage this day, not at this time</li>
-        </ul>
-        <p id="streets-note" class="muted">Streets and sitios are in each barangay's popup.</p>
-      </section>
-      <section class="credits">
-        <p id="attribution"></p>
-        <p>Map tiles © OpenStreetMap contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>). Map library: Leaflet (BSD-2-Clause).</p>
-        <p>Data: VECO's scheduled power interruption posts.</p>
-        <p id="snapshot-credits" hidden></p>
-      </section>
-    </aside>
-  </main>
+    </div>
+  </div>
+
+  <div class="corner corner-tr">
+    <div class="round-row">
+      <button id="menu-btn" class="round-btn" type="button" aria-label="Menu">⋮</button>
+      <button id="info-btn" class="round-btn" type="button" aria-label="About this map">ⓘ</button>
+    </div>
+    <div id="menu" class="card popover menu" aria-label="Menu">
+      <h2>Week</h2>
+      <div class="week-row">
+        <button id="week-prev" class="text-btn" type="button" aria-label="Previous week">◀</button>
+        <input id="week" type="date" aria-label="Week of">
+        <button id="week-next" class="text-btn" type="button" aria-label="Next week">▶</button>
+        <button id="week-today" class="text-btn" type="button">Today</button>
+      </div>
+      <h2>Show</h2>
+      <label class="check"><input type="checkbox" id="show-cancelled" checked> Cancelled outages</label>
+      <label class="check"><input type="checkbox" id="clock-12"> AM/PM time</label>
+      <label class="check" id="streets-toggle" hidden><input type="checkbox" id="show-streets" checked> Street lines</label>
+      <div class="menu-links">
+        <button id="unplaced-btn" class="text-btn" type="button">Not on the map</button>
+        <a class="history-link" href="history">History</a>
+      </div>
+    </div>
+    <div id="info" class="card popover info" aria-label="About this map">
+      <h2>About this map</h2>
+      <p>Shaded barangays: parts of them may be affected. Times are VECO's scheduled interruptions.</p>
+      <p id="streets-note" class="muted">Streets and sitios are in each barangay's card.</p>
+      <p id="attribution" class="muted"></p>
+      <p class="muted">Map tiles © OpenStreetMap contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a>). Map library: Leaflet (BSD-2-Clause).</p>
+      <p class="muted">Data: VECO's scheduled power interruption posts.</p>
+      <p id="snapshot-credits" class="muted" hidden></p>
+    </div>
+  </div>
+
+  <div class="corner corner-bl">
+    <button id="legend-btn" class="round-btn legend-btn" type="button" aria-controls="legend" aria-expanded="false" aria-label="Legend">
+      <span class="legend-dot" aria-hidden="true"></span>
+    </button>
+    <section id="legend" class="card legend-card" aria-label="Legend">
+      <ul class="legend">
+        <li title="Outage at this time (scheduled or additional)"><span class="sw sw-active"></span>Now</li>
+        <li title="Outage this day, not at this time"><span class="sw sw-day"></span>Today</li>
+        <li title="Only a cancelled outage at this time"><span class="sw sw-cancelled"></span>Cancelled</li>
+        <li title="Nothing this day"><span class="sw sw-none"></span>None</li>
+        <li title="MECO area, not covered"><span class="sw sw-meco"></span>MECO, not covered</li>
+      </ul>
+      <ul id="legend-lines" class="legend" hidden>
+        <li title="Street named for an outage at this time"><span class="ln ln-active"></span>Street now</li>
+        <li title="Street of a cancelled outage at this time"><span class="ln ln-cancelled"></span>Cancelled</li>
+        <li title="Street with an outage this day, not at this time"><span class="ln ln-faint"></span>Today</li>
+      </ul>
+    </section>
+  </div>
+
+  <nav id="timebar" class="card timebar" aria-label="Day and time"></nav>
 </body>
 </html>
