@@ -2,27 +2,48 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { bands, keyStep, keysApply, nearestSlotAtX, slotAtX } from "../../src/outages/map/static/js/timebar.js";
+import { hoverText, keyStep, keysApply, nearestSlotAtX, packLanes, slotAtX } from "../../src/outages/map/static/js/timebar.js";
 
 const o = (start, end, status = "scheduled") => ({ start, end, status });
 const D = "2026-11-12";
 const on = (b) => b.flatMap((v, i) => (v ? [i] : []));
 
-test("bands mark the slots any shown outage is active in", () => {
-  const b = bands({ 1: o(`${D}T08:30:00+08:00`, `${D}T10:00:00+08:00`) }, D, true);
-  assert.equal(b.length, 96);
-  assert.deepEqual(on(b), [34, 35, 36, 37, 38, 39]);
+const at = (h, m = "00") => `${D}T${h}:${m}:00+08:00`;
+const rows = (r) => Object.fromEntries(r.segments.map((x) => [x.id, x.row]));
+
+test("packLanes puts overlapping outages in separate rows and reuses free rows", () => {
+  const outages = {
+    1: o(at("08"), at("12")),
+    2: o(at("10"), at("14")),
+    3: o(at("11"), at("13")),
+    4: o(at("11", "30"), at("12", "30")),
+    5: o(at("15"), at("16")),
+  };
+  const r = packLanes(outages, D, true);
+  assert.deepEqual(rows(r), { 1: 0, 2: 1, 3: 2, 5: 0 });
+  assert.deepEqual(r.overflow, ["4"]);
+  const s1 = r.segments.find((x) => x.id === "1");
+  assert.deepEqual([s1.a, s1.b, s1.cancelled], [32, 47, false]);
 });
 
-test("bands follow Show cancelled", () => {
-  const outages = { 1: o(`${D}T08:00:00+08:00`, `${D}T08:30:00+08:00`, "cancelled") };
-  assert.deepEqual(on(bands(outages, D, true)), [32, 33]);
-  assert.deepEqual(on(bands(outages, D, false)), []);
+test("packLanes: an overnight outage starts at slot 0 on its second day", () => {
+  const night = { 7: o(at("22"), "2026-11-13T05:00:00+08:00") };
+  const [seg] = packLanes(night, "2026-11-13", true).segments;
+  assert.deepEqual([seg.a, seg.b], [0, 19]);
 });
 
-test("bands of an overnight outage on its second day", () => {
-  const night = { 1: o(`${D}T22:00:00+08:00`, "2026-11-13T05:00:00+08:00") };
-  assert.deepEqual(on(bands(night, "2026-11-13", true)), [...Array(20).keys()]);
+test("packLanes follows Show cancelled", () => {
+  const outages = { 1: o(at("08"), at("09"), "cancelled") };
+  assert.equal(packLanes(outages, D, false).segments.length, 0);
+  assert.equal(packLanes(outages, D, true).segments[0].cancelled, true);
+});
+
+test("hoverText: the time, then the barangays under it", () => {
+  const segs = [{ id: "1", a: 40, b: 50 }, { id: "2", a: 60, b: 70 }];
+  const names = { 1: ["Binaliw", "Pit-os"], 2: ["A", "B", "C", "D"] };
+  assert.equal(hoverText(42, segs, names, "12"), "10:30 AM · Binaliw, Pit-os");
+  assert.equal(hoverText(62, segs, names, "24"), "15:30 · A, B, C +1");
+  assert.equal(hoverText(55, segs, names, "24"), "13:45");
 });
 
 test("slotAtX floors and clamps; nearestSlotAtX rounds and clamps", () => {

@@ -137,7 +137,28 @@ h1 { font-size: var(--fs-l); margin: 0; }
 .tb-track { position: relative; flex: 1; min-width: 120px; height: 28px; border-radius: 6px; background: var(--track); cursor: pointer; touch-action: none; }
 .tb-ticks, .tb-bands { position: absolute; inset: 0; }
 .tb-tick { position: absolute; top: 6px; bottom: 6px; width: 1px; background: var(--hairline); }
-.tb-band { position: absolute; top: 9px; bottom: 9px; border-radius: 3px; background: var(--band); opacity: 0.85; }
+/* Lanes: one segment per outage, overlapping ones in separate rows (timebar.js packLanes). */
+.tb-band { position: absolute; height: 6px; border-radius: 3px; background: var(--band); transition: opacity 0.15s; }
+.tb-band.row-0 { top: 4px; }
+.tb-band.row-1 { top: 11px; }
+.tb-band.row-2 { top: 18px; }
+.tb-band.cancelled { background: transparent; border: 1.5px dashed var(--muted); }
+.tb-band.dim { opacity: 0.25; }
+.tb-more { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 11px; font-weight: 600; color: var(--text); background: var(--card); border-radius: 999px; padding: 0 5px; }
+.tb-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .tb-head { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
 
 /* Short fades when the time changes (spec 5.2). map.js removes .fades under reduced motion or

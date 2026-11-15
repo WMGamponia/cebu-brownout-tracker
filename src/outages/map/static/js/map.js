@@ -30,7 +30,7 @@ import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { isPastWindow, lineOrder, lineState, linesInGeometry } from "./streets.js";
 import { reasonText, removedText } from "./text.js";
-import { bands, focusKind, keyStep, keysApply, mountTimebar } from "./timebar.js";
+import { focusKind, keyStep, keysApply, mountTimebar, packLanes } from "./timebar.js";
 import { addTiles } from "./tiles.js";
 
 // Every data URL and every "now" come from the source (Phase 6 spec 4.3): the live server, or a
@@ -479,8 +479,18 @@ function renderBar() {
     days: state.doc.meta.days,
     today: manila(src.now()).date,
     clock: state.clock,
-    bands: bands(state.doc.outages, state.day, state.showCancelled),
+    lanes: packLanes(state.doc.outages, state.day, state.showCancelled),
+    names: Object.fromEntries(
+      Object.entries(state.doc.outages).map(([id, o]) => [id, (o.barangays || []).map((b) => b.name)]),
+    ),
+    selected: selectedOutageIds(),
   });
+}
+
+/** The pinned barangay's outage ids: its segments stay bright on the track, the rest dim. */
+function selectedOutageIds() {
+  const props = state.cardLayer && state.cardLayer.feature.properties;
+  return new Set(props && props.covered ? props.outage_ids.map(String) : []);
 }
 
 function renderUnplaced() {
@@ -510,7 +520,7 @@ function renderUnplaced() {
   $("unplaced").replaceChildren(...list);
 }
 
-/** Everything that depends on the day or a toggle: bands, lists, street lines, labels. */
+/** Everything that depends on the day or a toggle: lanes, lists, street lines, labels. */
 function renderDay() {
   renderBar();
   renderUnplaced();
@@ -529,7 +539,7 @@ function renderSlot() {
     days: state.doc.meta.days,
     today: manila(src.now()).date,
     clock: state.clock,
-    bands: null, // the day's bands are drawn by renderDay
+    lanes: null, // the day's lanes are drawn by renderBar
   });
   restyleFeatures();
   restyleStreets();
@@ -574,6 +584,7 @@ function openCard(layer) {
   restyle(layer);
   bcard.show(layer.feature.properties);
   renderCard();
+  renderBar(); // dim the other outages on the track
 }
 
 function closeCard() {
@@ -582,6 +593,7 @@ function closeCard() {
   const was = state.cardLayer;
   state.cardLayer = null;
   if (was) restyle(was);
+  if (state.doc) renderBar();
 }
 
 function select(day, slot) {
