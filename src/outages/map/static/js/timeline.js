@@ -33,10 +33,39 @@ export function dayStartMs(dateStr) {
   return Date.parse(`${dateStr}T00:00:00+08:00`);
 }
 
-/** True when the outage overlaps hour `h` (0–23) of Manila day `dateStr`. */
-export function activeInHour(o, dateStr, h) {
-  const from = dayStartMs(dateStr) + h * HOUR_MS;
-  return parseIso(o.start) < from + HOUR_MS && parseIso(o.end) > from;
+export const SLOT_MIN = 15;
+export const SLOTS = (24 * 60) / SLOT_MIN; // 96 slots a day
+const SLOT_MS = SLOT_MIN * 60 * 1000;
+
+/** True when the outage overlaps 15-minute slot `slot` (0–95) of Manila day `dateStr`. */
+export function activeInSlot(o, dateStr, slot) {
+  const from = dayStartMs(dateStr) + slot * SLOT_MS;
+  return parseIso(o.start) < from + SLOT_MS && parseIso(o.end) > from;
+}
+
+/** {hour, minute} at the start of a slot. */
+export function slotTime(slot) {
+  return { hour: Math.floor(slot / 4), minute: (slot % 4) * SLOT_MIN };
+}
+
+/** "22:30", or with fmt "12" "10:30 PM". */
+export function slotLabel(slot, fmt = "24") {
+  return clockText(slotTime(slot), fmt);
+}
+
+/** Manila date and slot (floored) of an epoch. */
+export function slotOf(ms) {
+  const m = manila(ms);
+  return { date: m.date, slot: m.hour * 4 + Math.floor(m.minute / SLOT_MIN) };
+}
+
+/** The selection `delta` slots away inside `days`, crossing midnight; null past either end. */
+export function stepSlot(days, day, slot, delta) {
+  const i = days.indexOf(day);
+  if (i < 0) return null;
+  const at = i * SLOTS + slot + delta;
+  if (at < 0 || at >= days.length * SLOTS) return null;
+  return { day: days[Math.floor(at / SLOTS)], slot: at % SLOTS };
 }
 
 /** True when the outage overlaps Manila day `dateStr`. */
@@ -64,11 +93,6 @@ export function clockText(m, fmt = "24", compact = false) {
   const h = m.hour % 12 || 12;
   const half = m.hour % 24 < 12 ? "AM" : "PM";
   return compact && m.minute === 0 ? `${h} ${half}` : `${h}:${pad(m.minute)} ${half}`;
-}
-
-/** "22:00–23:00", or with fmt "12" "10:00 PM–11:00 PM". */
-export function hourLabel(h, fmt = "24") {
-  return `${clockText({ hour: h, minute: 0 }, fmt)}–${clockText({ hour: h + 1, minute: 0 }, fmt)}`;
 }
 
 function dateLabel(dateStr) {
@@ -126,11 +150,11 @@ export function asOfLabel(iso, fmt = "24") {
   return `${dateLabel(m.date)}, ${clockText(m, fmt)}`;
 }
 
-/** Today's tab at the current Manila hour; the first day at 00:00 if today isn't shown. */
+/** Today at the current Manila slot (rounded down); the first day at 00:00 if today isn't shown. */
 export function defaultSelection(nowMs, days) {
-  const now = manila(nowMs);
-  if (days.includes(now.date)) return { day: now.date, hour: now.hour };
-  return { day: days[0], hour: 0 };
+  const now = slotOf(nowMs);
+  if (days.includes(now.date)) return { day: now.date, slot: now.slot };
+  return { day: days[0], slot: 0 };
 }
 
 /** Hours since the last check, or null when there has never been one. */

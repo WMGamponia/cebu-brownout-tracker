@@ -30,7 +30,7 @@
     <button id="retry" type="button">Retry</button>
   </div>
 
-  <nav id="controls" aria-label="Week, day and hour">
+  <nav id="controls" aria-label="Week, day and time">
     <div class="week-row">
       <button id="week-prev" type="button" aria-label="Previous week">◀</button>
       <label>Week of <input id="week" type="date"></label>
@@ -41,7 +41,7 @@
     <div id="days" role="tablist" aria-label="Day"></div>
     <div class="hour-row">
       <button id="play" type="button" aria-label="Play">▶</button>
-      <input id="hour" type="range" min="0" max="23" step="1" value="0" aria-label="Hour">
+      <input id="hour" type="range" min="0" max="95" step="1" value="0" aria-label="Time">
       <output id="hour-label" for="hour"></output>
     </div>
     <div class="toggles">
@@ -65,16 +65,16 @@
         <h2>Legend</h2>
         <p class="legend-lead">Shaded: parts of these barangays may be affected.</p>
         <ul class="legend">
-          <li><span class="sw sw-active"></span>Outage in this hour (scheduled or additional)</li>
-          <li><span class="sw sw-cancelled"></span>Only a cancelled outage in this hour</li>
-          <li><span class="sw sw-day"></span>Outage this day, not in this hour</li>
+          <li><span class="sw sw-active"></span>Outage at this time (scheduled or additional)</li>
+          <li><span class="sw sw-cancelled"></span>Only a cancelled outage at this time</li>
+          <li><span class="sw sw-day"></span>Outage this day, not at this time</li>
           <li><span class="sw sw-none"></span>Nothing this day</li>
           <li><span class="sw sw-meco"></span>MECO area, not covered</li>
         </ul>
         <ul id="legend-lines" class="legend" hidden>
-          <li><span class="ln ln-active"></span>Street named for an outage in this hour</li>
-          <li><span class="ln ln-cancelled"></span>Street of a cancelled outage in this hour</li>
-          <li><span class="ln ln-faint"></span>Street with an outage this day, not in this hour</li>
+          <li><span class="ln ln-active"></span>Street named for an outage at this time</li>
+          <li><span class="ln ln-cancelled"></span>Street of a cancelled outage at this time</li>
+          <li><span class="ln ln-faint"></span>Street with an outage this day, not at this time</li>
         </ul>
         <p id="streets-note" class="muted">Streets and sitios are in each barangay's popup.</p>
       </section>

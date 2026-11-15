@@ -1,5 +1,5 @@
 // Street lines on the map page (Phase 5 spec 4.7). Pure: no DOM, no browser zone.
-import { activeInHour, manila, onDay } from "./timeline.js";
+import { activeInSlot, manila, onDay } from "./timeline.js";
 
 const WHY = {
   not_found: "not found on OpenStreetMap near these barangays",
@@ -8,14 +8,14 @@ const WHY = {
   drawing_off: "street lines are off: matching isn't precise enough yet",
 };
 
-/** How an outage's lines show at the selected day and hour:
- *  "active" (bold orange), "active_cancelled" (grey dashed), "faint" (same day, other hour),
+/** How an outage's lines show at the selected day and 15-minute slot:
+ *  "active" (bold orange), "active_cancelled" (grey dashed), "faint" (same day, other time),
  *  "hidden" (another day, or cancelled while cancelled outages are hidden). */
-export function lineState(outage, day, hour, showCancelled) {
+export function lineState(outage, day, slot, showCancelled) {
   if (!onDay(outage, day)) return "hidden";
   const cancelled = outage.status === "cancelled";
   if (cancelled && !showCancelled) return "hidden";
-  if (!activeInHour(outage, day, hour)) return "faint";
+  if (!activeInSlot(outage, day, slot)) return "faint";
   return cancelled ? "active_cancelled" : "active";
 }
 

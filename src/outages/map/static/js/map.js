@@ -3,21 +3,23 @@
 /* global L */
 
 import {
+  SLOTS,
   STALE_AFTER_H,
-  activeInHour,
+  activeInSlot,
   asOfLabel,
   byStart,
   checkAgeHours,
   dayLabel,
   defaultSelection,
   historyLabel,
-  hourLabel,
   manila,
   needsRefetch,
   onDay,
   rangeLabel,
   safePostUrl,
   shiftDate,
+  slotLabel,
+  stepSlot,
 } from "./timeline.js";
 import { createDwell } from "./hover.js";
 import { cullLabels, labelPoint, shortLabel } from "./labels.js";
@@ -95,7 +97,7 @@ function badge(status) {
 const state = {
   doc: null,
   day: null,
-  hour: 0,
+  slot: 0, // 15-minute slot of the day, 0–95
   showCancelled: true,
   timer: null,
   fetchedAt: 0,
@@ -160,7 +162,7 @@ function featureState(props) {
   if (!props.covered) return "meco";
   const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
   if (!os.length) return "none";
-  const now = os.filter(([, o]) => activeInHour(o, state.day, state.hour));
+  const now = os.filter(([, o]) => activeInSlot(o, state.day, state.slot));
   if (now.some(([, o]) => SHADED.has(o.status))) return "active";
   if (now.length) return "cancelled";
   return "day";
@@ -175,7 +177,7 @@ function styleFor(feature) {
   if (st === "active" && streetsShown()) {
     const ids = state.linesIn.get(props.psgc);
     const lit = visibleOutages(props.outage_ids).some(
-      ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInHour(o, state.day, state.hour),
+      ([id, o]) => ids && ids.has(id) && SHADED.has(o.status) && activeInSlot(o, state.day, state.slot),
     );
     if (lit) style.fillOpacity = LIGHT_FILL;
   }
@@ -188,8 +190,8 @@ function popupContent(props) {
     el("p", { class: "town", text: props.town }),
   ]);
   const os = visibleOutages(props.outage_ids).filter(([, o]) => onDay(o, state.day));
-  const active = os.filter(([, o]) => activeInHour(o, state.day, state.hour));
-  const later = os.filter(([, o]) => !activeInHour(o, state.day, state.hour));
+  const active = os.filter(([, o]) => activeInSlot(o, state.day, state.slot));
+  const later = os.filter(([, o]) => !activeInSlot(o, state.day, state.slot));
   if (!os.length) box.append(el("p", { class: "empty", text: "No outage listed for this day." }));
   for (const [, o] of [...active, ...later]) {
     box.append(outageBlock(o, props, active.some(([, a]) => a === o)));
@@ -242,7 +244,7 @@ function streetPopup(id, s) {
   if (s.osm_name && bare(s.osm_name) !== bare(s.name)) {
     box.append(el("p", { class: "muted", text: `OSM: ${s.osm_name}` }));
   }
-  box.append(outageBlock(o, { psgc: null }, activeInHour(o, state.day, state.hour)));
+  box.append(outageBlock(o, { psgc: null }, activeInSlot(o, state.day, state.slot)));
   return box;
 }
 
@@ -270,7 +272,7 @@ function drawStreets() {
   if (!streetsShown()) return;
   const lines = [];
   for (const [id, o] of byStart(Object.entries(state.doc.outages))) {
-    const ls = lineState(o, state.day, state.hour, state.showCancelled);
+    const ls = lineState(o, state.day, state.slot, state.showCancelled);
     if (ls === "hidden" || !o.streets) continue;
     for (const s of o.streets.drawn) lines.push([LINE_ORDER[ls], ls, id, s]);
   }
@@ -500,7 +502,7 @@ function renderDays() {
       text: dayLabel(d, today),
       attrs: { type: "button", role: "tab", "aria-selected": String(selected), tabindex: selected ? "0" : "-1" },
     });
-    b.addEventListener("click", () => select(d, state.hour));
+    b.addEventListener("click", () => select(d, state.slot));
     return b;
   });
   $("days").replaceChildren(...tabs);
@@ -508,9 +510,9 @@ function renderDays() {
 
 function renderHour() {
   const input = $("hour");
-  input.value = String(state.hour);
-  input.setAttribute("aria-valuetext", hourLabel(state.hour, state.clock));
-  $("hour-label").textContent = hourLabel(state.hour, state.clock);
+  input.value = String(state.slot);
+  input.setAttribute("aria-valuetext", slotLabel(state.slot, state.clock));
+  $("hour-label").textContent = slotLabel(state.slot, state.clock);
 }
 
 function renderUnplaced() {
@@ -551,9 +553,9 @@ function render() {
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
 }
 
-function select(day, hour) {
+function select(day, slot) {
   state.day = day;
-  state.hour = hour;
+  state.slot = slot;
   render();
 }
 
@@ -565,18 +567,16 @@ function stopPlaying() {
 }
 
 function step() {
-  const days = state.doc.meta.days;
-  const i = days.indexOf(state.day);
-  if (state.hour < 23) return select(state.day, state.hour + 1);
-  if (i < days.length - 1) return select(days[i + 1], 0);
+  const next = stepSlot(state.doc.meta.days, state.day, state.slot, 1);
+  if (next) return select(next.day, next.slot);
   stopPlaying();
 }
 
 function togglePlay() {
   if (state.timer) return stopPlaying();
   const days = state.doc.meta.days;
-  if (state.day === days[days.length - 1] && state.hour === 23) select(days[0], 0);
-  state.timer = setInterval(step, 1000);
+  if (state.day === days[days.length - 1] && state.slot === SLOTS - 1) select(days[0], 0);
+  state.timer = setInterval(step, 250); // one hour of map time a second
   $("play").textContent = "❚❚";
   $("play").setAttribute("aria-label", "Pause");
 }
@@ -626,7 +626,7 @@ async function load() {
   if (first || !days.includes(state.day)) {
     const sel = defaultSelection(src.now(), days);
     state.day = sel.day;
-    state.hour = sel.hour;
+    state.slot = sel.slot;
   }
   state.openLayer = null;
   map.closePopup();
@@ -691,7 +691,7 @@ $("days").addEventListener("keydown", (e) => {
   const days = state.doc.meta.days;
   const i = days.indexOf(state.day) + (e.key === "ArrowRight" ? 1 : -1);
   if (i < 0 || i >= days.length) return;
-  select(days[i], state.hour);
+  select(days[i], state.slot);
   $("days").children[i].focus();
 });
 // A snapshot never refetches (its data and its "now" are fixed), not even while snapshot.json loads.
