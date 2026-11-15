@@ -672,14 +672,16 @@ function flyToBarangay(layer) {
   const rect = (el) => (el && !el.hidden && el.getClientRects().length ? el.getBoundingClientRect() : null);
   const card = rect(bcard.card);
   const sheet = card && bcard.card.classList.contains("sheet");
-  const title = rect($("title-card"));
+  // The top-left stack: title, search and any notices; the lowest edge counts.
+  const tops = [$("title-card"), $("search"), $("notices")].map(rect).filter(Boolean);
+  const topEdge = tops.length ? Math.max(...tops.map((r) => r.bottom)) : 0;
   const bar = rect($("timebar"));
   const tr = rect(document.querySelector(".corner-tr .round-row"));
   const pad = uiPadding(
     { w: box.width, h: box.height },
     {
       left: card && !sheet ? card.right - box.left : 0,
-      top: title ? title.bottom - box.top : 0,
+      top: topEdge ? topEdge - box.top : 0,
       right: tr ? box.right - tr.left : 0,
       bottom: Math.max(bar ? box.bottom - bar.top : 0, sheet ? box.bottom - card.top : 0),
     },

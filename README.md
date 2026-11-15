@@ -118,7 +118,7 @@ applied without the owner. The owner decided 14 (13 Qwen picks accepted, 1 other
 | | |
 |---|---|
 | ![A barangay's card on a phone: the week strip, time, purpose, places, VECO's post](docs/images/card-phone.jpg) | ![The map on a phone: folded title, pills, timeline bar](docs/images/map-phone.jpg) |
-| A barangay's card (a sheet on a phone) | The map on a phone |
+| A selected barangay on a phone: zoomed, the rest dimmed, its card as a sheet | The map on a phone: search, Now, lanes on the track |
 
 ![The menu: week picker, show cancelled, AM/PM, street lines, "Not on the map", History](docs/images/menu.jpg)
 
@@ -203,9 +203,18 @@ ignored from then on. Chats in `TELEGRAM_ALLOWED_CHAT_IDS` never need approval.
 `serve` also serves the map at **http://127.0.0.1:8765** (or `python -m outages map` alone). The
 map fills the screen; the controls float over it. Pick a day and a time on the bar at the bottom
 (‹ day ›, ‹ hour ›, or drag the track), or press ▶, and see which barangays **may** be without
-power then, in 15-minute steps. Hover a barangay for a quick popup; click (or tap) it to pin its
-card: a strip of the week's days, then the selected day's times, purpose, streets and VECO's
-post. Times are Manila time whatever your computer's zone.
+power then, in 15-minute steps. **Now** follows the clock until you move the time yourself.
+Hover a barangay for a quick popup; click (or tap) it to select it: the map zooms to it, dims
+the rest and pins its card (a strip of the week's days, then the selected day's times, purpose,
+streets and VECO's post). Click it again, press Esc or ✕ to go back to where you were; zooming
+well out also lets go of it. Times are Manila time whatever your computer's zone.
+
+- **Search:** type a barangay or town; each result shows its brownout status at the current
+  time (orange = on now, orange outline = coming up, grey outline = cancelled), whatever week
+  the map shows. Enter or a click selects it.
+- **Track:** each outage of the day is a segment; overlapping outages sit in separate rows (up
+  to 3, then "+n"). Hover the track for the time and the barangays out then; with a barangay
+  selected, its outages stay bright.
 
 - **Keys:** ← / → move 15 minutes, Shift + ← / → an hour, Space plays or pauses (with the page
   or the track focused; a focused map pans with its arrows instead). Esc closes a menu or card.

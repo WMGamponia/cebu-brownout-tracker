@@ -59,9 +59,15 @@ test("uiPadding keeps the barangay clear of the floating cards", () => {
   assert.deepEqual(p, { paddingTopLeft: [352, 92], paddingBottomRight: [68, 76] });
 });
 
-test("uiPadding caps each axis so 40 % of the viewport stays free", () => {
-  const p = uiPadding({ w: 375, h: 812 }, { top: 60, bottom: 500 });
+test("uiPadding: a phone with notices above and the card sheet below keeps that band", () => {
+  const p = uiPadding({ w: 375, h: 812 }, { top: 174, bottom: 438 });
+  assert.deepEqual(p.paddingTopLeft, [12, 186]); // the band between them is used as is
+  assert.equal(p.paddingBottomRight[1], 450);
+});
+
+test("uiPadding caps each axis so 20 % of the viewport stays free", () => {
+  const p = uiPadding({ w: 375, h: 812 }, { top: 300, bottom: 500 });
   const freeH = 812 - p.paddingTopLeft[1] - p.paddingBottomRight[1];
-  assert.ok(freeH >= 0.4 * 812 - 1, `free height ${freeH}`);
+  assert.ok(freeH >= 0.2 * 812 - 1 && freeH < 0.2 * 812 + 2, `free height ${freeH}`);
   assert.equal(p.paddingTopLeft[0], 12);
 });

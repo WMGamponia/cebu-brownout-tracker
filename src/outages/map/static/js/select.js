@@ -2,7 +2,7 @@
 // much room the floating UI takes. Pure: map.js does the Leaflet calls.
 
 const MARGIN = 12;
-const MAX_COVER = 0.6; // at most 60 % of each axis may be padding: 40 % stays free
+const MAX_COVER = 0.8; // at most 80 % of each axis may be padding: 20 % stays free (a phone sheet is tall)
 
 /** Selection state with camera memory. Each action returns {kind, to?}:
  *  "fly" (fit the new barangay), "revert" (back to `to`, the view before the first selection
@@ -54,7 +54,7 @@ export function createSelection() {
 }
 
 /** Fit padding for Leaflet's fitBounds: each side clears the floating UI covering it (plus a
- *  margin); an axis whose padding would cover more than 60 % of the viewport is scaled down. */
+ *  margin); an axis whose padding would cover more than 80 % of the viewport is scaled down. */
 export function uiPadding(viewport, rects) {
   const side = (v) => (v ? v + MARGIN : MARGIN);
   let [l, r, t, b] = [side(rects.left), side(rects.right), side(rects.top), side(rects.bottom)];
