@@ -8,6 +8,7 @@ import {
   counterText,
   emptyText,
   keyFor,
+  searchNames,
   loadGuard,
   MIN_CHOICES,
   readMin,
@@ -40,6 +41,7 @@ let stopped = false;
 const MIN_KEY = "review.minMentions";
 let min = readMin(stored());
 const loads = loadGuard(); // a filter change can start a load while another is in flight
+const picks = loadGuard(); // two quick search picks: only the last one may select
 
 function stored() {
   try {
@@ -101,6 +103,16 @@ function choose(name) {
   $("yes").disabled = !target;
 }
 
+function addLine(c, selected) {
+  if (!c.lines.length) return;
+  const latlngs = c.lines.map((line) => line.map(([lon, lat]) => [lat, lon]));
+  const line = L.polyline(latlngs, lineStyle(c.name, selected));
+  line.bindTooltip(labelEl(document, c.name), { permanent: true, className: "street-label" });
+  line.on("click", () => choose(c.name));
+  line.addTo(layers);
+  lines.set(c.name, line);
+}
+
 function draw(doc) {
   layers.clearLayers();
   bufferM = doc.buffer_m || 150;
@@ -115,18 +127,82 @@ function draw(doc) {
   bufferLayer.addTo(layers);
   scope.addTo(layers);
   lines.clear();
-  for (const c of doc.candidates) {
-    if (!c.lines.length) continue;
-    const latlngs = c.lines.map((line) => line.map(([lon, lat]) => [lat, lon]));
-    const line = L.polyline(latlngs, lineStyle(c.name, selectedName(null, doc.pick)));
-    line.bindTooltip(labelEl(document, c.name), { permanent: true, className: "street-label" });
-    line.on("click", () => choose(c.name));
-    line.addTo(layers);
-    lines.set(c.name, line);
-  }
+  for (const c of doc.candidates) addLine(c, selectedName(null, doc.pick));
   restyle();
   const b = scope.getBounds();
   if (b.isValid()) map.fitBounds(b, { padding: [24, 24] });
+}
+
+function addCandidate(c) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.dataset.name = c.name;
+  btn.textContent = c.name;
+  const note = c.generic
+    ? " (generic name: --apply refuses it)"
+    : c.lines.length
+      ? ""
+      : " (not drawn in this scope)";
+  if (note) {
+    const s = document.createElement("span");
+    s.className = "nolines";
+    s.textContent = note;
+    btn.appendChild(s);
+  }
+  btn.addEventListener("click", () => choose(c.name));
+  li($("candidates"), btn);
+}
+
+function clearSearch() {
+  $("search").value = "";
+  $("search-results").replaceChildren();
+}
+
+function showResults() {
+  const ul = $("search-results");
+  ul.replaceChildren();
+  if (!current) return;
+  for (const name of searchNames(current.area_names || [], $("search").value)) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = name;
+    btn.addEventListener("click", () => pickArea(name));
+    li(ul, btn);
+  }
+}
+
+/** A street found by the search: fetch and draw its lines once, add it to the list, select it.
+ *  Dropped if the row changed while its lines loaded. */
+async function pickArea(name) {
+  const doc = current;
+  if (!doc || at < 0) return;
+  const seq = picks.next();
+  if (!doc.candidates.some((c) => c.name === name)) {
+    const it = items[at];
+    const q = new URLSearchParams({ town: it.town_psgc, key: it.veco_key, name });
+    let r;
+    try {
+      r = await fetch(`${BASE}/lines?${q}`, { cache: "no-store" });
+    } catch {
+      say("The server isn't answering; is `serve` or `map` still running?");
+      return;
+    }
+    if (current !== doc || !picks.isLatest(seq)) return;
+    if (!r.ok) {
+      say(messageFor(r.status));
+      return;
+    }
+    const c = { ...(await r.json()), is_pick: false, generic: false };
+    if (current !== doc || !picks.isLatest(seq)) return;
+    if (!doc.candidates.some((x) => x.name === name)) {
+      doc.candidates.push(c);
+      addCandidate(c);
+      addLine(c, selectedName(chosen, doc.pick));
+    }
+  }
+  clearSearch();
+  $("search").blur(); // so Enter / Delete decide again
+  choose(name);
 }
 
 function render(doc) {
@@ -145,25 +221,10 @@ function render(doc) {
   $("map-note").hidden = !doc.message;
   const ul = $("candidates");
   ul.replaceChildren();
-  for (const c of doc.candidates) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.dataset.name = c.name;
-    btn.textContent = c.name;
-    const note = c.generic
-      ? " (generic name: --apply refuses it)"
-      : c.lines.length
-        ? ""
-        : " (not drawn in this scope)";
-    if (note) {
-      const s = document.createElement("span");
-      s.className = "nolines";
-      s.textContent = note;
-      btn.appendChild(s);
-    }
-    btn.addEventListener("click", () => choose(c.name));
-    li(ul, btn);
-  }
+  for (const c of doc.candidates) addCandidate(c);
+  $("search").value = "";
+  $("search-results").replaceChildren();
+  $("search-box").hidden = !doc.area_names || !doc.area_names.length;
   const areas = $("areas");
   areas.replaceChildren();
   for (const a of doc.areas) {
@@ -322,6 +383,18 @@ function setupFilter() {
 }
 
 setupFilter();
+$("search").addEventListener("input", showResults);
+$("search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const top = current && searchNames(current.area_names || [], $("search").value, 1)[0];
+    if (top) pickArea(top);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    clearSearch();
+    $("search").blur();
+  }
+});
 $("back").addEventListener("click", back);
 $("yes").addEventListener("click", () => decide("y"));
 $("no").addEventListener("click", () => decide("n"));

@@ -23,7 +23,7 @@ from outages.streets import queue
 from outages.streets.match import match_street, scope_for, search_towns
 from outages.streets.normalize import GENERIC_STREET_KEYS, street_key
 from outages.streets.store import scope_inputs
-from outages.streets.suggest import SCOPE_MENTIONS, groups
+from outages.streets.suggest import SCOPE_MENTIONS, candidates, groups
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,18 @@ class ReviewConfig:
     queue_path: Path
     osm_dir: Path
     token: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+
+
+@dataclass
+class _Context:
+    """One undecided row's group and the scope its candidates come from."""
+
+    row: dict
+    group: object  # suggest.Group
+    inputs: dict
+    codes: list[str]  # barangays shown (union of the mentions' scopes)
+    search: list[str]  # towns searched
+    scope: object  # geo.Scope of `codes`, as the lines are clipped
 
 
 def _error(status: int, message: str) -> JSONResponse:
@@ -118,7 +130,7 @@ def build_router(
             log.exception("review: /streets/review/item failed")
             return _error(500, "internal error")
 
-    def _item(town: str, key: str) -> Response:
+    def _context(town: str, key: str) -> _Context | JSONResponse:
         rows = queue.read(cfg.queue_path)
         row = next((r for r in rows if (r["town_psgc"], r["veco_key"]) == (town, key)), None)
         if row is None or row["decision"]:
@@ -142,6 +154,29 @@ def build_router(
             own = b or [p for p, f in features.items() if f["properties"].get("town_psgc") in t]
             codes += [c for c in own if c not in codes]
             search += [c for c in search_towns(b, t, boundaries) if c not in search]
+        return _Context(row, g, inputs, codes, search, scope_for(codes, [], boundaries))
+
+    def _area_names(ctx: _Context) -> list[str]:
+        """Every street name in the group's area: exactly what `--apply` accepts as a named
+        decision (suggest.candidates; own key and generic names left out)."""
+        idx = index()
+        if idx is None:
+            return []
+        names = candidates(ctx.group, idx, boundaries, ctx.inputs, k=10**6)
+        return sorted(names, key=str.casefold)
+
+    def _lines(ctx: _Context, name: str, idx: StreetIndex) -> list[list[list[float]]]:
+        # Through the alias path that runs after --apply, so the page shows exactly where
+        # this name would be drawn for VECO's spelling (generic names included).
+        alias = {(t, ctx.group.key): name for t in ctx.search}
+        m = match_street(ctx.group.veco_name, ctx.scope, ctx.search, idx, alias)
+        return [[list(p) for p in line] for line in m.lines]
+
+    def _item(town: str, key: str) -> Response:
+        ctx = _context(town, key)
+        if isinstance(ctx, JSONResponse):
+            return ctx
+        row, g, codes = ctx.row, ctx.group, ctx.codes
         doc = {
             "veco_name": g.veco_name,
             "mentions": len(g.mentions),
@@ -157,27 +192,59 @@ def build_router(
             },
             "buffer_m": STREET_BUFFER_M,
             "candidates": [],
+            "area_names": [],
             "message": "",
         }
         idx = index()
         if idx is None:
             doc["message"] = "no OSM extract: run `streets fetch`; no street lines to show"
             return JSONResponse(doc)
-        scope = scope_for(codes, [], boundaries)
         for name in queue.choices(row):
-            # Through the alias path that runs after --apply, so the page shows exactly where
-            # this name would be drawn for VECO's spelling (generic names included).
-            alias = {(t, key): name for t in search}
-            m = match_street(g.veco_name, scope, search, idx, alias)
             doc["candidates"].append(
                 {
                     "name": name,
                     "is_pick": name == row["pick"],
                     "generic": street_key(name) in GENERIC_STREET_KEYS,
-                    "lines": [[list(p) for p in line] for line in m.lines],
+                    "lines": _lines(ctx, name, idx),
                 }
             )
+        doc["area_names"] = _area_names(ctx)
         return JSONResponse(doc, headers={"Cache-Control": "no-store"})
+
+    @router.get("/streets/review/lines")
+    def lines(town: str = "", key: str = "", name: str = "") -> Response:
+        if not (town and key and name):
+            return _error(422, "town, key and name are required")
+        try:
+            ctx = _context(town, key)
+            if isinstance(ctx, JSONResponse):
+                return ctx
+            idx = index()
+            if idx is None or name not in _area_names(ctx):
+                return _error(404, "not a street in this area")
+            doc = {"name": name, "lines": _lines(ctx, name, idx)}
+            return JSONResponse(doc, headers={"Cache-Control": "no-store"})
+        except Exception:
+            log.exception("review: /streets/review/lines failed")
+            return _error(500, "internal error")
+
+    def _extra_names(town: str, key: str, decision: str) -> list[str] | JSONResponse:
+        """The area's names when `decision` names a street outside the row's 5 choices; the
+        error when the row is decided or has nothing left to draw."""
+        if decision in ("y", "n", "skip"):
+            return []
+        row = next(
+            (
+                r
+                for r in queue.read(cfg.queue_path)
+                if (r["town_psgc"], r["veco_key"]) == (town, key)
+            ),
+            None,
+        )
+        if row is None or decision in queue.choices(row):
+            return []
+        ctx = _context(town, key)
+        return ctx if isinstance(ctx, JSONResponse) else _area_names(ctx)
 
     async def _checked_body(request: Request) -> dict | JSONResponse:
         """The JSON body of a same-origin POST carrying the page's token, or the error."""
@@ -203,7 +270,10 @@ def build_router(
         if not all(isinstance(x, str) and x for x in (town, key, decision)):
             return _error(422, "town, key and decision are required")
         try:
-            queue.set_decision(cfg.queue_path, town, key, decision)
+            extra = _extra_names(town, key, decision)
+            if isinstance(extra, JSONResponse):
+                return extra
+            queue.set_decision(cfg.queue_path, town, key, decision, extra=extra)
         except KeyError:
             return _error(409, "no such row")
         except queue.QueueConflict:

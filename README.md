@@ -235,7 +235,7 @@ passed its bar (above): `STREETS_DRAW` in `config.py` is on. Cancelled outages d
    and tells the admin chat when some are waiting. Decide them at
    **http://127.0.0.1:8765/streets/review** (only on a loopback bind): the map shows the named
    barangays, the suggestion in bold and the other streets nearby; **Yes / No / Skip** (Enter /
-   Delete / Space) or click another street; **Back** (Backspace) undoes this visit's last step until
+   Delete / Space) or click another street, or search every street in the area (for a local name OSM spells differently); **Back** (Backspace) undoes this visit's last step until
    `--apply`. **Seen at least** (default 2) hides names VECO wrote fewer times, counted live from
    the database, so a hidden name comes back once it recurs; hidden rows stay in the queue. Or
    fill the CSV's `decision` column. Then

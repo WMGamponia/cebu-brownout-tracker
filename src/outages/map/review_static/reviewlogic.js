@@ -25,6 +25,29 @@ export function loadGuard() {
   return { next: () => ++n, isLatest: (seq) => seq === n };
 }
 
+/** A name for matching: lower case, accents and punctuation dropped, spaces collapsed. */
+export function foldName(s) {
+  return s
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** The area's names containing every typed word, names starting with the query first,
+ *  then alphabetical; at most `limit`. */
+export function searchNames(names, query, limit = 8) {
+  const q = foldName(query);
+  if (!q) return [];
+  const words = q.split(" ");
+  const hits = names
+    .map((name) => ({ name, f: foldName(name) }))
+    .filter((x) => words.every((w) => x.f.includes(w)));
+  hits.sort((a, b) => b.f.startsWith(q) - a.f.startsWith(q) || a.f.localeCompare(b.f));
+  return hits.slice(0, limit).map((x) => x.name);
+}
+
 /** The stored threshold if it is one of the choices, else the default. */
 export function readMin(raw) {
   const n = Number(raw);
