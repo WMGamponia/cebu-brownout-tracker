@@ -7,6 +7,7 @@ import {
   counterText,
   DEFAULT_MIN,
   emptyText,
+  loadGuard,
   MIN_CHOICES,
   readMin,
   keyFor,
@@ -134,4 +135,12 @@ test("counterText", () => {
 test("emptyText: null with nothing hidden, else names the hidden count", () => {
   assert.equal(emptyText(0), null);
   assert.match(emptyText(720), /720 hidden/);
+});
+
+test("loadGuard: only the latest load may render", () => {
+  const g = loadGuard();
+  const a = g.next();
+  const b = g.next();
+  assert.equal(g.isLatest(a), false);
+  assert.equal(g.isLatest(b), true);
 });

@@ -8,6 +8,7 @@ import {
   counterText,
   emptyText,
   keyFor,
+  loadGuard,
   MIN_CHOICES,
   readMin,
   visible,
@@ -38,6 +39,7 @@ const history = []; // steps taken on this page: { index, decision }
 let stopped = false;
 const MIN_KEY = "review.minMentions";
 let min = readMin(stored());
+const loads = loadGuard(); // a filter change can start a load while another is in flight
 
 function stored() {
   try {
@@ -186,7 +188,9 @@ function showEmpty() {
 }
 
 async function load(i) {
+  const seq = loads.next();
   at = i;
+  current = null; // no decision while `at` and the shown row may differ
   if (i < 0) {
     showEmpty();
     return;
@@ -194,6 +198,7 @@ async function load(i) {
   const it = items[i];
   const q = new URLSearchParams({ town: it.town_psgc, key: it.veco_key });
   const r = await fetch(`${BASE}/item?${q}`, { cache: "no-store" });
+  if (!loads.isLatest(seq)) return;
   if (r.status === 409) {
     it.decided = true;
     left();
@@ -204,7 +209,9 @@ async function load(i) {
     say(messageFor(r.status));
     return;
   }
-  render(await r.json());
+  const doc = await r.json();
+  if (!loads.isLatest(seq)) return;
+  render(doc);
 }
 
 async function decide(kind) {
@@ -292,6 +299,10 @@ function setupFilter() {
   }
   sel.value = String(min);
   sel.addEventListener("change", async () => {
+    if (busy || stopped) {
+      sel.value = String(min);
+      return;
+    }
     min = readMin(sel.value);
     try {
       localStorage.setItem(MIN_KEY, String(min));
@@ -301,7 +312,12 @@ function setupFilter() {
     sel.blur(); // so Enter / Space decide again instead of reopening the select
     say("");
     left();
-    await load(nextIndex(items, -1, min));
+    busy = true;
+    try {
+      await load(nextIndex(items, -1, min));
+    } finally {
+      busy = false;
+    }
   });
 }
 

@@ -19,6 +19,12 @@ export function nextIndex(items, i, min = 1) {
   return -1;
 }
 
+/** Numbers overlapping loads: a response renders only if no newer load started after it. */
+export function loadGuard() {
+  let n = 0;
+  return { next: () => ++n, isLatest: (seq) => seq === n };
+}
+
 /** The stored threshold if it is one of the choices, else the default. */
 export function readMin(raw) {
   const n = Number(raw);
