@@ -1,5 +1,6 @@
 // The map page (Phase 4 spec 4.6): Leaflet + DOM over one GeoJSON document.
-// Data reaches the DOM only through textContent; links only through safePostUrl + setAttribute.
+// Data reaches the DOM only through textContent; links only through safePostUrl + setAttribute
+// (bcard.js postLink).
 /* global L */
 
 import {
@@ -11,13 +12,15 @@ import {
   manila,
   needsRefetch,
   onDay,
+  parseIso,
   rangeLabel,
-  safePostUrl,
   shiftDate,
+  slotOf,
   slotLabel,
   stepSlot,
 } from "./timeline.js";
 import { mountTitleFold, notices, renderNotices } from "./cards.js";
+import { badge, mountBarangayCard, outageBlock, postLink } from "./bcard.js";
 import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
 import { changedKeys, dropFades, playhead } from "./frame.js";
@@ -25,8 +28,8 @@ import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
 import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
-import { drawnCount, isPastWindow, lineState, linesInGeometry, whyText } from "./streets.js";
-import { ambiguousText, entityList, reasonText, removedText } from "./text.js";
+import { isPastWindow, lineState, linesInGeometry } from "./streets.js";
+import { reasonText, removedText } from "./text.js";
 import { bands, focusKind, keyStep, keysApply, mountTimebar } from "./timebar.js";
 import { addTiles } from "./tiles.js";
 
@@ -36,7 +39,6 @@ import { addTiles } from "./tiles.js";
 // them with history.replaceState.
 let src = makeSource("live", null);
 const pageParams = () => new URLSearchParams(location.search);
-const PLACES_SHOWN = 8;
 const SHADED = new Set(["scheduled", "additional"]);
 
 const STYLES = {
@@ -70,19 +72,6 @@ function savedClock() {
   }
 }
 
-/** A link to VECO's post, or plain text when the URL isn't VECO's. */
-function postLink(post, text = "VECO post") {
-  const href = safePostUrl(post && post.url);
-  if (!href) return el("span", { class: "muted", text: "(no VECO link)" });
-  return el("a", { text, attrs: { href, target: "_blank", rel: "noopener noreferrer" } });
-}
-
-function badge(status) {
-  if (status === "additional") return el("span", { class: "badge badge-additional", text: "Additional" });
-  if (status === "cancelled") return el("span", { class: "badge badge-cancelled", text: "Cancelled" });
-  return null;
-}
-
 const state = {
   doc: null,
   day: null,
@@ -104,7 +93,10 @@ const state = {
   hovered: null, // the barangay layer under the mouse
   cursor: null, // the mouse's latlng over a barangay: hover popups open there
   labelPane: null,
+  cardLayer: null, // the barangay whose card is pinned
 };
+
+const cardCtx = () => ({ clock: state.clock, drawing: drawing() });
 
 const drawing = () => Boolean(state.doc && state.doc.meta.osm && state.doc.meta.osm.drawing);
 const streetsShown = () => drawing() && state.showStreets;
@@ -168,7 +160,7 @@ function styleKey(feature) {
   const props = feature.properties;
   const st = featureState(props);
   const marked = (layer) => layer && layer.feature === feature;
-  const hi = marked(state.hovered) || marked(state.openLayer);
+  const hi = marked(state.hovered) || marked(state.openLayer) || marked(state.cardLayer);
   let lit = false;
   if (st === "active" && streetsShown()) {
     const ids = state.linesIn.get(props.psgc);
@@ -197,45 +189,8 @@ function popupContent(props) {
   const later = os.filter(([, o]) => !activeInSlot(o, state.day, state.slot));
   if (!os.length) box.append(el("p", { class: "empty", text: "No outage listed for this day." }));
   for (const [, o] of [...active, ...later]) {
-    box.append(outageBlock(o, props, active.some(([, a]) => a === o)));
+    box.append(outageBlock(o, props, active.some(([, a]) => a === o), cardCtx()));
   }
-  return box;
-}
-
-function outageBlock(o, props, isActive) {
-  const when = el("p", { class: "when", text: rangeLabel(o.start, o.end, state.clock) }, [badge(o.status)]);
-  const block = el("div", { class: isActive ? "outage active" : "outage" }, [when]);
-  if (o.purpose) block.append(el("p", { text: o.purpose }));
-  const places = placesLine(o.entities);
-  if (places) block.append(places);
-  const b = o.barangays.find((x) => x.psgc === props.psgc);
-  if (b && b.veco_name && b.veco_name !== b.name) {
-    block.append(el("p", { class: "muted", text: `VECO wrote: ${b.veco_name}` }));
-  }
-  const amb = b ? ambiguousText(b.name, b.town, b.ambiguous_with) : null;
-  if (amb) block.append(el("p", { class: "caveat", text: amb }));
-  if (o.stale) {
-    block.append(
-      el("p", {
-        class: "caveat",
-        text: "VECO updated this post and we couldn't read the update; this is from the earlier version.",
-      }),
-    );
-  }
-  const streets = streetsBlock(o);
-  if (streets) block.append(streets);
-  block.append(el("p", {}, [postLink(o.post)]));
-  return block;
-}
-
-/** "Streets drawn: k of n" and the others with the reason. Nothing when drawing is off: the
- *  places line already names the streets, and there are no lines to explain. */
-function streetsBlock(o) {
-  const { drawn, total } = drawnCount(o);
-  if (!total || !drawing()) return null;
-  const box = el("div", { class: "streets" }, [el("p", { text: `Streets drawn: ${drawn} of ${total}` })]);
-  const items = o.streets.not_drawn.map((s) => el("li", { text: `${s.name}: ${whyText(s.why)}` }));
-  if (items.length) box.append(el("ul", { class: "reasons" }, items));
   return box;
 }
 
@@ -247,7 +202,7 @@ function streetPopup(id, s) {
   if (s.osm_name && bare(s.osm_name) !== bare(s.name)) {
     box.append(el("p", { class: "muted", text: `OSM: ${s.osm_name}` }));
   }
-  box.append(outageBlock(o, { psgc: null }, activeInSlot(o, state.day, state.slot)));
+  box.append(outageBlock(o, { psgc: null }, activeInSlot(o, state.day, state.slot), cardCtx()));
   return box;
 }
 
@@ -282,6 +237,7 @@ function buildStreets() {
       const pl = L.polyline(linePoints(s.lines), { interactive: true });
       pl.bindTooltip(el("span", { text: s.name }), { sticky: true });
       pl.bindPopup(() => streetPopup(id, s), { maxWidth: 320 });
+      pl.on("click", L.DomEvent.stopPropagation); // a street popup keeps the card open
       state.streetLayer.addLayer(pl);
       state.lines.push({ key: `${id}:${i}`, pl, outage: o });
     });
@@ -307,22 +263,6 @@ function zoomToLines(o) {
   const pts = o.streets.drawn.flatMap((s) => linePoints(s.lines).flat());
   if (!pts.length) return;
   map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 17 });
-}
-
-function placesLine(entities) {
-  const all = entityList(entities, Infinity).shown;
-  if (!all.length) return null;
-  const { shown, more } = entityList(entities, PLACES_SHOWN);
-  const p = el("p", { class: "places", text: shown.join("; ") });
-  if (more) {
-    const btn = el("button", { class: "more", text: `+${more} more`, attrs: { type: "button" } });
-    btn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      p.textContent = all.join("; ");
-    });
-    p.append(" ", btn);
-  }
-  return p;
 }
 
 function tooltipFor(props) {
@@ -354,7 +294,7 @@ function restyleFeatures() {
 function drawOutlines() {
   if (!state.outlines) state.outlines = L.layerGroup().addTo(map);
   state.outlines.clearLayers();
-  for (const l of new Set([state.hovered, state.openLayer])) {
+  for (const l of new Set([state.hovered, state.openLayer, state.cardLayer])) {
     if (l) state.outlines.addLayer(L.geoJSON(l.feature, { interactive: false, style: () => OUTLINE }));
   }
   if (state.streetLayer) state.streetLayer.eachLayer((l) => l.bringToFront());
@@ -372,21 +312,27 @@ function wireFeature(feature, layer) {
     state.cursor = e.latlng;
     if (was && was !== layer) restyle(was);
     restyle(layer);
-    if (covered) dwell.enter(layer);
+    if (covered && state.cardLayer !== layer) dwell.enter(layer); // its card already shows it
   });
   layer.on("mousemove", (e) => {
     if (!mouseHover() || state.hovered !== layer) return;
     state.cursor = e.latlng;
-    if (covered) dwell.enter(layer); // still moving: restart the dwell
+    if (covered && state.cardLayer !== layer) dwell.enter(layer); // still moving: restart the dwell
   });
   layer.on("mouseout", () => {
     if (state.hovered === layer) state.hovered = null;
     restyle(layer);
     dwell.leave(layer);
   });
+  layer.on("click", (e) => {
+    L.DomEvent.stopPropagation(e); // a click on empty map closes the card
+    openCard(layer);
+  });
   if (!covered) return;
   layer.bindPopup(() => popupContent(feature.properties), { maxWidth: 320 });
-  layer.on("click", () => dwell.pin(layer));
+  // The popup is for hover only: a click pins the card instead. Leaflet (1.9.4, vendored) opens
+  // a bound popup on click through _openPopup; drop just that handler.
+  layer.off("click", layer._openPopup, layer);
   layer.on("popupopen", (e) => {
     const was = state.openLayer;
     state.openLayer = layer;
@@ -584,6 +530,39 @@ function renderSlot() {
   updateLabels();
   if (!state.play) placeLabels();
   if (state.openLayer) state.openLayer.setPopupContent(popupContent(state.openLayer.feature.properties));
+  renderCard();
+}
+
+function renderCard() {
+  if (!bcard.isOpen()) return;
+  bcard.render({
+    day: state.day,
+    slot: state.slot,
+    days: state.doc.meta.days,
+    showCancelled: state.showCancelled,
+    outages: state.doc.outages,
+    ...cardCtx(),
+  });
+}
+
+function openCard(layer) {
+  dwell.reset();
+  layer.closePopup();
+  showUnplaced(false);
+  const was = state.cardLayer;
+  state.cardLayer = layer;
+  if (was && was !== layer) restyle(was);
+  restyle(layer);
+  bcard.show(layer.feature.properties);
+  renderCard();
+}
+
+function closeCard() {
+  if (!bcard.isOpen()) return;
+  bcard.hide();
+  const was = state.cardLayer;
+  state.cardLayer = null;
+  if (was) restyle(was);
 }
 
 function select(day, slot) {
@@ -674,6 +653,7 @@ function stepBy(delta) {
 }
 
 function showUnplaced(open) {
+  if (open) closeCard();
   $("unplaced-card").hidden = !open;
   if (open) $("unplaced-close").focus({ preventScroll: true });
 }
@@ -721,6 +701,7 @@ async function load() {
     state.slot = sel.slot;
   }
   state.openLayer = null;
+  closeCard();
   map.closePopup();
   indexLines();
   drawFeatures();
@@ -789,6 +770,25 @@ const timebar = mountTimebar($("timebar"), {
   dragStart: stopPlaying,
   dragEnd() {},
 });
+const bcard = mountBarangayCard($("left-slot"), {
+  selectDay(day) {
+    const first = dayOutages(day)[0];
+    const at = first && slotOf(parseIso(first.start));
+    pick(day, at && at.date === day ? at.slot : 0);
+  },
+  close: closeCard,
+});
+map.on("click", closeCard);
+
+/** The pinned barangay's shown outages on `day`, by start. */
+function dayOutages(day) {
+  const props = state.cardLayer && state.cardLayer.feature.properties;
+  if (!props) return [];
+  return visibleOutages(props.outage_ids)
+    .filter(([, o]) => onDay(o, day))
+    .map(([, o]) => o);
+}
+
 const menu = mountPopover($("menu-btn"), $("menu"));
 mountPopover($("info-btn"), $("info"));
 mountTitleFold($("title-card"), $("title-fold"));
@@ -813,6 +813,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (closeOpenPopover()) return;
     if (!$("unplaced-card").hidden) showUnplaced(false);
+    closeCard();
     return;
   }
   if (!state.doc) return;
