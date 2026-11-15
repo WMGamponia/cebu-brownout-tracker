@@ -168,3 +168,38 @@ OSM tiles and the map's colours; the review page; alerts and the bot; server dat
 ## 14. Left to the builder
 
 Module and token names; exact sizes, radii and shadows within §4; how the play loop is structured; whether `activeInHour` survives; the debug switch for the performance check; the order of work (suggested: tokens + `base.css` → slot model and tests → time bar → layout and cards → barangay card → `/history` → contrast test → browser pass → snapshot).
+
+## 15. Addendum (owner, 2026-11-15, after first use): selection, search, Now, lanes
+
+Same branch and PR. Owner's requests are in **bold**; the rest are proposals stated to the owner (lanes picked by the owner; the other calls not objected to).
+
+### 15.1 Timeline track: hover label and lanes (owner picked "lanes")
+- **Hovering the track shows a label above the cursor** with the time under it ("10:30 PM"); over an outage segment it adds the barangays ("10:30 PM · Binaliw, Pit-os", more than 3 → "+n"). Touch: the label shows while dragging.
+- **The track splits the orange band into lanes**, one segment per outage on that day: outages are packed into rows so overlapping ones sit in different rows (greedy, by start). At most **3 rows**; outages that don't fit add to a "+n" count at the right end of the track (hovering it lists them). Cancelled outages: a grey dashed segment, only when Show cancelled is on.
+- Segments are per **outage**, not per barangay: one VECO outage often covers several barangays, which share one segment.
+- **With a barangay selected**, its outages' segments stay bright and every other segment dims, so the selected barangay's times and its overlap with others are visible at once.
+
+### 15.2 Selecting a barangay: zoom, dim, revert
+- **Selecting** (click/tap on the map, or a search pick) pins the card as today **and flies the map to fit the barangay**, with padding for the floating UI (title and notices, left card or phone sheet, round buttons, the bar), so most of the barangay is visible and not under a card. Max zoom 16.
+- **The rest of the map is dimmed slightly** (a dark mask with the selected barangay as a hole, ~35 %), above the shading and lines, below the labels.
+- **Camera memory:** the view (centre, zoom) from before the **first** selection of a sequence is kept; selecting other barangays in a row does not replace it.
+- **Deselect and revert to that view:** clicking the selected barangay again, **Esc**, the card's ✕, or clicking empty map.
+- **Zooming out sufficiently deselects** (no revert: the user moved the camera): when the user zooms out to 2 levels below the barangay's fitted zoom. The map's own fly-to and revert animations never trigger it.
+- MECO areas: selecting shows the existing "not covered" card without zoom or dim.
+
+### 15.3 Search
+- **A search box** in the top-left stack, under the title card (always visible, also on a phone with the title folded). Typing lists up to 8 barangays (every typed word must appear in name or town, case and accents ignored; names starting with the query first). ↑ ↓ move, Enter picks, Esc clears. Picking selects the barangay as in 15.2.
+- **Each row shows the barangay's brownout status at the current time, never the timeline's time:**
+  - **now** (an outage is on now): orange fill, "Now · 08:00–17:00";
+  - **upcoming** (the next outage later in the current window): orange outline, "Today 22:00–06:00" or "Tue 17 Nov 08:00–12:00";
+  - **cancelled** (the only outage now or upcoming is cancelled): grey outline, "Cancelled · …";
+  - nothing listed: no status.
+- "Current time" is `src.now()` (the snapshot's time in a snapshot). The status uses the **current window's** outages, fetched once (and with each refetch) when the page shows another week; when the page shows the current window, the loaded document is reused.
+
+### 15.4 Now button
+- **A "Now" button on the timeline bar.** The page starts **following** the current time (as today's default selection); while following, the selection moves to the current slot as time passes (checked every 15 s) and the button shows as active.
+- **Any manipulation stops following:** a step, the day or time steppers, drag, keys, ▶, a strip day click, or a week change. Clicking Now resumes it: it jumps to the current slot, and from another week it returns to the current window first.
+- In a snapshot "now" is fixed, so following holds still.
+
+### 15.5 Testing additions
+Pure, `node --test`: lane packing (overlap → different rows, cap 3, "+n"), the hover label text, search matching and order, search status at a time (now / upcoming / cancelled / none, overnight, cancelled-only), the zoom-out rule, follow on/off rules, the UI padding from card rectangles. Browser: select → zoom → dim → reselect another → Esc reverts to the first view; zoom out deselects; search pick on desktop and phone; Now follows across a slot boundary (by a faked clock in debug mode) and stops on a step.

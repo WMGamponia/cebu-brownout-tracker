@@ -401,3 +401,126 @@ test("shortLabel names the relevant outage and counts the rest", () => {
 - [ ] **Step 6: Owner check (stop):** the owner spends ten minutes on the real page, desktop and phone (spec §9). Apply their fixes.
 - [ ] **Step 7:** Get one fresh whole-branch review on the most capable model; fix the important findings test-first.
 - [ ] **Step 8:** Push and open a PR (no AI attribution lines) with the before/after screenshots and the performance numbers from Task 7. Refreshing and publishing `site/` waits for the owner's OK (spec §11).
+
+---
+
+## Addendum tasks (spec §15, owner 2026-11-15)
+
+Same branch. Global Constraints above apply. Review Focus additions:
+6. **A programmatic fly-to or revert must never count as the user zooming out** (no deselect mid-animation). → Task 12 state-machine test + browser check.
+7. **Search status in a past week or the snapshot** uses the current window's data and `src.now()`, not the viewed week. → Task 13 test with a viewed doc that lacks today + browser check in a past week.
+8. **Following "now" across midnight** moves to the next day inside the window, and past the window's end stops following quietly. → Task 14 `followSlot` tests.
+
+### Task 11: Track lanes and hover label
+
+**Files:** Modify `S/js/timebar.js`, `S/map.css`, `S/js/map.js` (`renderBar`, `renderSlot` pass lanes and selection). Test: `tests/js/timebar.test.mjs`.
+
+**Interfaces:**
+- `packLanes(outages, day, showCancelled, rows = 3) -> {segments: Array<{id, row, a, b, cancelled}>, overflow: string[]}`: one segment per outage on `day`, covering its first to last active slot `a..b`. Outages are placed greedily by start, then id, each into the first row whose last segment ends before `a`; outages that fit no row go to `overflow`.
+- `hoverText(slot, segments, namesById, clock) -> string`: the `slotLabel`, then `" · "` and the names of the segments covering the slot (at most 3 names, then `" +n"`).
+- `mountTimebar`'s view gains:
+  - `lanes`: the `packLanes` result;
+  - `selected`: a Set of outage ids, empty when nothing is selected. When it isn't empty, segments not in it get the class `dim`.
+- A `.tb-tip` element above the cursor shows `hoverText` on pointermove over the track and while dragging, and hides on pointerleave.
+- The "+n" sits at the track's right end, with a `title` listing the overflow barangays.
+- This replaces `bands`: remove it and its tests once nothing uses it.
+
+- [ ] Tests first, then RED → implement → GREEN:
+  - `packLanes`:
+    - two overlapping outages → rows 0 and 1;
+    - a third overlapping both → row 2;
+    - a fourth → `overflow`;
+    - a later, non-overlapping one reuses row 0;
+    - an overnight outage on its second day → `a = 0`;
+    - cancelled outages are left out when `showCancelled` is false.
+  - `hoverText`:
+    - `hoverText(42, segs, names, "12")` → `"10:30 AM · Binaliw, Pit-os"`;
+    - four names → `"… · A, B, C +1"`;
+    - no segment at the slot → the time only.
+- [ ] Browser: hovering shows the label at the cursor; lanes render on the real week; selecting a barangay dims the other segments.
+- [ ] Commit `feat(map): timeline lanes per outage and a hover label`.
+
+### Task 12: Selection: zoom, dim, revert
+
+**Files:** Create `S/js/select.js` (pure); modify `S/js/map.js` (selection wiring, mask pane) and `S/map.css`. Test: `tests/js/select.test.mjs`.
+
+**Interfaces:**
+- `createSelection()` returns `{select(psgc, view), toggle(psgc, view), clear(), zoomed(zoom), fitted(zoom), animating(on), current()}`.
+  - `select`, `toggle`, `clear` and `zoomed` each return an `Act = {kind: "fly"|"revert"|"deselect"|"none", to?: view}`, where `view = {center: [lat, lng], zoom}`. `current()` returns the selected psgc or null.
+  - `select` of a new psgc: remembers `view` only when nothing is selected yet, and returns `fly`.
+  - `toggle` of the current psgc returns `revert` to the remembered view and clears it; any other psgc behaves as `select`.
+  - `clear()` (Esc, ✕, a click on empty map) returns `revert` when something is selected, else `none`.
+  - `fitted(zoom)` records the fitted zoom once a fly ends.
+  - `zoomed(zoom)` returns `deselect` (no revert; the memory is cleared) when `zoom <= fittedZoom - 2` and not `animating`; otherwise `none`.
+- `uiPadding(viewport {w, h}, rects {left?, top?, right?, bottom?}) -> {paddingTopLeft: [x, y], paddingBottomRight: [x, y]}`: each side gets the covering rectangle's extent + 12 px. Each axis is capped so at least 40 % of the viewport stays free.
+- map.js:
+  - a `dim` pane (z 420, `pointer-events: none`) holds one `L.polygon([world ring, ...selected outer rings])`, filled `#111418` at opacity 0.35, with no stroke;
+  - zoom in with `flyToBounds(bounds, {...uiPadding, maxZoom: 16})`, wrapped in `animating(true/false)`;
+  - revert with `flyTo(center, zoom)`;
+  - `map.on("zoomend")` calls `zoomed`;
+  - the card opens and closes with the selection. A MECO area gets the card only, with no fly or dim.
+
+- [ ] Tests first, then RED → GREEN:
+  - select A, then B, then clear → revert to the view before A;
+  - toggle A twice → revert;
+  - zoomed below the fitted zoom − 2 → deselect, but not while animating;
+  - clear with nothing selected → none;
+  - `uiPadding` with a 340 px left card on a 1366 px viewport → left 352;
+  - a sheet covering 60 % of a phone's height → capped.
+- [ ] Browser:
+  - a click flies and dims, and a second click returns to the start view;
+  - A → B → Esc returns to the view before A;
+  - zooming out twice deselects, and the camera stays where it is;
+  - on a phone the barangay sits above the sheet.
+- [ ] Commit `feat(map): selecting a barangay zooms to it and dims the rest`.
+
+### Task 13: Barangay search with current status
+
+**Files:** Create `S/js/search.js`; modify `S/index.html` (a search card under the title card), `S/map.css`, and `S/js/map.js` (current-window data; a pick selects). Test: `tests/js/search.test.mjs`.
+
+**Interfaces:**
+- `searchBarangays(features, query, limit = 8) -> props[]`: covered features only. Every query word must appear in `name + " " + town`, with case and accents folded (`NFD`, marks removed). Names starting with the query come first, then by name.
+- `searchStatus(outageIds, outages, nowMs, clock) -> {state: "now"|"upcoming"|"cancelled"|null, text}`, in this order:
+  1. a non-cancelled outage active at `nowMs` → now, with text `"Now · " + shortRange`;
+  2. else the next non-cancelled outage starting after `nowMs` → upcoming, with text `"Today " + shortRange` when it starts today in Manila, else `rangeLabel`;
+  3. else a cancelled outage active now or upcoming → cancelled, with text `"Cancelled · " + shortRange`;
+  4. else null.
+- `mountSearch(root, hooks) -> {setData(features, outages, nowMs, clock)}`, with hooks `pick(psgc)`. Rows are buttons in a `role="listbox"` with `aria-activedescendant`, and carry the classes `res-now`, `res-upcoming` and `res-cancelled`.
+- map.js: `state.current = {doc}` holds the current window's data. It is the loaded doc when that is the current window (`!isPastWindow`); otherwise it's fetched once from `src.mapUrl(new URLSearchParams())`, and again with each `load`. Search uses it together with `src.now()`.
+
+- [ ] Tests first, then RED → GREEN:
+  - matching: "lahug" finds Lahug; "cebu lah" finds Lahug through the town; "santo nino" finds "Santo Niño";
+  - order: prefix matches first;
+  - status:
+    - a 08:00–17:00 outage at 10:00 → now;
+    - the same outage at 07:00 → upcoming, "Today 08:00–17:00";
+    - an outage the next day → upcoming, with the date;
+    - only cancelled outages → cancelled;
+    - only past outages → null;
+    - a 22:00–05:00 outage at 02:00 the next day → now.
+- [ ] Browser: typing, ↑ ↓ and Enter work, and a pick selects and flies; the statuses match the clock; in a past week the statuses still use today; the phone layout holds.
+- [ ] Commit `feat(map): search barangays with their brownout status now`.
+
+### Task 14: Now button and following the clock
+
+**Files:** Modify `S/js/timebar.js` (Now button and `setFollowing(on)`), `S/js/frame.js` (`followSlot`) and `S/js/map.js`. Test: `tests/js/frame.test.mjs`.
+
+**Interfaces:**
+- `followSlot(nowMs, days) -> {day, slot} | null`: the current Manila slot when its date is in `days`, else null.
+- map.js:
+  - `state.follow` starts true;
+  - every 15 s, and on `visibilitychange`, while following: call `followSlot` and `select` its result when it differs from the current selection; a null result stops following;
+  - `pick`, the steppers, drag, keys, ▶, strip-day clicks and week changes set `state.follow` to false;
+  - the Now button: in a past window, `goToWeek(null)` and then follow; otherwise follow and select the current slot;
+  - `?debug=clock=<iso>` overrides `src.now()` in live mode, for the browser check only (a debug switch, like `?debug=perf`).
+
+- [ ] Tests first, then RED → GREEN: `followSlot` at 10:37 inside the window → slot 42; at 23:59 → 95; on the next day inside the window → day 2, slot 0; outside the window → null.
+- [ ] Browser (faked clock): Now is active at load; the slot moves at the boundary; → stops following; Now resumes it; from a past week, Now returns to the current window.
+- [ ] Commit `feat(map): Now button follows the current time`.
+
+### Task 15: Addendum pass, docs, review
+
+- [ ] A real-DB browser pass of §15 at desktop, 375 px and 320 px, plus a snapshot build, with a clean console.
+- [ ] README: search, selection, Now and lanes, plus the keys. ROADMAP: a log entry. New screenshots if the look changed.
+- [ ] Run the full suite. Then a fresh whole-branch review of the addendum range (`e3bef52..HEAD`) on the most capable model, with Critical and Important findings fixed test-first.
+- [ ] Stop for the owner's check, then open the PR.
