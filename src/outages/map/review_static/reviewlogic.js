@@ -1,13 +1,39 @@
 // Street review page logic (Streets v2 spec 7.9): pure, no DOM, tested under node --test.
 
-/** Index of the next undecided item after `i`, wrapping to the first; -1 when none is left. */
-export function nextIndex(items, i) {
+// Owner's filter (2026-11-15): hide names VECO wrote fewer than `min` times (live counts).
+export const MIN_CHOICES = [1, 2, 3, 5];
+export const DEFAULT_MIN = 2;
+
+/** Shown at this threshold. An item without a count is shown only at 1. */
+export function visible(item, min) {
+  return (item.mentions ?? (min <= 1 ? min : 0)) >= min;
+}
+
+/** Index of the next undecided, visible item after `i`, wrapping to the first; -1 when none. */
+export function nextIndex(items, i, min = 1) {
   const n = items.length;
   for (let step = 1; step <= n; step++) {
     const j = (((i + step) % n) + n) % n;
-    if (!items[j].decided) return j;
+    if (!items[j].decided && visible(items[j], min)) return j;
   }
   return -1;
+}
+
+/** The stored threshold if it is one of the choices, else the default. */
+export function readMin(raw) {
+  const n = Number(raw);
+  return raw && MIN_CHOICES.includes(n) ? n : DEFAULT_MIN;
+}
+
+export function counterText(left, hidden) {
+  const base = left === 1 ? "1 left" : `${left} left`;
+  return hidden > 0 ? `${base} · ${hidden} hidden` : base;
+}
+
+/** The empty state when rows are only hidden, not done; null when nothing is hidden. */
+export function emptyText(hidden) {
+  if (!hidden) return null;
+  return `Nothing left at this filter: ${hidden} hidden. Lower “Seen at least” to see them.`;
 }
 
 // Owner's keys (2026-11-15). The page calls preventDefault on them, so Enter / Space don't

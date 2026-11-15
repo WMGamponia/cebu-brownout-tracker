@@ -17,11 +17,15 @@
       <header>
         <h1>Street review</h1>
         <p id="left" class="left">Loading…</p>
+        <label class="filter">Seen at least <select id="min-mentions"></select> times</label>
       </header>
       <p id="message" class="message" role="alert" hidden></p>
       <div id="empty" hidden>
-        <p>Nothing to review.</p>
-        <p class="hint">Fill the queue with <code>python -m outages streets suggest</code>, then reload.</p>
+        <p id="empty-hidden" hidden></p>
+        <div id="empty-done">
+          <p>Nothing to review.</p>
+          <p class="hint">Fill the queue with <code>python -m outages streets suggest</code>, then reload.</p>
+        </div>
       </div>
       <div id="item" hidden>
         <p class="label">VECO wrote</p>

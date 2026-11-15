@@ -5,7 +5,12 @@
 import { addTiles } from "/static/js/tiles.js";
 import {
   backStep,
+  counterText,
+  emptyText,
   keyFor,
+  MIN_CHOICES,
+  readMin,
+  visible,
   lineStyle,
   messageFor,
   nextIndex,
@@ -31,6 +36,16 @@ let chosen = null; // a candidate name the owner clicked, or null for the pick
 let busy = false;
 const history = []; // steps taken on this page: { index, decision }
 let stopped = false;
+const MIN_KEY = "review.minMentions";
+let min = readMin(stored());
+
+function stored() {
+  try {
+    return localStorage.getItem(MIN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function say(text) {
   $("message").textContent = text;
@@ -38,8 +53,9 @@ function say(text) {
 }
 
 function left() {
-  const n = items.filter((x) => !x.decided).length;
-  $("left").textContent = n === 1 ? "1 left" : `${n} left`;
+  const open = items.filter((x) => !x.decided);
+  const n = open.filter((x) => visible(x, min)).length;
+  $("left").textContent = counterText(n, open.length - n);
   return n;
 }
 
@@ -162,6 +178,11 @@ function showEmpty() {
   layers.clearLayers();
   $("item").hidden = true;
   $("empty").hidden = false;
+  const hidden = items.filter((x) => !x.decided && !visible(x, min)).length;
+  const text = emptyText(hidden);
+  $("empty-hidden").textContent = text || "";
+  $("empty-hidden").hidden = !text;
+  $("empty-done").hidden = Boolean(text);
 }
 
 async function load(i) {
@@ -177,7 +198,7 @@ async function load(i) {
     it.decided = true;
     left();
     say(messageFor(409));
-    return load(nextIndex(items, i));
+    return load(nextIndex(items, i, min));
   }
   if (!r.ok) {
     say(messageFor(r.status));
@@ -207,7 +228,7 @@ async function decide(kind) {
       backButton();
       it.decided = true;
       left();
-      await load(nextIndex(items, at));
+      await load(nextIndex(items, at, min));
     } else {
       say(messageFor(r.status));
       if (r.status === 403) stopped = true;
@@ -261,6 +282,30 @@ async function back() {
   }
 }
 
+function setupFilter() {
+  const sel = $("min-mentions");
+  for (const n of MIN_CHOICES) {
+    const o = document.createElement("option");
+    o.value = String(n);
+    o.textContent = String(n);
+    sel.appendChild(o);
+  }
+  sel.value = String(min);
+  sel.addEventListener("change", async () => {
+    min = readMin(sel.value);
+    try {
+      localStorage.setItem(MIN_KEY, String(min));
+    } catch {
+      // per-browser convenience only
+    }
+    sel.blur(); // so Enter / Space decide again instead of reopening the select
+    say("");
+    left();
+    await load(nextIndex(items, -1, min));
+  });
+}
+
+setupFilter();
 $("back").addEventListener("click", back);
 $("yes").addEventListener("click", () => decide("y"));
 $("no").addEventListener("click", () => decide("n"));
@@ -282,7 +327,7 @@ async function start() {
   }
   items = (await r.json()).map((x) => ({ ...x, decided: false }));
   left();
-  await load(items.length ? 0 : -1);
+  await load(nextIndex(items, -1, min));
 }
 
 start();
