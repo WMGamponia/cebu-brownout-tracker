@@ -35,17 +35,15 @@ test("nextIndex can stay on i only when i itself is the last undecided", () => {
 
 const ev = (key, tagName = "BODY", extra = {}) => ({ key, target: { tagName }, ...extra });
 
-test("keyFor maps y / n / s, any case", () => {
-  assert.equal(keyFor(ev("y")), "y");
-  assert.equal(keyFor(ev("N")), "n");
-  assert.equal(keyFor(ev("s")), "s");
-  assert.equal(keyFor(ev("x")), null);
+test("keyFor: Enter yes, Delete no, Space skip, Backspace back (owner, 2026-11-15)", () => {
+  assert.equal(keyFor(ev("Enter")), "y");
+  assert.equal(keyFor(ev("Delete")), "n");
+  assert.equal(keyFor(ev(" ")), "s");
+  assert.equal(keyFor(ev("Backspace")), "b");
 });
 
-test("keyFor maps b to back", () => {
-  assert.equal(keyFor(ev("b")), "b");
-  assert.equal(keyFor(ev("B")), "b");
-  assert.equal(keyFor(ev("b", "INPUT")), null);
+test("keyFor: the old letter keys do nothing now", () => {
+  for (const k of ["y", "n", "s", "b", "Y", "x"]) assert.equal(keyFor(ev(k)), null);
 });
 
 test("backStep: the last step, and whether the server must clear a decision", () => {
@@ -59,17 +57,17 @@ test("backStep: the last step, and whether the server must clear a decision", ()
 });
 
 test("keyFor ignores keys while focus is in an input", () => {
-  assert.equal(keyFor(ev("y", "INPUT")), null);
-  assert.equal(keyFor(ev("y", "TEXTAREA")), null);
-  assert.equal(keyFor(ev("y", "SELECT")), null);
-  assert.equal(keyFor(ev("y", "DIV", { target: { tagName: "DIV", isContentEditable: true } })), null);
+  assert.equal(keyFor(ev("Enter", "INPUT")), null);
+  assert.equal(keyFor(ev("Backspace", "TEXTAREA")), null);
+  assert.equal(keyFor(ev(" ", "SELECT")), null);
+  assert.equal(keyFor(ev("Delete", "DIV", { target: { tagName: "DIV", isContentEditable: true } })), null);
 });
 
-test("keyFor ignores modified keys and repeats", () => {
-  assert.equal(keyFor(ev("y", "BODY", { ctrlKey: true })), null);
-  assert.equal(keyFor(ev("n", "BODY", { metaKey: true })), null);
-  assert.equal(keyFor(ev("s", "BODY", { altKey: true })), null);
-  assert.equal(keyFor(ev("y", "BODY", { repeat: true })), null);
+test("keyFor ignores modified keys and repeats (a held Backspace undoes once)", () => {
+  assert.equal(keyFor(ev("Enter", "BODY", { ctrlKey: true })), null);
+  assert.equal(keyFor(ev("Delete", "BODY", { metaKey: true })), null);
+  assert.equal(keyFor(ev(" ", "BODY", { altKey: true })), null);
+  assert.equal(keyFor(ev("Backspace", "BODY", { repeat: true })), null);
 });
 
 test("messageFor: 403 asks to reload", () => {
