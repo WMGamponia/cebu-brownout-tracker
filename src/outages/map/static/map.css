@@ -191,16 +191,11 @@ h1 { font-size: var(--fs-l); margin: 0; }
 .tb-track { position: relative; flex: 1; min-width: 120px; height: 28px; border-radius: 6px; background: var(--track); cursor: pointer; touch-action: none; }
 .tb-ticks, .tb-bands { position: absolute; inset: 0; }
 .tb-tick { position: absolute; top: 6px; bottom: 6px; width: 1px; background: var(--hairline); }
-/* Lanes: one segment per outage, overlapping ones in separate rows (timebar.js packLanes). */
-.tb-band { position: absolute; height: 6px; border-radius: 3px; background: var(--band); transition: opacity 0.15s; }
-.tb-band.row-0 { top: 4px; }
-.tb-band.row-1 { top: 11px; }
-.tb-band.row-2 { top: 18px; }
+/* One bar: orange where an outage is on, grey where only cancelled ones are (timebar.js
+   trackSpans); a selected barangay's outages are outlined on it. */
+.tb-band { position: absolute; top: 9px; height: 10px; border-radius: 3px; background: var(--band); }
 .tb-band.cancelled { background: #8a9198; }
-.tb-band.dim { opacity: 0.25; }
-.tb-lane { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 150px; }
-.tb-more { flex: none; min-width: 2.4em; text-align: center; font-size: 11px; font-weight: 600; color: var(--text); background: var(--track); border-radius: 999px; padding: 1px 5px; }
-.tb-more.empty { visibility: hidden; }
+.tb-mark { position: absolute; top: 5px; height: 18px; box-sizing: border-box; border: 2px solid #fff; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); pointer-events: none; }
 .tb-tip {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -252,7 +247,7 @@ h1 { font-size: var(--fs-l); margin: 0; }
   :root { --gutter: 8px; --bar-h: 96px; }
   .corner-bl { bottom: calc(var(--bar-h) + 2 * var(--gutter)); }
   .timebar { left: var(--gutter); flex-wrap: wrap; gap: 4px 6px; padding: 8px 10px; }
-  .tb-lane { flex-basis: 100%; order: 4; }
+  .tb-track { flex-basis: 100%; order: 4; }
   .tb-step-day { flex: 1; justify-content: center; }
   .tb-day { min-width: 0; }
   .corner-tl { width: calc(100vw - 2 * var(--gutter) - 104px); }

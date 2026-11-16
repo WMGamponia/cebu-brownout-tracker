@@ -2,64 +2,59 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hoverText, keyStep, keysApply, nearestSlotAtX, packLanes, slotAtX } from "../../src/outages/map/static/js/timebar.js";
+import { hoverText, keyStep, keysApply, markSpans, nearestSlotAtX, slotAtX, trackSpans } from "../../src/outages/map/static/js/timebar.js";
 
 const o = (start, end, status = "scheduled") => ({ start, end, status });
 const D = "2026-11-12";
 const on = (b) => b.flatMap((v, i) => (v ? [i] : []));
 
 const at = (h, m = "00") => `${D}T${h}:${m}:00+08:00`;
-const rows = (r) => Object.fromEntries(r.segments.map((x) => [x.id, x.row]));
+const bands = (r) => r.bands.map((x) => [x.a, x.b, x.cancelled]);
 
-test("packLanes puts overlapping outages in separate rows and reuses free rows", () => {
+test("trackSpans merges the day's outages into one bar", () => {
   const outages = {
     1: o(at("08"), at("12")),
     2: o(at("10"), at("14")),
-    3: o(at("11"), at("13")),
-    4: o(at("11", "30"), at("12", "30")),
-    5: o(at("15"), at("16")),
+    3: o(at("15"), at("16")),
   };
-  const r = packLanes(outages, D, true);
-  assert.deepEqual(rows(r), { 1: 0, 2: 1, 3: 2, 5: 0 });
-  assert.deepEqual(r.overflow, ["4"]);
-  const s1 = r.segments.find((x) => x.id === "1");
-  assert.deepEqual([s1.a, s1.b, s1.cancelled], [32, 47, false]);
+  const r = trackSpans(outages, D, true);
+  assert.deepEqual(bands(r), [[32, 55, false], [60, 63, false]]);
+  assert.deepEqual(
+    r.items.map((x) => [x.id, x.a, x.b, x.cancelled]),
+    [["1", 32, 47, false], ["2", 40, 55, false], ["3", 60, 63, false]],
+  );
 });
 
-test("packLanes: an overnight outage starts at slot 0 on its second day", () => {
+test("trackSpans: cancelled time is grey only where no real outage is on", () => {
+  const outages = {
+    1: o(at("08"), at("12")),
+    2: o(at("07"), at("17"), "cancelled"),
+    3: o(at("20"), at("22"), "cancelled"),
+  };
+  assert.deepEqual(bands(trackSpans(outages, D, true)), [
+    [28, 31, true],
+    [32, 47, false],
+    [48, 67, true],
+    [80, 87, true],
+  ]);
+  assert.deepEqual(bands(trackSpans(outages, D, false)), [[32, 47, false]]);
+  assert.equal(trackSpans(outages, D, false).items.length, 1);
+});
+
+test("trackSpans: an overnight outage starts at slot 0 on its second day", () => {
   const night = { 7: o(at("22"), "2026-11-13T05:00:00+08:00") };
-  const [seg] = packLanes(night, "2026-11-13", true).segments;
-  assert.deepEqual([seg.a, seg.b], [0, 19]);
+  assert.deepEqual(bands(trackSpans(night, "2026-11-13", true)), [[0, 19, false]]);
 });
 
-test("packLanes follows Show cancelled", () => {
-  const outages = { 1: o(at("08"), at("09"), "cancelled") };
-  assert.equal(packLanes(outages, D, false).segments.length, 0);
-  assert.equal(packLanes(outages, D, true).segments[0].cancelled, true);
-});
-
-test("packLanes: real outages take rows before cancelled ones, which fill the gaps left", () => {
-  const outages = {
-    1: o(at("07"), at("17"), "cancelled"), // earliest and lowest id, but cancelled
-    2: o(at("08"), at("17")),
-    3: o(at("08"), at("17")),
-    4: o(at("08"), at("17")),
-    5: o(at("18"), at("20"), "cancelled"), // fits after a real one
-  };
-  const r = packLanes(outages, D, true);
-  assert.deepEqual(rows(r), { 2: 0, 3: 1, 4: 2, 5: 0 });
-  assert.deepEqual(r.overflow, ["1"]);
-});
-
-test("packLanes: a cancelled outage fits a gap between two real ones in a row", () => {
-  const outages = {
-    1: o(at("06"), at("08")),
-    2: o(at("06"), at("20")),
-    3: o(at("06"), at("20")),
-    4: o(at("14"), at("16")),
-    5: o(at("10"), at("12"), "cancelled"),
-  };
-  assert.deepEqual(rows(packLanes(outages, D, true)), { 1: 0, 2: 1, 3: 2, 4: 0, 5: 0 });
+test("markSpans outlines only the selected barangay's outages, merged", () => {
+  const items = [
+    { id: "1", a: 32, b: 47 },
+    { id: "2", a: 40, b: 55 },
+    { id: "3", a: 60, b: 63 },
+    { id: "4", a: 70, b: 75 },
+  ];
+  assert.deepEqual(markSpans(items, new Set(["1", "2", "4"])), [{ a: 32, b: 55 }, { a: 70, b: 75 }]);
+  assert.deepEqual(markSpans(items, new Set()), []);
 });
 
 test("hoverText: the time, then the barangays under it", () => {
@@ -110,16 +105,14 @@ test("keysApply: never on the map, other controls, text fields or menus", () => 
   }
 });
 
-test("the hover label also names outages that went to +n", () => {
+test("the hover label names every outage under the cursor", () => {
   const outages = {
     1: o(at("08"), at("12")),
     2: o(at("09"), at("12")),
     3: o(at("10"), at("12")),
     4: o(at("11"), at("12")),
   };
-  const lanes = packLanes(outages, D, true);
-  assert.deepEqual(lanes.overflow, ["4"]);
+  const { items } = trackSpans(outages, D, true);
   const names = { 1: ["A"], 2: ["B"], 3: ["C"], 4: ["D"] };
-  assert.equal(hoverText(45, lanes.items, names, "24"), "11:15 · A, B, C +1");
-  assert.equal(lanes.items.length, 4);
+  assert.equal(hoverText(45, items, names, "24"), "11:15 · A, B, C +1");
 });

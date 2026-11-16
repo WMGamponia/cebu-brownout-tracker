@@ -271,7 +271,7 @@ Owner, 2026-11-13: the page around the map looks bland; take cues from zoom.eart
 - [x] Label chips as pills with a state colour (outage now / later today / cancelled), like the place chips on zoom.earth. → plus "ended today"; cancelled never counts as now; "+N" for more outages.
 - [x] Barangay card: a click pins a side card for that barangay with its outages across the week (a 7-day strip), instead of only a popup. → a sheet above the bar on a phone; hover popups stay.
 - [x] Compact legend as a colour bar in a corner; credits behind an ⓘ button.
-- [x] Owner's additions after first use (spec §15): track hover label and lanes per outage; select zooms and dims, with camera revert; barangay search with the status now; Now button.
+- [x] Owner's additions after first use (spec §15): track hover label and one bar with the selected barangay's outages outlined (lanes tried first, dropped 2026-11-16); select zooms and dims, with camera revert; barangay search with the status now; Now button.
 - [x] Floating cards and controls stay readable over the light map on a phone in daylight (WCAG AA contrast). → `tests/js/contrast.test.mjs` reads the tokens from `base.css`; checked by eye on a phone: owner.
 
 ## Phase 7 — Later
