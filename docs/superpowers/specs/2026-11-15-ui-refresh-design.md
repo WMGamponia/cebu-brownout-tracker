@@ -175,7 +175,7 @@ Same branch and PR. Owner's requests are in **bold**; the rest are proposals sta
 
 ### 15.1 Timeline track: hover label and lanes (owner picked "lanes")
 - **Hovering the track shows a label above the cursor** with the time under it ("10:30 PM"); over an outage segment it adds the barangays ("10:30 PM · Binaliw, Pit-os", more than 3 → "+n"). Touch: the label shows while dragging.
-- **The track splits the orange band into lanes**, one segment per outage on that day: outages are packed into rows so overlapping ones sit in different rows (greedy, by start). At most **3 rows**; outages that don't fit add to a "+n" count at the right end of the track (hovering it lists them). Cancelled outages: a grey dashed segment, only when Show cancelled is on.
+- **The track splits the orange band into lanes**, one segment per outage on that day: outages are packed into rows so overlapping ones sit in different rows (greedy, by start). At most **3 rows**; outages that don't fit add to a "+n" count beside the right end of the track (hovering it lists them). Cancelled outages: a solid grey segment, only when Show cancelled is on, packed after all real outages so they never push one off the track (owner, 2026-11-16: "the bars for cancelled should also be greyed"; the chip moved off the track then because it hid late-evening segments).
 - Segments are per **outage**, not per barangay: one VECO outage often covers several barangays, which share one segment.
 - **With a barangay selected**, its outages' segments stay bright and every other segment dims, so the selected barangay's times and its overlap with others are visible at once.
 

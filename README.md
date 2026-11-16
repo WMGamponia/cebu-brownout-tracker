@@ -213,7 +213,8 @@ well out also lets go of it. Times are Manila time whatever your computer's zone
   time (orange = on now, orange outline = coming up, grey outline = cancelled), whatever week
   the map shows. Enter or a click selects it.
 - **Track:** each outage of the day is a segment; overlapping outages sit in separate rows (up
-  to 3, then "+n"). Hover the track for the time and the barangays out then; with a barangay
+  to 3, then "+n" beside the track). Cancelled outages are grey and take a row only after the
+  real ones. Hover the track for the time and the barangays out then; with a barangay
   selected, its outages stay bright.
 
 - **Keys:** ← / → move 15 minutes, Shift + ← / → an hour, Space plays or pauses (with the page

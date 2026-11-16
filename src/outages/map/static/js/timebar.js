@@ -4,8 +4,8 @@
 import { el } from "./dom.js";
 import { SLOTS, activeInSlot, dateLabel, dayLabel, onDay, slotLabel, stepSlot } from "./timeline.js";
 
-/** The day's outages as track segments, packed into rows so overlapping ones sit apart (greedy
- *  by start, then id). Each segment covers its first to last active slot of `day`. Outages that
+/** The day's outages as track segments, packed into rows so overlapping ones sit apart (greedy:
+ *  real outages by start, then id, then cancelled ones into the gaps left). Each segment covers its first to last active slot of `day`. Outages that
  *  fit none of the `rows` go to `overflow` (their ids); `items` has every outage, drawn or not
  *  (the hover label names them all). */
 export function packLanes(outages, day, showCancelled, rows = 3) {
@@ -22,17 +22,18 @@ export function packLanes(outages, day, showCancelled, rows = 3) {
     }
     if (a >= 0) items.push({ id, a, b, cancelled: o.status === "cancelled" });
   }
-  items.sort((x, y) => x.a - y.a || Number(x.id) - Number(y.id));
-  const ends = new Array(rows).fill(-1); // last slot used in each row
+  // Real outages first, so a cancelled one never pushes a real one off the track.
+  items.sort((x, y) => x.cancelled - y.cancelled || x.a - y.a || Number(x.id) - Number(y.id));
+  const used = Array.from({ length: rows }, () => []); // [a, b] spans taken in each row
   const segments = [];
   const overflow = [];
   for (const it of items) {
-    const row = ends.findIndex((end) => end < it.a);
+    const row = used.findIndex((spans) => spans.every(([a, b]) => b < it.a || a > it.b));
     if (row < 0) {
       overflow.push(it.id);
       continue;
     }
-    ends[row] = it.b;
+    used[row].push([it.a, it.b]);
     segments.push({ ...it, row });
   }
   return { segments, overflow, items };
@@ -132,14 +133,15 @@ export function mountTimebar(root, hooks) {
         "aria-valuemax": String(SLOTS - 1),
       },
     },
-    [ticks, bandBox, more, head, tip],
+    [ticks, bandBox, head, tip],
   );
   root.replaceChildren(
     play,
     now,
     el("div", { class: "tb-step tb-step-day" }, [dayPrev, dayText, dayNext]),
     el("div", { class: "tb-step tb-step-time" }, [hourPrev, timeText, hourNext]),
-    track,
+    // The "+n" chip sits beside the track, not on it, so it never covers late-evening bands.
+    el("div", { class: "tb-lane" }, [track, more]),
   );
 
   let view = null;
@@ -229,7 +231,7 @@ export function mountTimebar(root, hooks) {
           }),
         );
         const n = v.lanes.overflow.length;
-        more.hidden = !n;
+        more.classList.toggle("empty", !n); // keeps its width so the track's scale stays put
         more.textContent = n ? `+${n}` : "";
         const names = v.lanes.overflow.flatMap((id) => (v.names || {})[id] || []);
         if (n) more.setAttribute("title", `Also out this day: ${names.join(", ")}`);

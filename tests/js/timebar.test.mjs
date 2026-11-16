@@ -38,6 +38,30 @@ test("packLanes follows Show cancelled", () => {
   assert.equal(packLanes(outages, D, true).segments[0].cancelled, true);
 });
 
+test("packLanes: real outages take rows before cancelled ones, which fill the gaps left", () => {
+  const outages = {
+    1: o(at("07"), at("17"), "cancelled"), // earliest and lowest id, but cancelled
+    2: o(at("08"), at("17")),
+    3: o(at("08"), at("17")),
+    4: o(at("08"), at("17")),
+    5: o(at("18"), at("20"), "cancelled"), // fits after a real one
+  };
+  const r = packLanes(outages, D, true);
+  assert.deepEqual(rows(r), { 2: 0, 3: 1, 4: 2, 5: 0 });
+  assert.deepEqual(r.overflow, ["1"]);
+});
+
+test("packLanes: a cancelled outage fits a gap between two real ones in a row", () => {
+  const outages = {
+    1: o(at("06"), at("08")),
+    2: o(at("06"), at("20")),
+    3: o(at("06"), at("20")),
+    4: o(at("14"), at("16")),
+    5: o(at("10"), at("12"), "cancelled"),
+  };
+  assert.deepEqual(rows(packLanes(outages, D, true)), { 1: 0, 2: 1, 3: 2, 4: 0, 5: 0 });
+});
+
 test("hoverText: the time, then the barangays under it", () => {
   const segs = [{ id: "1", a: 40, b: 50 }, { id: "2", a: 60, b: 70 }];
   const names = { 1: ["Binaliw", "Pit-os"], 2: ["A", "B", "C", "D"] };
