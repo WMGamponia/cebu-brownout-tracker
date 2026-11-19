@@ -119,7 +119,7 @@ applied without the owner. The owner decided 14 (13 Qwen picks accepted, 1 other
 | | |
 |---|---|
 | ![A barangay's card on a phone: the week strip, time, purpose, places, VECO's post](docs/images/card-phone.jpg) | ![The map on a phone: folded title, pills, timeline bar](docs/images/map-phone.jpg) |
-| A selected barangay on a phone: zoomed, the rest dimmed, its card as a sheet | The map on a phone: search, Now, lanes on the track |
+| A selected barangay on a phone: zoomed, the rest dimmed, its card as a sheet | The map on a phone: search, Now, the day's bar on the track |
 
 ![The menu: week picker, show cancelled, AM/PM, street lines, "Not on the map", History](docs/images/menu.jpg)
 
@@ -213,9 +213,9 @@ well out also lets go of it. Times are Manila time whatever your computer's zone
 - **Search:** type a barangay or town; each result shows its brownout status at the current
   time (orange = on now, orange outline = coming up, grey outline = cancelled), whatever week
   the map shows. Enter or a click selects it.
-- **Track:** each outage of the day is a segment; overlapping outages sit in separate rows (up
-  to 3, then "+n"). Hover the track for the time and the barangays out then; with a barangay
-  selected, its outages stay bright.
+- **Track:** one bar for the day: orange while any outage is on, grey where only cancelled ones
+  are. Hover the track for the time and the barangays out then; with a barangay selected, its
+  outages are outlined on the bar.
 
 - **Keys:** ← / → move 15 minutes, Shift + ← / → an hour, Space plays or pauses (with the page
   or the track focused; a focused map pans with its arrows instead). Esc closes a menu or card.

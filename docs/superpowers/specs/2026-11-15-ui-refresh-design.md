@@ -175,7 +175,7 @@ Same branch and PR. Owner's requests are in **bold**; the rest are proposals sta
 
 ### 15.1 Timeline track: hover label and lanes (owner picked "lanes")
 - **Hovering the track shows a label above the cursor** with the time under it ("10:30 PM"); over an outage segment it adds the barangays ("10:30 PM · Binaliw, Pit-os", more than 3 → "+n"). Touch: the label shows while dragging.
-- **The track splits the orange band into lanes**, one segment per outage on that day: outages are packed into rows so overlapping ones sit in different rows (greedy, by start). At most **3 rows**; outages that don't fit add to a "+n" count at the right end of the track (hovering it lists them). Cancelled outages: a grey dashed segment, only when Show cancelled is on.
+- ~~The track splits the orange band into lanes~~ (owner, 2026-11-16, after using lanes: "Just one bar. But when selecting a barangay, it only outlines the part of the orange bar its sched is in"). **The track shows one bar**: orange over every slot with a real outage on, grey over slots where only cancelled outages are (only when Show cancelled is on). No rows, no "+n" count. **A selected barangay's outages are outlined** on the bar (white outline over the slots they cover, merged); without a selection there is no outline. Lanes were dropped because three rows overflowed on busy days and hid outages (a cancelled one disappeared into "+1").
 - Segments are per **outage**, not per barangay: one VECO outage often covers several barangays, which share one segment.
 - **With a barangay selected**, its outages' segments stay bright and every other segment dims, so the selected barangay's times and its overlap with others are visible at once.
 
@@ -202,4 +202,4 @@ Same branch and PR. Owner's requests are in **bold**; the rest are proposals sta
 - In a snapshot "now" is fixed, so following holds still.
 
 ### 15.5 Testing additions
-Pure, `node --test`: lane packing (overlap → different rows, cap 3, "+n"), the hover label text, search matching and order, search status at a time (now / upcoming / cancelled / none, overnight, cancelled-only), the zoom-out rule, follow on/off rules, the UI padding from card rectangles. Browser: select → zoom → dim → reselect another → Esc reverts to the first view; zoom out deselects; search pick on desktop and phone; Now follows across a slot boundary (by a faked clock in debug mode) and stops on a step.
+Pure, `node --test`: the day's bar (merged runs; grey only where no real outage is on; overnight), the selection outline, the hover label text, search matching and order, search status at a time (now / upcoming / cancelled / none, overnight, cancelled-only), the zoom-out rule, follow on/off rules, the UI padding from card rectangles. Browser: select → zoom → dim → reselect another → Esc reverts to the first view; zoom out deselects; search pick on desktop and phone; Now follows across a slot boundary (by a faked clock in debug mode) and stops on a step.

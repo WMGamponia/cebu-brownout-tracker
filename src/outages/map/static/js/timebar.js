@@ -4,11 +4,21 @@
 import { el } from "./dom.js";
 import { SLOTS, activeInSlot, dateLabel, dayLabel, onDay, slotLabel, stepSlot } from "./timeline.js";
 
-/** The day's outages as track segments, packed into rows so overlapping ones sit apart (greedy
- *  by start, then id). Each segment covers its first to last active slot of `day`. Outages that
- *  fit none of the `rows` go to `overflow` (their ids); `items` has every outage, drawn or not
- *  (the hover label names them all). */
-export function packLanes(outages, day, showCancelled, rows = 3) {
+/** Runs of consecutive true slots as [{a, b}]. */
+function runs(on) {
+  const out = [];
+  for (let s = 0; s < SLOTS; s++) {
+    if (!on[s]) continue;
+    if (out.length && out[out.length - 1].b === s - 1) out[out.length - 1].b = s;
+    else out.push({ a: s, b: s });
+  }
+  return out;
+}
+
+/** The day's outages as one bar: `bands` are runs of slots with a real outage on (orange) or,
+ *  where none is, only cancelled ones (grey, with Show cancelled on). `items` has each outage's
+ *  first and last active slot of `day` (the hover label and the selection outline use them). */
+export function trackSpans(outages, day, showCancelled) {
   const items = [];
   for (const [id, o] of Object.entries(outages)) {
     if (o.status === "cancelled" && !showCancelled) continue;
@@ -23,19 +33,21 @@ export function packLanes(outages, day, showCancelled, rows = 3) {
     if (a >= 0) items.push({ id, a, b, cancelled: o.status === "cancelled" });
   }
   items.sort((x, y) => x.a - y.a || Number(x.id) - Number(y.id));
-  const ends = new Array(rows).fill(-1); // last slot used in each row
-  const segments = [];
-  const overflow = [];
-  for (const it of items) {
-    const row = ends.findIndex((end) => end < it.a);
-    if (row < 0) {
-      overflow.push(it.id);
-      continue;
-    }
-    ends[row] = it.b;
-    segments.push({ ...it, row });
-  }
-  return { segments, overflow, items };
+  const real = new Array(SLOTS).fill(false);
+  const cx = new Array(SLOTS).fill(false);
+  for (const it of items) for (let s = it.a; s <= it.b; s++) (it.cancelled ? cx : real)[s] = true;
+  const bands = [
+    ...runs(real).map((r) => ({ ...r, cancelled: false })),
+    ...runs(cx.map((c, s) => c && !real[s])).map((r) => ({ ...r, cancelled: true })),
+  ].sort((x, y) => x.a - y.a);
+  return { bands, items };
+}
+
+/** The slots of the selected outages (`selected`: a Set of ids), merged: outlined on the bar. */
+export function markSpans(items, selected) {
+  const on = new Array(SLOTS).fill(false);
+  for (const it of items) if (selected.has(it.id)) for (let s = it.a; s <= it.b; s++) on[s] = true;
+  return runs(on);
 }
 
 /** "10:30 AM · Binaliw, Pit-os": the time at `slot`, then the barangays of the segments covering
@@ -116,7 +128,6 @@ export function mountTimebar(root, hooks) {
     ticks.append(t);
   }
   const bandBox = el("div", { class: "tb-bands", attrs: { "aria-hidden": "true" } });
-  const more = el("span", { class: "tb-more", attrs: { "aria-hidden": "true" } });
   const tip = el("div", { class: "tb-tip", attrs: { "aria-hidden": "true" } });
   tip.hidden = true;
   const head = el("div", { class: "tb-head", attrs: { "aria-hidden": "true" } });
@@ -132,7 +143,7 @@ export function mountTimebar(root, hooks) {
         "aria-valuemax": String(SLOTS - 1),
       },
     },
-    [ticks, bandBox, more, head, tip],
+    [ticks, bandBox, head, tip],
   );
   root.replaceChildren(
     play,
@@ -157,9 +168,9 @@ export function mountTimebar(root, hooks) {
   const xOf = (e) => Math.min(Math.max(e.clientX - track.getBoundingClientRect().left, 0), width());
   /** The label above the cursor: the time there and the barangays out then. */
   const showTip = (e) => {
-    if (!view || !view.lanes) return;
+    if (!view || !view.spans) return;
     const x = xOf(e);
-    tip.textContent = hoverText(slotAtX(x, width()), view.lanes.items, view.names || {}, view.clock);
+    tip.textContent = hoverText(slotAtX(x, width()), view.spans.items, view.names || {}, view.clock);
     tip.style.left = `${x}px`;
     tip.hidden = false;
   };
@@ -201,9 +212,9 @@ export function mountTimebar(root, hooks) {
   return {
     track,
     render(v) {
-      // A slot render passes no lanes: keep the day's lanes, names and selection for the label.
-      const fresh = Boolean(v.lanes);
-      view = v.lanes || !view ? v : { ...v, lanes: view.lanes, names: view.names, selected: view.selected };
+      // A slot render passes no spans: keep the day's spans, names and selection for the label.
+      const fresh = Boolean(v.spans);
+      view = v.spans || !view ? v : { ...v, spans: view.spans, names: view.names, selected: view.selected };
       v = view;
       const i = v.days.indexOf(v.day);
       const date = dateLabel(v.day);
@@ -216,23 +227,17 @@ export function mountTimebar(root, hooks) {
       track.setAttribute("aria-valuenow", String(v.slot));
       track.setAttribute("aria-valuetext", `${date}, ${slotLabel(v.slot, v.clock)}`);
       if (fresh) {
-        const sel = v.selected || new Set();
+        const span = (cls, r) => {
+          const n = el("span", { class: cls });
+          n.style.left = pct(r.a);
+          n.style.width = pct(r.b - r.a + 1);
+          return n;
+        };
         bandBox.replaceChildren(
-          ...v.lanes.segments.map((s) => {
-            const dim = sel.size && !sel.has(s.id);
-            const seg = el("span", {
-              class: `tb-band row-${s.row}${s.cancelled ? " cancelled" : ""}${dim ? " dim" : ""}`,
-            });
-            seg.style.left = pct(s.a);
-            seg.style.width = pct(s.b - s.a + 1);
-            return seg;
-          }),
+          ...v.spans.bands.map((r) => span(`tb-band${r.cancelled ? " cancelled" : ""}`, r)),
+          // The selected barangay's outages: an outline on the part of the bar they cover.
+          ...markSpans(v.spans.items, v.selected || new Set()).map((r) => span("tb-mark", r)),
         );
-        const n = v.lanes.overflow.length;
-        more.hidden = !n;
-        more.textContent = n ? `+${n}` : "";
-        const names = v.lanes.overflow.flatMap((id) => (v.names || {})[id] || []);
-        if (n) more.setAttribute("title", `Also out this day: ${names.join(", ")}`);
       }
       setPlayhead(v.slot, 0);
     },

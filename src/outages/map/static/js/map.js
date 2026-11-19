@@ -32,7 +32,7 @@ import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { isPastWindow, lineOrder, lineState, linesInGeometry } from "./streets.js";
 import { reasonText, removedText } from "./text.js";
-import { focusKind, keyStep, keysApply, mountTimebar, packLanes } from "./timebar.js";
+import { focusKind, keyStep, keysApply, mountTimebar, trackSpans } from "./timebar.js";
 import { addTiles } from "./tiles.js";
 
 // Every data URL and every "now" come from the source (Phase 6 spec 4.3): the live server, or a
@@ -486,7 +486,7 @@ function renderBar() {
     days: state.doc.meta.days,
     today: manila(src.now()).date,
     clock: state.clock,
-    lanes: packLanes(state.doc.outages, state.day, state.showCancelled),
+    spans: trackSpans(state.doc.outages, state.day, state.showCancelled),
     names: Object.fromEntries(
       Object.entries(state.doc.outages).map(([id, o]) => [id, (o.barangays || []).map((b) => b.name)]),
     ),
@@ -494,7 +494,7 @@ function renderBar() {
   });
 }
 
-/** The pinned barangay's outage ids: its segments stay bright on the track, the rest dim. */
+/** The pinned barangay's outage ids: outlined on the track's bar. */
 function selectedOutageIds() {
   const props = state.cardLayer && state.cardLayer.feature.properties;
   return new Set(props && props.covered ? props.outage_ids.map(String) : []);
@@ -527,7 +527,7 @@ function renderUnplaced() {
   $("unplaced").replaceChildren(...list);
 }
 
-/** Everything that depends on the day or a toggle: lanes, lists, street lines, labels. */
+/** Everything that depends on the day or a toggle: the bar, lists, street lines, labels. */
 function renderDay() {
   renderBar();
   renderUnplaced();
@@ -546,7 +546,7 @@ function renderSlot() {
     days: state.doc.meta.days,
     today: manila(src.now()).date,
     clock: state.clock,
-    lanes: null, // the day's lanes are drawn by renderBar
+    spans: null, // the day's bar is drawn by renderBar
   });
   restyleFeatures();
   restyleStreets();
@@ -592,7 +592,7 @@ function openCard(layer) {
   restyle(layer);
   bcard.show(layer.feature.properties);
   renderCard();
-  renderBar(); // dim the other outages on the track
+  renderBar(); // outline its outages on the bar
 }
 
 // --- selection: zoom to the barangay, dim the rest, revert (spec 15.2) -------------------------
