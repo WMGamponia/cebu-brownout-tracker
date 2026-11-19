@@ -97,6 +97,14 @@ export function refetchAllowed(mode, src) {
   return mode !== "snapshot" && src.refetch;
 }
 
+/** Whether an open snapshot page should reload: `latest` (snapshot.json now, null if it couldn't
+ *  be fetched) names newer data than `loaded`, or the page was `wasFresh` at load and its data
+ *  is old at `nowMs` (its clock and banner would otherwise be wrong). */
+export function shouldReload(loaded, wasFresh, nowMs, latest) {
+  if (latest && latest.data !== loaded.data) return true;
+  return wasFresh && !isFresh(loaded, nowMs);
+}
+
 /** "Thu 12 Nov 2026, 20:05" in Manila. */
 export function snapshotLabel(iso) {
   const m = manila(parseIso(iso));

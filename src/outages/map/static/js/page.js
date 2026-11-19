@@ -1,16 +1,43 @@
 // What both pages share in snapshot mode (Phase 6 spec 4.3): picking the data source from
 // <html data-mode>, and the "Last updated …" banner (old data only) and credits. Text via textContent
 // only; links via setAttribute, and only https:// or relative ones.
-import { makeSource, snapshotCopy } from "./source.js";
+import { makeSource, shouldReload, snapshotCopy } from "./source.js";
 
 export const isSnapshotPage = () => document.documentElement.dataset.mode === "snapshot";
+
+async function fetchSnap() {
+  const r = await fetch("snapshot.json", { cache: "no-store" });
+  if (!r.ok) throw new Error(`snapshot.json: HTTP ${r.status}`);
+  return r.json();
+}
 
 /** The page's data source; in snapshot mode after loading snapshot.json (throws on failure). */
 export async function pageSource() {
   if (!isSnapshotPage()) return makeSource("live", null);
-  const r = await fetch("snapshot.json", { cache: "no-store" });
-  if (!r.ok) throw new Error(`snapshot.json: HTTP ${r.status}`);
-  return makeSource("snapshot", await r.json());
+  return makeSource("snapshot", await fetchSnap());
+}
+
+const RECHECK_MS = 10 * 60 * 1000;
+
+/** Keep an open snapshot tab honest: when it comes back into view, and every RECHECK_MS while
+ *  visible, reload if newer data is published or the data it shows has gone old. */
+export function watchSnapshot(src) {
+  let busy = false;
+  async function recheck() {
+    if (busy || document.visibilityState !== "visible") return;
+    busy = true;
+    let latest = null;
+    try {
+      latest = await fetchSnap();
+    } catch {
+      // offline or a failed fetch: decide on the clock alone
+    }
+    busy = false;
+    if (shouldReload(src.snap, src.fresh, src.now(), latest)) location.reload();
+  }
+  document.addEventListener("visibilitychange", recheck);
+  window.addEventListener("pageshow", (e) => e.persisted && recheck()); // restored from bfcache
+  setInterval(recheck, RECHECK_MS);
 }
 
 function link(text, href, external) {
