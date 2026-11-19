@@ -136,6 +136,22 @@ def telegram_settings() -> TelegramSettings | None:
     return TelegramSettings(token, allowed, admin[0] if admin else None)
 
 
+@dataclass(frozen=True)
+class PublishSettings:
+    """Live site (live-site spec 5.2): where `serve` writes and pushes the snapshot."""
+
+    site: Path  # a git worktree on branch gh-pages
+
+
+def publish_settings(root: Path) -> PublishSettings | None:
+    """None unless PUBLISH_SITE=1 (environment or `<root>/.env`); PUBLISH_DIR (default `site`)
+    resolves against `root`."""
+    env = root / ".env"
+    if dotenv_get("PUBLISH_SITE", env) != "1":
+        return None
+    return PublishSettings(root / (dotenv_get("PUBLISH_DIR", env) or "site"))
+
+
 # Phase 5: streets from one hand-refreshed OSM extract per town (spec 4.2-4.5).
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 OVERPASS_SPACING_S = 10

@@ -239,7 +239,7 @@ async function load() {
   try {
     const [doc, boundaries] = await Promise.all([
       getJson(src.statsUrl(new URLSearchParams(location.search))),
-      state.boundaries ? Promise.resolve(state.boundaries) : getJson("boundaries.geojson"),
+      state.boundaries ? Promise.resolve(state.boundaries) : getJson(src.boundariesUrl()),
     ]);
     state.doc = doc;
     state.boundaries = boundaries;
@@ -289,7 +289,7 @@ async function start() {
       showBanner(`Couldn't load the snapshot (${e.message}).`);
       return;
     }
-    showSnapshotChrome(src.snap);
+    showSnapshotChrome(src.snap, src.fresh);
     $("range").hidden = true;
     $("range-select").replaceChildren(
       ...src.ranges.map((r) => el("option", { text: r.label, attrs: { value: r.id } })),

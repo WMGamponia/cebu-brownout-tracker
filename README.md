@@ -7,7 +7,8 @@ the power goes out most. It runs on one PC with Python, httpx + selectolax, SQLi
 FastAPI and Leaflet; the small LLM part is measured with evals and lost to plain rules.
 
 **Demo:** [wmgamponia.github.io/cebu-brownout-tracker](https://wmgamponia.github.io/cebu-brownout-tracker/),
-a snapshot of 12 Nov 2026, not live. For current schedules see
+updated from my PC after each check (06:00 and 20:00 Manila). When the PC is off the data gets
+old, and the page says so. For the official schedules see
 [VECO's advisories](https://www.visayanelectric.com/).
 
 ![The map: barangays that may be without power at 16:45, with pills, the timeline bar and the snapshot notice](docs/images/map.png)
@@ -295,27 +296,44 @@ the tail of `data\logs\outages.log`, and whether the PC slept past a run. `serve
 5 minutes: a run slept through is done within minutes of waking (logged as `missed the 06:00
 run`), once per run time even if VECO is unreachable then.
 
-## Publishing the snapshot
+## Publishing the site
 
-The demo is a static copy of the map and `/history` on GitHub Pages, refreshed by hand. It lives
-on the `gh-pages` branch, checked out as a worktree at `site/` (git-ignored on `main`):
+The site is a static copy of the map and `/history` on GitHub Pages. It lives on the `gh-pages`
+branch, checked out as a worktree at `site/` (git-ignored on `main`). With `PUBLISH_SITE=1` in
+`.env`, `serve` publishes it after every check that succeeded:
+
+```
+check → alerts → snapshot into site/ → one new gh-pages commit, force-pushed with a lease → street suggestions
+```
+
+- **Only from `main`, as started:** if `serve` started on another branch, is on one now, `main`
+  moved since it started (restart `serve` after a pull), `src/outages` has uncommitted changes or
+  the static folder has untracked files, it skips and tells the admin chat (once a day per reason).
+- **If a publish keeps failing** with a refused push: `git -C site fetch origin gh-pages` and
+  `git -C site reset --soft origin/gh-pages`, then wait for the next check.
+- **One commit:** `gh-pages` is replaced on each publish, so it never grows. The push refuses if
+  the branch changed since the last publish; git never prompts and gives up after 120 s. A failed
+  publish leaves the last good site up and tells the admin chat once a day; alerts never wait on it.
+- **No mixed files:** GitHub Pages caches every file for 10 minutes, so each snapshot's data goes
+  under `data/<taken_at>/` and the code under `static/<hash>/`, and the previous version stays one
+  more round. `snapshot.json` (always fetched fresh) says which folder is current.
+- **The clock:** while the last check is under 15 h old the pages run on the real clock and say
+  "Updated …"; after that, time stops at the snapshot and a banner says the data may be out of date.
+
+`PUBLISH_DIR=<path>` publishes from another folder than `site/`. By hand, the same snapshot
+is:
 
 ```bash
 git worktree add site gh-pages                      # once per clone
-python -m outages check                             # if the data is more than 15 h old
 python -m outages snapshot --out site               # offline, read-only
-git -C site status --short | head
-python -m http.server -d site -b 127.0.0.1 8766     # have a look first
-git -C site add -A && git -C site commit -m "snapshot: <taken_at>" && git -C site push
+python -m http.server -d site -b 127.0.0.1 8766     # have a look
 ```
 
 `snapshot` writes the snapshot week plus 52 weeks back, the history ranges (last 12 months, each
-year from 2024, this year to date), `snapshot.json` and `LICENSES.md`. Time is pinned to the
-moment it ran. It refuses data more than 15 h old (`--allow-old` for a local look only), a folder
-holding anything but a previous snapshot, and output containing a chat ID or the bot token; it
-can't read the subscriber or alert tables at all. Every week file changes on each refresh
-(`meta.generated_at`), so review `snapshot.json`, the printed summary and the pages rather than
-the diff size.
+year from 2024, this year to date), `snapshot.json` and `LICENSES.md`. It refuses data more than
+15 h old (`--allow-old` for a local look only), a folder holding anything but a previous snapshot,
+and output containing a chat ID or the bot token; it can't read the subscriber or alert tables at
+all.
 
 ## Licences
 

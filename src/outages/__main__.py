@@ -20,9 +20,11 @@ from outages import (
     lock,
     pipeline,
     power,
+    publish,
     report,
     scheduler,
     snapshot,
+    snapshot_run,
 )
 from outages.alerts import run as alerts_run
 from outages.alerts import store as alerts_store
@@ -40,20 +42,18 @@ from outages.config import (
     OVERPASS_SPACING_S,
     OVERPASS_URL,
     RUN_TIMES,
-    STALE_CHECK_H,
     STREETS_SUGGEST_AUTO,
     VECO_TOWNS,
     Paths,
     TelegramSettings,
-    dotenv_get,
     telegram_settings,
 )
 from outages.fetch import Fetcher
 from outages.history import load as history_load
 from outages.history import stats as history_stats
 from outages.map import server as map_server
-from outages.map.app import NOT_MIGRATED, NOT_READY, create_app
-from outages.map.build import BoundariesError, load_boundaries, schema_ready
+from outages.map.app import create_app
+from outages.map.build import BoundariesError, load_boundaries
 from outages.map.review import ReviewConfig
 from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
@@ -654,81 +654,19 @@ def _stats(paths: Paths, args: argparse.Namespace) -> int:
     return 0
 
 
-def _secrets_for_scan(conn) -> tuple[list[int], str | None]:
-    """Every chat ID we know (subscribers, the allowlist, the admin) and the bot token, to scan the
-    snapshot's bytes for. Read before the guard is installed, on a connection of their own."""
-    ids = [r[0] for r in conn.execute("SELECT chat_id FROM subscribers")]
-    settings = telegram_settings()  # ValueError on a malformed chat ID list
-    if settings is not None:
-        ids += list(settings.allowed)
-        if settings.admin_chat_id is not None:
-            ids.append(settings.admin_chat_id)
-    return ids, dotenv_get("TELEGRAM_BOT_TOKEN")
-
-
 def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     """Offline and read-only (Phase 6 spec 4.1); builds no fetcher, Overpass or Telegram client.
     Exit 0 ok; 1 build failure or leak; 2 old data, bad folder or DB not ready."""
-    if not paths.db.is_file():
-        print(f"error: {NOT_READY}", file=sys.stderr)
-        return 2
-    conn = db.connect_ro(paths.db)
-    try:
-        if not schema_ready(conn):
-            print(f"error: {NOT_READY}", file=sys.stderr)
-            return 2
-        if not db.is_current(conn):
-            print(f"error: {NOT_MIGRATED}", file=sys.stderr)
-            return 2
-        last = db.get_meta(conn, "last_check_at")
-        try:
-            chat_ids, token = _secrets_for_scan(conn)
-        except ValueError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
-    finally:
-        conn.close()
-    taken = utcnow().astimezone(MANILA).replace(microsecond=0)
-    age_h = None if last is None else (taken - datetime.fromisoformat(last)).total_seconds() / 3600
-    if not args.allow_old and (age_h is None or age_h > STALE_CHECK_H):
-        what = "data has never been checked" if age_h is None else f"data is {int(age_h)} h old"
-        print(f"error: {what}; run check first or pass --allow-old", file=sys.stderr)
-        return 2
-    problem = snapshot.check_out_dir(args.out)
-    if problem:
-        print(f"error: {problem}", file=sys.stderr)
-        return 2
-    conn = db.connect_ro(paths.db)
-    try:
-        conn.execute("PRAGMA busy_timeout=30000")  # wait out a scheduled run's write
-        snapshot.guard(conn)
-        files = snapshot.build_files(
-            conn,
-            load_gazetteer(),
-            load_boundaries(),
-            taken,
-            last,
-            osm_base=streets_index.read_osm_base(paths.data / OSM_DIR_NAME),
-        )
-    except Exception as e:
-        log.exception("snapshot: build failed")
-        print(f"error: snapshot not written: {e}", file=sys.stderr)
-        return 1
-    finally:
-        conn.close()
-    leak = snapshot.find_leak(files, chat_ids, token)
-    if leak:
-        print(f"error: snapshot not written: the output contains a {leak}", file=sys.stderr)
-        return 1
-    written, removed = snapshot.write(args.out, files)
-    weeks = sum(1 for k in files if k.startswith("weeks/"))
-    ranges = [
-        k.removeprefix("stats/").removesuffix(".json") for k in files if k.startswith("stats/")
-    ]
-    size = sum(len(b) for b in files.values())
-    print(f"taken_at {taken.isoformat()}; last_check_at {snapshot.manila_iso(last) or 'never'}")
-    print(f"{weeks} weeks written, {removed} old file(s) removed; ranges: {', '.join(ranges)}")
-    print(f"{written} files, {size / 1_000_000:.1f} MB; written: {args.out}")
+    t = snapshot_run.take(paths, args.out, utcnow(), allow_old=args.allow_old)
+    if t.code:
+        print(f"error: {t.error}", file=sys.stderr)
+        return t.code
+    last = snapshot.manila_iso(t.last_check_at) or "never"
+    print(f"taken_at {t.taken_at.isoformat()}; last_check_at {last}")
+    print(
+        f"{t.weeks} weeks written, {t.removed} old file(s) removed; ranges: {', '.join(t.ranges)}"
+    )
+    print(f"{t.written} files, {t.size / 1_000_000:.1f} MB; written: {args.out}")
     return 0
 
 
@@ -822,13 +760,17 @@ def _check(paths: Paths) -> bool:
 
 
 def _scheduled_run(
-    paths: Paths, settings: TelegramSettings | None, do_check: bool = True, suggest: bool = True
+    paths: Paths,
+    settings: TelegramSettings | None,
+    do_check: bool = True,
+    suggest: bool = True,
+    publisher: publish.Publisher | None = None,
 ) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check, suggest)
+        _run_once(paths, settings, do_check, suggest, publisher)
 
 
 class _Runs:
@@ -839,9 +781,14 @@ class _Runs:
     "VECO not reachable", and retrying every few minutes would hammer VECO while it is down."""
 
     def __init__(
-        self, paths: Paths, settings: TelegramSettings | None, suggest: bool = True
+        self,
+        paths: Paths,
+        settings: TelegramSettings | None,
+        suggest: bool = True,
+        publisher: publish.Publisher | None = None,
     ) -> None:
         self.paths, self.settings, self.suggest = paths, settings, suggest
+        self.publisher = publisher
         self._lock = threading.Lock()
         self._done: datetime | None = None
 
@@ -870,11 +817,15 @@ class _Runs:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(self.paths, self.settings, suggest=self.suggest)
+        _scheduled_run(self.paths, self.settings, suggest=self.suggest, publisher=self.publisher)
 
 
 def _run_once(
-    paths: Paths, settings: TelegramSettings | None, do_check: bool, suggest: bool = True
+    paths: Paths,
+    settings: TelegramSettings | None,
+    do_check: bool,
+    suggest: bool = True,
+    publisher: publish.Publisher | None = None,
 ) -> None:
     check_ok = _check(paths) if do_check else True
     if settings is not None:
@@ -894,11 +845,40 @@ def _run_once(
         finally:
             client.close()
             conn.close()
+    if publisher is not None and do_check and check_ok:  # new data only (live-site spec 5.1)
+        try:
+            _publish(paths, settings, publisher)
+        except Exception:
+            log.exception("publish failed; alerts are unaffected")
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
         try:
             _suggest_hook(paths, settings)
         except Exception:
             log.exception("street suggestions failed; alerts are unaffected")
+
+
+def _publish(paths: Paths, settings: TelegramSettings | None, publisher: publish.Publisher) -> None:
+    """Publish the site; its note, if any, goes to the admin chat once per key."""
+    now = utcnow()
+    outcome = publisher.publish(now)
+    log.info("publish: %s (%s)", outcome.status, outcome.detail)
+    note = outcome.note
+    if note is None:
+        return
+    if settings is None:
+        log.warning("admin note (no Telegram settings): %s", note.text)
+        return
+    conn = db.connect(paths.db)
+    client = make_telegram(settings.token)
+    try:
+        if all(alerts_store.note_sent(conn, k) for k in note.keys):
+            return
+        alerts_run.deliver_notes(
+            conn, TelegramNotifier(client), settings.admin_chat_id, [note], now
+        )
+    finally:
+        client.close()
+        conn.close()
 
 
 def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
@@ -1035,11 +1015,18 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
     suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
+    publisher = publish.make_publisher(paths)
+    if publisher is not None:
+        log.info(
+            "serve: publishing %s after each check (started on %s)",
+            publisher.settings.site,
+            publisher.start_branch,
+        )
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest)
+        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest, publisher=publisher)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            runs = _Runs(paths, settings, suggest=suggest)
+            runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
             scheduler.build(runs.scheduled, runs.watchdog).start()
     finally:
         stop.set()
