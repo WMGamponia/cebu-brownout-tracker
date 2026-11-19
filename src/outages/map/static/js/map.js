@@ -1139,7 +1139,7 @@ async function start() {
       showBanner(`Couldn't load the snapshot (${e.message}).`);
       return;
     }
-    showSnapshotChrome(src.snap);
+    showSnapshotChrome(src.snap, src.fresh);
     const week = $("week");
     week.min = src.weeks[0];
     week.max = shiftDate(src.snap.snapshot_week, 6);

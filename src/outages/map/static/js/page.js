@@ -1,7 +1,7 @@
 // What both pages share in snapshot mode (Phase 6 spec 4.3): picking the data source from
-// <html data-mode>, and the "Snapshot of …, not live" banner and credits. Text via textContent
+// <html data-mode>, and the "Last updated …" banner (old data only) and credits. Text via textContent
 // only; links via setAttribute, and only https:// or relative ones.
-import { makeSource, snapshotLabel } from "./source.js";
+import { makeSource, snapshotCopy } from "./source.js";
 
 export const isSnapshotPage = () => document.documentElement.dataset.mode === "snapshot";
 
@@ -25,19 +25,22 @@ function link(text, href, external) {
   return a;
 }
 
-/** Show the snapshot banner and footer credits, filled from snapshot.json. */
-export function showSnapshotChrome(snap) {
-  const label = snapshotLabel(snap.taken_at);
+/** Show the footer credits, and the banner when the data is old (live-site spec 5.5). */
+export function showSnapshotChrome(snap, fresh) {
+  const copy = snapshotCopy(snap, fresh);
+  const veco = () => link("VECO's advisories", snap.veco_url, true);
   const banner = document.getElementById("snapshot-banner");
-  banner.replaceChildren(
-    `Snapshot of ${label} (Manila), not live. For current schedules see `,
-    link("VECO's advisories", snap.veco_url, true),
-    ".",
-  );
-  banner.hidden = false;
+  if (copy.banner) {
+    banner.replaceChildren(copy.banner, veco(), ".");
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
   const credits = document.getElementById("snapshot-credits");
   credits.replaceChildren(
-    `Snapshot of ${label}; code: `,
+    copy.credits,
+    ...(fresh ? [veco(), "; "] : []),
+    "code: ",
     link(snap.code_url, snap.code_url, true),
     "; licences: ",
     link("LICENSES.md", "LICENSES.md", false),

@@ -3,7 +3,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { makeSource, refetchAllowed, snapshotLabel } from "../../src/outages/map/static/js/source.js";
+import {
+  isFresh,
+  makeSource,
+  refetchAllowed,
+  snapshotCopy,
+  snapshotLabel,
+} from "../../src/outages/map/static/js/source.js";
 import { shiftDate } from "../../src/outages/map/static/js/timeline.js";
 
 function weeksFrom(first, last) {
@@ -13,7 +19,10 @@ function weeksFrom(first, last) {
 }
 
 const SNAP = {
-  format: 1,
+  format: 2,
+  data: "data/20261112T200511/",
+  static: "static/0123456789/",
+  fresh_for_h: 15,
   taken_at: "2026-11-12T20:05:11+08:00",
   last_check_at: "2026-11-12T20:00:42+08:00",
   snapshot_week: "2026-11-12",
@@ -27,6 +36,10 @@ const SNAP = {
   code_url: "https://github.com/WMGamponia/cebu-brownout-tracker",
 };
 const q = (s) => new URLSearchParams(s);
+const D = "data/20261112T200511/";
+const CHECK = Date.parse("2026-11-12T20:00:42+08:00");
+const H = 3600 * 1000;
+const OLD = () => CHECK + 48 * H; // two days after the check: pinned
 
 test("the fixture has 53 weeks", () => {
   assert.equal(SNAP.weeks.length, 53);
@@ -55,8 +68,8 @@ test("live: now() is the clock", () => {
   assert.ok(n >= before && n <= Date.now());
 });
 
-test("snapshot: now() is taken_at", () => {
-  const src = makeSource("snapshot", SNAP);
+test("snapshot: now() is taken_at once the data is old", () => {
+  const src = makeSource("snapshot", SNAP, OLD);
   assert.equal(src.isSnapshot, true);
   assert.equal(src.refetch, false);
   assert.equal(src.now(), Date.parse("2026-11-12T12:05:11Z"));
@@ -67,9 +80,9 @@ test("snapshot: now() is taken_at", () => {
 
 test("snapshot: week files", () => {
   const src = makeSource("snapshot", SNAP);
-  assert.equal(src.mapUrl(q("")), "weeks/2026-11-12.geojson");
-  assert.equal(src.mapUrl(q("from=2026-11-05&days=7")), "weeks/2026-11-05.geojson");
-  assert.equal(src.mapUrl(q("from=not-a-date")), "weeks/2026-11-12.geojson");
+  assert.equal(src.mapUrl(q("")), D + "weeks/2026-11-12.geojson");
+  assert.equal(src.mapUrl(q("from=2026-11-05&days=7")), D + "weeks/2026-11-05.geojson");
+  assert.equal(src.mapUrl(q("from=not-a-date")), D + "weeks/2026-11-12.geojson");
 });
 
 test("snapshot: snapWeek finds the stored week containing a date", () => {
@@ -103,17 +116,17 @@ test("snapshot: week stepping is bounded by the stored weeks", () => {
 
 test("snapshot: stats files by range id", () => {
   const src = makeSource("snapshot", SNAP);
-  assert.equal(src.statsUrl(q("range=2025")), "stats/2025.json");
-  assert.equal(src.statsUrl(q("range=1999")), "stats/last-12-months.json");
-  assert.equal(src.statsUrl(q("")), "stats/last-12-months.json");
+  assert.equal(src.statsUrl(q("range=2025")), D + "stats/2025.json");
+  assert.equal(src.statsUrl(q("range=1999")), D + "stats/last-12-months.json");
+  assert.equal(src.statsUrl(q("")), D + "stats/last-12-months.json");
   assert.equal(src.rangeId(q("range=2025")), "2025");
   assert.equal(src.rangeId(q("range=../x")), "last-12-months");
 });
 
 test("test_snapshot_ignores_live_params", () => {
   const src = makeSource("snapshot", SNAP);
-  assert.equal(src.mapUrl(q("from=2024-02-01&days=7")), "weeks/2025-11-13.geojson");
-  assert.equal(src.statsUrl(q("from=2024-01-01&to=2024-12-31")), "stats/last-12-months.json");
+  assert.equal(src.mapUrl(q("from=2024-02-01&days=7")), D + "weeks/2025-11-13.geojson");
+  assert.equal(src.statsUrl(q("from=2024-01-01&to=2024-12-31")), D + "stats/last-12-months.json");
 });
 
 test("snapshotLabel: Manila wall time whatever the zone", () => {
@@ -128,4 +141,51 @@ test("refetchAllowed: never on a snapshot page, even before snapshot.json has lo
   assert.equal(refetchAllowed(undefined, live), true);
   assert.equal(refetchAllowed("snapshot", live), false); // the placeholder source while loading
   assert.equal(refetchAllowed("snapshot", snap), false);
+});
+
+test("isFresh: within fresh_for_h of last_check_at, boundary included", () => {
+  assert.equal(isFresh(SNAP, CHECK + 14 * H + 59 * 60 * 1000), true);
+  assert.equal(isFresh(SNAP, CHECK + 15 * H), true);
+  assert.equal(isFresh(SNAP, CHECK + 15 * H + 60 * 1000), false);
+  assert.equal(isFresh(SNAP, CHECK - 2 * H), true); // the visitor's clock is behind
+});
+
+test("isFresh: a missing or malformed last_check_at is old", () => {
+  assert.equal(isFresh({ ...SNAP, last_check_at: null }, CHECK), false);
+  assert.equal(isFresh({ ...SNAP, last_check_at: undefined }, CHECK), false);
+  assert.equal(isFresh({ ...SNAP, last_check_at: "garbage" }, CHECK), false);
+  assert.equal(isFresh({ ...SNAP, fresh_for_h: undefined }, CHECK), false);
+});
+
+test("snapshot: fresh data runs on the real clock", () => {
+  const t = CHECK + 3 * H;
+  const fresh = makeSource("snapshot", SNAP, () => t);
+  assert.equal(fresh.fresh, true);
+  assert.equal(fresh.now(), t);
+  const old = makeSource("snapshot", SNAP, OLD);
+  assert.equal(old.fresh, false);
+  assert.equal(old.now(), Date.parse(SNAP.taken_at));
+  assert.equal(makeSource("live", null).fresh, true);
+});
+
+test("boundaries: the server's route live, the data folder in a snapshot", () => {
+  assert.equal(makeSource("live", null).boundariesUrl(), "boundaries.geojson");
+  assert.equal(makeSource("snapshot", SNAP, OLD).boundariesUrl(), D + "boundaries.geojson");
+});
+
+test("snapshotCopy: fresh hides the banner; credits say when it was updated", () => {
+  const c = snapshotCopy(SNAP, true);
+  assert.equal(c.banner, null);
+  assert.equal(c.credits, "Updated Thu 12 Nov 2026, 20:00 (Manila) from ");
+});
+
+test("snapshotCopy: old shows the banner, labelled by the last check", () => {
+  const c = snapshotCopy(SNAP, false);
+  assert.equal(
+    c.banner,
+    "Last updated Thu 12 Nov 2026, 20:00 (Manila) and may be out of date. For current schedules see ",
+  );
+  assert.equal(c.credits, "Last updated Thu 12 Nov 2026, 20:00; ");
+  const never = snapshotCopy({ ...SNAP, last_check_at: null }, false);
+  assert.match(never.banner, /^Last updated Thu 12 Nov 2026, 20:05 \(Manila\)/);
 });
