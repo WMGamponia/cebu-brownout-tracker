@@ -91,9 +91,13 @@ def test_skip_dirty(home, monkeypatch):
     assert o.status == "skipped" and not calls
     assert o.note.keys == (f"publish:skip:dirty:{DAY}",)
     assert o.note.text == "Site not published: uncommitted changes in src/outages."
-    assert tuple(
-        next(a for _, a in git.calls if a[0] == "status")
-    ) == ("status", "--porcelain", "--untracked-files=no", "--", "src/outages")
+    assert tuple(next(a for _, a in git.calls if a[0] == "status")) == (
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+        "--",
+        "src/outages",
+    )
 
 
 def test_take_failure_is_failed(home, monkeypatch):
