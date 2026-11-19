@@ -419,6 +419,9 @@ def test_licenses_drawing_on():
     assert "ODbL" in text and "2026-11-12T02:14:58Z" in text
     assert "weeks/*.geojson" in text and "streets.drawn[].lines" in text
     assert "none while" not in text
+    assert "data/*/weeks/*.geojson" in text and "`weeks/*.geojson`" not in text
+    assert "not live" not in " ".join(text.split())
+    assert "updated after each check" in " ".join(text.split())
     assert "Leaflet" in text and "faeldon/philippines-json-maps" in text  # the rest stays
 
 

@@ -81,8 +81,9 @@ PRUNED = {
 LICENSES_HEAD = """\
 # Licences and data notes
 
-This folder is a static snapshot of the Cebu Brownout Tracker, a portfolio demo. It is not
-live and not affiliated with VECO (Visayan Electric Company).
+This folder is a static snapshot of the Cebu Brownout Tracker, a portfolio project, updated after
+each check from the owner's PC; it can be out of date. It is not affiliated with VECO (Visayan
+Electric Company).
 
 - **Outage data:** from VECO's public scheduled power interruption advisories; every outage
   links to its post. Only parsed fields are published (times, status, purpose, the affected
@@ -95,12 +96,12 @@ live and not affiliated with VECO (Visayan Electric Company).
 STREETS_OFF = """\
 - **Street lines:** none while street drawing is off. If drawing is ever on, street lines are
   derived from OpenStreetMap data, © OpenStreetMap contributors, available under the ODbL; the
-  derived lines are in `weeks/*.geojson` (the `streets.drawn[].lines` fields).
+  derived lines are in `data/*/weeks/*.geojson` (the `streets.drawn[].lines` fields).
 """
 STREETS_ON = """\
 - **Street lines:** derived from OpenStreetMap data, © OpenStreetMap contributors, available
   under the Open Database License (ODbL) 1.0. Extract as of {osm_base}. The derived lines are
-  in `weeks/*.geojson` (the `streets.drawn[].lines` fields) and are offered under the same
+  in `data/*/weeks/*.geojson` (the `streets.drawn[].lines` fields) and are offered under the same
   licence.
 """
 LICENSES_TAIL = """\

@@ -306,8 +306,11 @@ branch, checked out as a worktree at `site/` (git-ignored on `main`). With `PUBL
 check → alerts → snapshot into site/ → one new gh-pages commit, force-pushed with a lease → street suggestions
 ```
 
-- **Only from `main`:** if `serve` started on another branch, is on one now, or `src/outages` has
-  uncommitted changes, it skips and tells the admin chat (once a day per reason).
+- **Only from `main`, as started:** if `serve` started on another branch, is on one now, `main`
+  moved since it started (restart `serve` after a pull), `src/outages` has uncommitted changes or
+  the static folder has untracked files, it skips and tells the admin chat (once a day per reason).
+- **If a publish keeps failing** with a refused push: `git -C site fetch origin gh-pages` and
+  `git -C site reset --soft origin/gh-pages`, then wait for the next check.
 - **One commit:** `gh-pages` is replaced on each publish, so it never grows. The push refuses if
   the branch changed since the last publish; git never prompts and gives up after 120 s. A failed
   publish leaves the last good site up and tells the admin chat once a day; alerts never wait on it.
@@ -317,7 +320,8 @@ check → alerts → snapshot into site/ → one new gh-pages commit, force-push
 - **The clock:** while the last check is under 15 h old the pages run on the real clock and say
   "Updated …"; after that, time stops at the snapshot and a banner says the data may be out of date.
 
-`PUBLISH_DIR` points somewhere else than `site/`. By hand, the same snapshot is:
+`PUBLISH_DIR=<path>` publishes from another folder than `site/`. By hand, the same snapshot
+is:
 
 ```bash
 git worktree add site gh-pages                      # once per clone
