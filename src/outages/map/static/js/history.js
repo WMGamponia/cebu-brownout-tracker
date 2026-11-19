@@ -4,7 +4,7 @@
 /* global L */
 
 import { binOf, legendLabels, monthBars, quantileEdges } from "./bins.js";
-import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome, watchSnapshot } from "./page.js";
 import { makeSource } from "./source.js";
 import { manila, mondayOf, parseIso, shiftDate } from "./timeline.js";
 import { addTiles } from "./tiles.js";
@@ -290,6 +290,7 @@ async function start() {
       return;
     }
     showSnapshotChrome(src.snap, src.fresh);
+    watchSnapshot(src);
     $("range").hidden = true;
     $("range-select").replaceChildren(
       ...src.ranges.map((r) => el("option", { text: r.label, attrs: { value: r.id } })),

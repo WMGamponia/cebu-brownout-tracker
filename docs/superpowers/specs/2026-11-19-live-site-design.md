@@ -149,7 +149,9 @@ ever reused for different content:
 - **Fresh** (`Date.now() - last_check_at ≤ fresh_for_h`): `now()` returns `Date.now()`. The map's
   "Now", the timeline and the history page's default range use the real clock.
 - **Old** (beyond that, or `last_check_at` missing): `now()` stays pinned to `taken_at`, as today.
-- Decided once at page load (my call: simple; a reload re-decides).
+- Decided at page load; an open tab re-checks when it comes back into view and every 10 minutes
+  while visible, and reloads when newer data is published or its data has gone old (follow-up
+  after the final review).
 
 Banner and credits (`page.js`):
 

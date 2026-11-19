@@ -7,6 +7,7 @@ import {
   isFresh,
   makeSource,
   refetchAllowed,
+  shouldReload,
   snapshotCopy,
   snapshotLabel,
 } from "../../src/outages/map/static/js/source.js";
@@ -188,4 +189,32 @@ test("snapshotCopy: old shows the banner, labelled by the last check", () => {
   assert.equal(c.credits, "Last updated Thu 12 Nov 2026, 20:00; ");
   const never = snapshotCopy({ ...SNAP, last_check_at: null }, false);
   assert.match(never.banner, /^Last updated Thu 12 Nov 2026, 20:05 \(Manila\)/);
+});
+
+// An open tab (a phone restoring it, a desktop left overnight) re-checks: reload when newer data
+// is published, or when the data it shows has gone old since it loaded.
+const HOUR = 3600 * 1000;
+const CHECKED = Date.parse(SNAP.last_check_at);
+
+test("shouldReload: same data, still fresh: stay", () => {
+  assert.equal(shouldReload(SNAP, true, CHECKED + 2 * HOUR, SNAP), false);
+});
+
+test("shouldReload: newer data published: reload", () => {
+  const latest = { ...SNAP, data: "data/20261113T060112/" };
+  assert.equal(shouldReload(SNAP, true, CHECKED + 2 * HOUR, latest), true);
+  assert.equal(shouldReload(SNAP, false, CHECKED + 40 * HOUR, latest), true);
+});
+
+test("shouldReload: fresh at load, old now: reload (to show the banner)", () => {
+  assert.equal(shouldReload(SNAP, true, CHECKED + 16 * HOUR, SNAP), true);
+});
+
+test("shouldReload: old at load and no newer data: stay (the banner is already up)", () => {
+  assert.equal(shouldReload(SNAP, false, CHECKED + 40 * HOUR, SNAP), false);
+});
+
+test("shouldReload: snapshot.json unreachable: reload only if it went old", () => {
+  assert.equal(shouldReload(SNAP, true, CHECKED + 2 * HOUR, null), false);
+  assert.equal(shouldReload(SNAP, true, CHECKED + 16 * HOUR, null), true);
 });

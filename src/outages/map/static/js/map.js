@@ -27,7 +27,7 @@ import { $, el } from "./dom.js";
 import { createDwell } from "./hover.js";
 import { changedKeys, dropFades, followSlot, motionOn, playhead } from "./frame.js";
 import { cullLabels, labelPoint, pillState, shortLabel } from "./labels.js";
-import { isSnapshotPage, pageSource, showSnapshotChrome } from "./page.js";
+import { isSnapshotPage, pageSource, showSnapshotChrome, watchSnapshot } from "./page.js";
 import { closeOpenPopover, mountPopover } from "./menu.js";
 import { makeSource, refetchAllowed } from "./source.js";
 import { isPastWindow, lineOrder, lineState, linesInGeometry } from "./streets.js";
@@ -1140,6 +1140,7 @@ async function start() {
       return;
     }
     showSnapshotChrome(src.snap, src.fresh);
+    watchSnapshot(src);
     const week = $("week");
     week.min = src.weeks[0];
     week.max = shiftDate(src.snap.snapshot_week, 6);
