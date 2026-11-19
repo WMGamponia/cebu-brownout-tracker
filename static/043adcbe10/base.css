@@ -1,0 +1,172 @@
+/* Shared dark look for the map and history pages (UI refresh spec 4). Tokens are checked for
+   WCAG AA contrast by tests/js/contrast.test.mjs; keep each as one `--name: value;` line.
+   The map's own colours (barangay shading, street lines, history bins) are not here. */
+:root {
+  --bg: #111418;
+  --card: rgba(24, 28, 33, 0.92);
+  --card-dim: rgba(24, 28, 33, 0.84);
+  --text: #f1f3f5;
+  --muted: #aab4bd;
+  --hairline: rgba(255, 255, 255, 0.12);
+  --accent: #f28c28;
+  --accent-strong: #c2410c;
+  --warn-bg: #3a2a12;
+  --warn-text: #ffd59a;
+  --error-bg: #3d1515;
+  --error-text: #ffb4ab;
+  --focus: #7cc4ff;
+  --focus-halo: #111418;
+  --track: rgba(255, 255, 255, 0.10);
+  --band: #f28c28;
+  --chart-bar: #fdbb84;
+  --chart-worst: #e34a33;
+  --radius: 12px;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --fs-s: 13px;
+  --fs-m: 14px;
+  --fs-l: 16px;
+  --fs-xl: 20px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: var(--fs-m);
+  color: var(--text);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.4; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+/* Two-tone focus ring: light over the dark cards, with a dark halo so it also shows over the
+   light map. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px var(--focus-halo);
+}
+
+.card {
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--hairline);
+}
+@supports ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+  .card { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+}
+
+.round-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-l);
+  padding: 0;
+}
+.round-btn[aria-expanded="true"] { border-color: var(--accent); }
+@media (pointer: coarse) {
+  .round-btn { width: 44px; height: 44px; }
+}
+
+.text-btn {
+  border: 1px solid var(--hairline);
+  background: transparent;
+  border-radius: 999px;
+  padding: 4px 12px;
+}
+.text-btn:hover:not(:disabled) { border-color: var(--muted); }
+
+/* Pills: map labels by state at the selected time (spec 4). */
+.pill {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--card);
+  color: var(--text);
+  border: 1.5px solid transparent;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+.pill-now { color: var(--accent); border-color: var(--accent); }
+.pill-later { color: var(--text); }
+.pill-ended { color: var(--muted); font-weight: 500; }
+.pill-cancelled { background: var(--card-dim); color: var(--muted); font-weight: 500; text-decoration: line-through; }
+
+.popover {
+  position: absolute;
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: 12px 14px;
+  z-index: 1100;
+}
+.popover h2 { font-size: var(--fs-m); margin: 0 0 8px; }
+
+.notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: var(--fs-s);
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--hairline);
+}
+.notice-warn { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+.notice-error { background: var(--error-bg); color: var(--error-text); border-color: transparent; }
+.notice a { color: inherit; }
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+.badge-additional { background: #1e3a6b; color: #cfe0ff; }
+.badge-cancelled { background: #3a4048; color: #d5dbe0; text-decoration: line-through; }
+
+/* Leaflet, restyled to match (classes are Leaflet's own; Leaflet is vendored and pinned). */
+.leaflet-container { font: inherit; background: #e9ece8; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: rgba(24, 28, 33, 0.96);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.leaflet-popup-content-wrapper { border-radius: var(--radius); }
+.leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+.leaflet-tooltip {
+  background: rgba(24, 28, 33, 0.96);
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow);
+}
+.leaflet-tooltip::before { display: none; }
+.leaflet-bar { border: 1px solid var(--hairline) !important; box-shadow: var(--shadow) !important; border-radius: 10px !important; overflow: hidden; }
+.leaflet-bar a, .leaflet-bar a:hover {
+  background: var(--card);
+  color: var(--text);
+  border-bottom-color: var(--hairline);
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+}
+.leaflet-bar a.leaflet-disabled { background: var(--card-dim); color: var(--muted); }
+.leaflet-container .leaflet-control-attribution {
+  background: rgba(24, 28, 33, 0.8);
+  color: var(--muted);
+  font-size: 11px;
+  border-radius: 6px 0 0 0;
+}
+.leaflet-control-attribution a { color: var(--text); }

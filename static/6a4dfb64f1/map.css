@@ -1,0 +1,254 @@
+/* Cebu Brownout Map: full-bleed map with floating cards (UI refresh spec 5.1). Shared tokens,
+   cards, pills and Leaflet overrides live in base.css; barangay styles live in map.js. */
+:root { --gutter: 12px; --bar-h: 56px; }
+
+html, body { height: 100%; overflow: hidden; }
+#map { position: fixed; inset: 0; height: 100dvh; z-index: 0; }
+
+/* Corners: floating stacks above the map (Leaflet panes sit at z 400–700). */
+.corner { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.corner > * { pointer-events: auto; }
+.corner-tl { top: var(--gutter); left: var(--gutter); width: min(340px, calc(100vw - 2 * var(--gutter) - 56px)); max-height: calc(100dvh - var(--bar-h) - 120px); }
+.corner-tr { top: var(--gutter); right: var(--gutter); align-items: flex-end; z-index: 1003; } /* menus on top */
+.corner-tl { z-index: 1002; } /* the card sheet covers the legend button */
+.corner-bl { left: var(--gutter); bottom: var(--gutter); align-items: flex-start; max-width: 360px; }
+
+/* Title card */
+.title-card { padding: 10px 14px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+h1 { font-size: var(--fs-l); margin: 0; }
+.fold { border: none; background: none; color: var(--muted); font-size: var(--fs-l); padding: 0 4px; transition: transform 0.15s; }
+.title-card.folded .fold { transform: rotate(-90deg); }
+.title-card.folded .title-more { display: none; }
+.title-more p { margin: 2px 0 0; font-size: var(--fs-s); }
+
+/* Search (search.js): rows coloured by the barangay's status at the current time. */
+.search { position: relative; padding: 0; }
+.search-input {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 14px;
+}
+.search-input::placeholder { color: var(--muted); }
+.search-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border-top: 1px solid var(--hairline);
+  max-height: min(360px, 50dvh);
+  overflow-y: auto;
+}
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 8px;
+  padding: 6px 10px;
+  margin: 3px 0;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+}
+.search-row[aria-selected="true"] { background: rgba(255, 255, 255, 0.08); }
+.search-name { font-weight: 600; }
+.search-town { color: var(--muted); font-size: var(--fs-s); text-align: right; }
+.search-status { grid-column: 1 / -1; font-size: var(--fs-s); }
+.search-row.res-now { background: var(--accent); color: #1d2125; }
+.search-row.res-now .search-town { color: #3a2a12; }
+.search-row.res-now[aria-selected="true"] { box-shadow: 0 0 0 2px var(--text); }
+.search-row.res-upcoming { border-color: var(--accent); }
+.search-row.res-upcoming .search-status { color: var(--accent); }
+.search-row.res-cancelled { border-color: var(--muted); }
+.search-row.res-cancelled .search-status { color: var(--muted); }
+.search-empty { padding: 6px 10px; }
+
+.notices { display: flex; flex-direction: column; gap: 6px; }
+.notices:empty { display: none; }
+.banner { display: flex; align-items: center; gap: 10px; }
+.snapshot { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+
+/* The left slot holds the barangay card or the "Not on the map" card, never both. */
+.left-slot { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.side-card { padding: 12px 14px; overflow-y: auto; min-height: 0; }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.side-head h2 { font-size: var(--fs-l); margin: 0; }
+.close { border: none; background: none; color: var(--muted); font-size: var(--fs-l); padding: 0 2px; }
+
+.items { list-style: none; padding: 0; margin: 8px 0 0; }
+.items > li { padding: 8px 0; border-top: 1px solid var(--hairline); }
+.items p { margin: 3px 0; }
+.items .when { font-weight: 600; }
+.items .reasons { margin: 2px 0 4px 16px; padding: 0; }
+.items .reason { color: var(--warn-text); }
+.more { border: none; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+
+/* Barangay card (bcard.js): week strip, then the selected day's outages. */
+.bcard-town { margin: 2px 0 8px; font-size: var(--fs-s); }
+.strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 8px; }
+.cell {
+  height: 30px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+}
+.cell-outage { background: var(--accent); color: #1d2125; }
+.cell-cancelled { background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.22) 0 4px, rgba(255, 255, 255, 0.06) 4px 8px); color: var(--text); }
+.cell.selected { border-color: var(--text); }
+.bcard-list .outage { padding: 8px 0; border-top: 1px solid var(--hairline); font-size: var(--fs-s); }
+.bcard-list .outage p { margin: 3px 0; }
+.bcard-list .outage.active { border-left: 3px solid var(--accent); padding-left: 8px; }
+.bcard-list .outage.active .when::after { content: " · now"; color: var(--accent); font-weight: 600; }
+.bcard-list .when { font-weight: 600; }
+.bcard-list .caveat { color: var(--warn-text); }
+.bcard-list .empty { margin: 4px 0; }
+/* On a phone (or any touch screen) the card is a sheet above the timeline bar. */
+.bcard.sheet {
+  position: fixed;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--bar-h) + 2 * var(--gutter));
+  max-height: 45dvh;
+  z-index: 1001;
+}
+
+/* Top right: menu and info */
+.round-row { display: flex; gap: 8px; }
+.corner-tr .popover { position: static; }
+.menu h2, .info h2 { font-size: var(--fs-s); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 10px 0 6px; }
+.menu h2:first-child, .info h2:first-child { margin-top: 0; }
+.week-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.week-row input[type="date"] { font: inherit; background: transparent; color: var(--text); border: 1px solid var(--hairline); border-radius: 6px; padding: 3px 6px; }
+.check { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.check input { accent-color: var(--accent); width: 16px; height: 16px; }
+.menu-links { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.info p { margin: 6px 0; font-size: var(--fs-s); }
+.leaflet-top.leaflet-right { top: calc(var(--gutter) + 48px); right: calc(var(--gutter) - 10px); }
+
+/* Legend */
+.legend-card { padding: 8px 12px; }
+.legend { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-s); }
+.legend + .legend { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--hairline); }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.sw { width: 16px; height: 12px; border-radius: 3px; flex: none; }
+.sw-active { background: rgba(242, 140, 40, 0.75); border: 2px solid #c2410c; }
+.sw-cancelled { background: rgba(189, 189, 189, 0.6); border: 2px dashed #9aa0a6; }
+.sw-day { border: 2px solid #f5a25d; }
+.sw-none { border: 1px solid #a7adb3; }
+.sw-meco { background: rgba(158, 158, 158, 0.6); border: 1px solid #8a8a8a; }
+.ln { display: inline-block; width: 20px; height: 0; vertical-align: middle; }
+.ln-active { border-top: 5px solid #ea580c; }
+.ln-cancelled { border-top: 4px dashed #9aa0a6; }
+.ln-faint { border-top: 2px solid rgba(242, 140, 40, 0.6); }
+.legend-btn { display: none; }
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; background: rgba(242, 140, 40, 0.75); border: 2px solid #c2410c; }
+
+/* Timeline bar (timebar.js) */
+.timebar {
+  position: fixed;
+  z-index: 1000;
+  bottom: var(--gutter);
+  left: calc(var(--gutter) + 380px);
+  right: calc(var(--gutter) + 120px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+.tb-play {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #1d2125;
+  font-size: 13px;
+}
+.tb-now {
+  flex: none;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: var(--fs-s);
+  font-weight: 600;
+}
+.tb-now.active { border-color: var(--accent); color: var(--accent); }
+.tb-step { display: flex; align-items: center; flex: none; }
+.tb-arrow { border: none; background: none; color: var(--muted); font-size: var(--fs-xl); line-height: 1; padding: 2px 6px; }
+.tb-arrow:hover:not(:disabled) { color: var(--text); }
+.tb-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
+.tb-day { min-width: 9.5em; }
+.tb-time { min-width: 5.2em; }
+.tb-track { position: relative; flex: 1; min-width: 120px; height: 28px; border-radius: 6px; background: var(--track); cursor: pointer; touch-action: none; }
+.tb-ticks, .tb-bands { position: absolute; inset: 0; }
+.tb-tick { position: absolute; top: 6px; bottom: 6px; width: 1px; background: var(--hairline); }
+/* One bar: orange where an outage is on, grey where only cancelled ones are (timebar.js
+   trackSpans); a selected barangay's outages are outlined on it. */
+.tb-band { position: absolute; top: 9px; height: 10px; border-radius: 3px; background: var(--band); }
+.tb-band.cancelled { background: #8a9198; }
+.tb-mark { position: absolute; top: 5px; height: 18px; box-sizing: border-box; border: 2px solid #fff; border-radius: 5px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); pointer-events: none; }
+.tb-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tb-head { position: absolute; top: 2px; bottom: 2px; width: 3px; margin-left: -1px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5); }
+
+/* Short fades when the time changes (spec 5.2). map.js removes .fades under reduced motion or
+   on a device too slow for them. */
+.fades path.leaflet-interactive { transition: fill-opacity 0.2s, stroke 0.2s, stroke-opacity 0.2s, fill 0.2s; }
+.fades .map-label { transition: opacity 0.2s, color 0.2s, border-color 0.2s, background-color 0.2s; }
+
+/* Short labels on barangays with an outage that day (map.js), as pills. Never block the map. */
+.leaflet-labels-pane { z-index: 450; pointer-events: none; }
+.map-label { position: absolute; left: 0; top: 0; pointer-events: none; }
+
+/* Barangay popups (hover) */
+.pop { max-width: 300px; font-size: var(--fs-s); }
+.pop h3 { margin: 0; font-size: var(--fs-l); }
+.pop .town { margin: 0 0 6px; color: var(--muted); }
+.pop .outage { padding: 6px 0; border-top: 1px solid var(--hairline); }
+.pop .outage.active { border-left: 3px solid var(--accent); padding-left: 8px; }
+.pop .outage.active .when::after { content: " · now"; color: var(--accent); font-weight: 600; }
+.pop .when { font-weight: 600; }
+.pop p { margin: 3px 0; }
+.pop .caveat { color: var(--warn-text); }
+.pop .empty { color: var(--muted); }
+.streets ul.reasons { margin: 2px 0 4px 16px; padding: 0; }
+
+/* Narrow screens: the bar spans the width, with the track on its own row; the legend folds. */
+@media (max-width: 1099px) {
+  .timebar { left: calc(var(--gutter) + 56px); right: var(--gutter); }
+  .legend-btn { display: inline-flex; }
+  .legend-card { display: none; position: absolute; bottom: 52px; left: 0; width: max-content; max-width: calc(100vw - 2 * var(--gutter)); }
+  .legend-card.open { display: block; }
+  /* OSM's attribution must stay visible: lift it above the full-width bar. */
+  .leaflet-bottom.leaflet-right { margin-bottom: calc(var(--bar-h) + var(--gutter)); }
+}
+@media (max-width: 599px) {
+  :root { --gutter: 8px; --bar-h: 96px; }
+  .corner-bl { bottom: calc(var(--bar-h) + 2 * var(--gutter)); }
+  .timebar { left: var(--gutter); flex-wrap: wrap; gap: 4px 6px; padding: 8px 10px; }
+  .tb-track { flex-basis: 100%; order: 4; }
+  .tb-step-day { flex: 1; justify-content: center; }
+  .tb-day { min-width: 0; }
+  .corner-tl { width: calc(100vw - 2 * var(--gutter) - 104px); }
+}
