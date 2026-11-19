@@ -20,6 +20,7 @@ from outages import (
     lock,
     pipeline,
     power,
+    publish,
     report,
     scheduler,
     snapshot,
@@ -759,13 +760,17 @@ def _check(paths: Paths) -> bool:
 
 
 def _scheduled_run(
-    paths: Paths, settings: TelegramSettings | None, do_check: bool = True, suggest: bool = True
+    paths: Paths,
+    settings: TelegramSettings | None,
+    do_check: bool = True,
+    suggest: bool = True,
+    publisher: publish.Publisher | None = None,
 ) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check, suggest)
+        _run_once(paths, settings, do_check, suggest, publisher)
 
 
 class _Runs:
@@ -776,9 +781,14 @@ class _Runs:
     "VECO not reachable", and retrying every few minutes would hammer VECO while it is down."""
 
     def __init__(
-        self, paths: Paths, settings: TelegramSettings | None, suggest: bool = True
+        self,
+        paths: Paths,
+        settings: TelegramSettings | None,
+        suggest: bool = True,
+        publisher: publish.Publisher | None = None,
     ) -> None:
         self.paths, self.settings, self.suggest = paths, settings, suggest
+        self.publisher = publisher
         self._lock = threading.Lock()
         self._done: datetime | None = None
 
@@ -807,11 +817,15 @@ class _Runs:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(self.paths, self.settings, suggest=self.suggest)
+        _scheduled_run(self.paths, self.settings, suggest=self.suggest, publisher=self.publisher)
 
 
 def _run_once(
-    paths: Paths, settings: TelegramSettings | None, do_check: bool, suggest: bool = True
+    paths: Paths,
+    settings: TelegramSettings | None,
+    do_check: bool,
+    suggest: bool = True,
+    publisher: publish.Publisher | None = None,
 ) -> None:
     check_ok = _check(paths) if do_check else True
     if settings is not None:
@@ -831,11 +845,40 @@ def _run_once(
         finally:
             client.close()
             conn.close()
+    if publisher is not None and do_check and check_ok:  # new data only (live-site spec 5.1)
+        try:
+            _publish(paths, settings, publisher)
+        except Exception:
+            log.exception("publish failed; alerts are unaffected")
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
         try:
             _suggest_hook(paths, settings)
         except Exception:
             log.exception("street suggestions failed; alerts are unaffected")
+
+
+def _publish(paths: Paths, settings: TelegramSettings | None, publisher: publish.Publisher) -> None:
+    """Publish the site; its note, if any, goes to the admin chat once per key."""
+    now = utcnow()
+    outcome = publisher.publish(now)
+    log.info("publish: %s (%s)", outcome.status, outcome.detail)
+    note = outcome.note
+    if note is None:
+        return
+    if settings is None:
+        log.warning("admin note (no Telegram settings): %s", note.text)
+        return
+    conn = db.connect(paths.db)
+    client = make_telegram(settings.token)
+    try:
+        if all(alerts_store.note_sent(conn, k) for k in note.keys):
+            return
+        alerts_run.deliver_notes(
+            conn, TelegramNotifier(client), settings.admin_chat_id, [note], now
+        )
+    finally:
+        client.close()
+        conn.close()
 
 
 def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
@@ -972,11 +1015,18 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
     suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
+    publisher = publish.make_publisher(paths)
+    if publisher is not None:
+        log.info(
+            "serve: publishing %s after each check (started on %s)",
+            publisher.settings.site,
+            publisher.start_branch,
+        )
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest)
+        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest, publisher=publisher)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            runs = _Runs(paths, settings, suggest=suggest)
+            runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
             scheduler.build(runs.scheduled, runs.watchdog).start()
     finally:
         stop.set()

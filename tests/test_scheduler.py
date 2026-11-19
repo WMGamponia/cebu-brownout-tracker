@@ -460,7 +460,9 @@ def test_no_suggest_flag_and_switch(home, monkeypatch):
     assert order == []
     seen: list = []
     monkeypatch.setattr(
-        cli, "_scheduled_run", lambda p, s, do_check=True, suggest=True: seen.append(suggest)
+        cli,
+        "_scheduled_run",
+        lambda p, s, do_check=True, suggest=True, publisher=None: seen.append(suggest),
     )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
     _last_check(home, 20)  # catch-up run on start
@@ -521,8 +523,96 @@ def test_watchdog_run_respects_no_suggest(home, monkeypatch):
     monkeypatch.setattr(cli, "utcnow", lambda: _at("11:24"))
     seen: list = []
     monkeypatch.setattr(
-        cli, "_scheduled_run", lambda p, s, do_check=True, suggest=True: seen.append(suggest)
+        cli,
+        "_scheduled_run",
+        lambda p, s, do_check=True, suggest=True, publisher=None: seen.append(suggest),
     )
     cli._Runs(home, None, suggest=False).scheduled()
     cli._Runs(home, None).scheduled()
     assert seen == [False, True]
+
+
+# --- live site: publish after a successful check (live-site spec 5.1) --------------------------
+
+
+class _Publisher:
+    def __init__(self, order, outcome=None, error=None):
+        self.order, self.outcome, self.error = order, outcome, error
+
+    def publish(self, now):
+        self.order.append("publish")
+        if self.error:
+            raise self.error
+        from outages.publish import Outcome
+
+        return self.outcome or Outcome("published", "abc1234 snapshot", None)
+
+
+def _ordered_run(home, monkeypatch, check=None):
+    order: list[str] = []
+    monkeypatch.setattr(cli, "make_fetcher", _Fetcher)
+    monkeypatch.setattr(
+        pipeline,
+        "check",
+        check or (lambda *a, **k: order.append("check") or pipeline.CheckSummary()),
+    )
+    mock_telegram(monkeypatch)
+    monkeypatch.setattr(cli.alerts_run, "alert_run", lambda *a, **k: order.append("alerts"))
+    monkeypatch.setattr(cli, "_suggest_hook", lambda *a, **k: order.append("suggest"))
+    return order
+
+
+def test_publish_after_alerts_before_suggestions(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order))
+    assert order == ["check", "alerts", "publish", "suggest"]
+
+
+def test_no_publish_without_check(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, do_check=False, publisher=_Publisher(order))
+    assert order == ["alerts", "suggest"]
+
+
+def test_no_publish_after_failed_check(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch, check=lambda *a, **k: pipeline.CheckSummary(errors=1))
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order))
+    assert order == ["alerts", "suggest"]
+
+
+def test_publish_note_sent_once(home, monkeypatch):
+    from outages.alerts.run import Note
+    from outages.publish import Outcome
+
+    order = _ordered_run(home, monkeypatch)
+    sent: list[str] = []
+
+    def handler(req):
+        sent.append(req.url.path)
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    monkeypatch.setattr(
+        cli, "make_telegram", lambda t: TelegramClient(t, transport=httpx.MockTransport(handler))
+    )
+    note = Note(("publish:fail:2026-11-12",), "Site publish failed: boom")
+    pub = _Publisher(order, Outcome("failed", "boom", note))
+    cli._scheduled_run(home, SETTINGS, publisher=pub)
+    cli._scheduled_run(home, SETTINGS, publisher=pub)
+    assert order.count("publish") == 2
+    assert len([p for p in sent if p.endswith("/sendMessage")]) == 1
+
+
+def test_publish_error_does_not_stop_suggestions(home, monkeypatch, caplog):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order, error=RuntimeError("boom")))
+    assert order == ["check", "alerts", "publish", "suggest"]
+    assert "publish failed" in caplog.text
+
+
+def test_runs_pass_the_publisher(home, monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "_scheduled_run", lambda *a, **k: seen.append(k.get("publisher")))
+    pub = object()
+    runs = cli._Runs(home, SETTINGS, publisher=pub)
+    runs.scheduled()
+    assert seen == [pub]
