@@ -23,6 +23,7 @@ from outages import (
     report,
     scheduler,
     snapshot,
+    snapshot_run,
 )
 from outages.alerts import run as alerts_run
 from outages.alerts import store as alerts_store
@@ -40,20 +41,18 @@ from outages.config import (
     OVERPASS_SPACING_S,
     OVERPASS_URL,
     RUN_TIMES,
-    STALE_CHECK_H,
     STREETS_SUGGEST_AUTO,
     VECO_TOWNS,
     Paths,
     TelegramSettings,
-    dotenv_get,
     telegram_settings,
 )
 from outages.fetch import Fetcher
 from outages.history import load as history_load
 from outages.history import stats as history_stats
 from outages.map import server as map_server
-from outages.map.app import NOT_MIGRATED, NOT_READY, create_app
-from outages.map.build import BoundariesError, load_boundaries, schema_ready
+from outages.map.app import create_app
+from outages.map.build import BoundariesError, load_boundaries
 from outages.map.review import ReviewConfig
 from outages.map.window import WindowError
 from outages.notify import TelegramNotifier
@@ -654,80 +653,19 @@ def _stats(paths: Paths, args: argparse.Namespace) -> int:
     return 0
 
 
-def _secrets_for_scan(conn) -> tuple[list[int], str | None]:
-    """Every chat ID we know (subscribers, the allowlist, the admin) and the bot token, to scan the
-    snapshot's bytes for. Read before the guard is installed, on a connection of their own."""
-    ids = [r[0] for r in conn.execute("SELECT chat_id FROM subscribers")]
-    settings = telegram_settings()  # ValueError on a malformed chat ID list
-    if settings is not None:
-        ids += list(settings.allowed)
-        if settings.admin_chat_id is not None:
-            ids.append(settings.admin_chat_id)
-    return ids, dotenv_get("TELEGRAM_BOT_TOKEN")
-
-
 def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
     """Offline and read-only (Phase 6 spec 4.1); builds no fetcher, Overpass or Telegram client.
     Exit 0 ok; 1 build failure or leak; 2 old data, bad folder or DB not ready."""
-    if not paths.db.is_file():
-        print(f"error: {NOT_READY}", file=sys.stderr)
-        return 2
-    conn = db.connect_ro(paths.db)
-    try:
-        if not schema_ready(conn):
-            print(f"error: {NOT_READY}", file=sys.stderr)
-            return 2
-        if not db.is_current(conn):
-            print(f"error: {NOT_MIGRATED}", file=sys.stderr)
-            return 2
-        last = db.get_meta(conn, "last_check_at")
-        try:
-            chat_ids, token = _secrets_for_scan(conn)
-        except ValueError as e:
-            print(f"error: {e}", file=sys.stderr)
-            return 1
-    finally:
-        conn.close()
-    taken = utcnow().astimezone(MANILA).replace(microsecond=0)
-    age_h = None if last is None else (taken - datetime.fromisoformat(last)).total_seconds() / 3600
-    if not args.allow_old and (age_h is None or age_h > STALE_CHECK_H):
-        what = "data has never been checked" if age_h is None else f"data is {int(age_h)} h old"
-        print(f"error: {what}; run check first or pass --allow-old", file=sys.stderr)
-        return 2
-    problem = snapshot.check_out_dir(args.out)
-    if problem:
-        print(f"error: {problem}", file=sys.stderr)
-        return 2
-    conn = db.connect_ro(paths.db)
-    try:
-        conn.execute("PRAGMA busy_timeout=30000")  # wait out a scheduled run's write
-        snapshot.guard(conn)
-        files = snapshot.build_files(
-            conn,
-            load_gazetteer(),
-            load_boundaries(),
-            taken,
-            last,
-            osm_base=streets_index.read_osm_base(paths.data / OSM_DIR_NAME),
-        )
-    except Exception as e:
-        log.exception("snapshot: build failed")
-        print(f"error: snapshot not written: {e}", file=sys.stderr)
-        return 1
-    finally:
-        conn.close()
-    leak = snapshot.find_leak(files, chat_ids, token)
-    if leak:
-        print(f"error: snapshot not written: the output contains a {leak}", file=sys.stderr)
-        return 1
-    written, removed = snapshot.write(args.out, files)
-    parts = [k.split("/") for k in files]
-    weeks = sum(1 for p in parts if p[0] == "data" and p[2] == "weeks")
-    ranges = [p[3].removesuffix(".json") for p in parts if p[0] == "data" and p[2] == "stats"]
-    size = sum(len(b) for b in files.values())
-    print(f"taken_at {taken.isoformat()}; last_check_at {snapshot.manila_iso(last) or 'never'}")
-    print(f"{weeks} weeks written, {removed} old file(s) removed; ranges: {', '.join(ranges)}")
-    print(f"{written} files, {size / 1_000_000:.1f} MB; written: {args.out}")
+    t = snapshot_run.take(paths, args.out, utcnow(), allow_old=args.allow_old)
+    if t.code:
+        print(f"error: {t.error}", file=sys.stderr)
+        return t.code
+    last = snapshot.manila_iso(t.last_check_at) or "never"
+    print(f"taken_at {t.taken_at.isoformat()}; last_check_at {last}")
+    print(
+        f"{t.weeks} weeks written, {t.removed} old file(s) removed; ranges: {', '.join(t.ranges)}"
+    )
+    print(f"{t.written} files, {t.size / 1_000_000:.1f} MB; written: {args.out}")
     return 0
 
 

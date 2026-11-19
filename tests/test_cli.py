@@ -732,3 +732,23 @@ def test_snapshot_build_failure_writes_nothing(capsys, monkeypatch, tmp_path, sn
 def test_snapshot_does_not_take_the_lock(capsys, tmp_path, snap_env, held_lock):
     held_lock(tmp_path / "data" / "serve.lock")
     assert main(["snapshot", "--out", str(tmp_path / "site")]) == 0
+
+
+def test_take_returns_codes(tmp_path, snap_env):
+    """`take` is the snapshot command without printing (live-site plan Task 3)."""
+    from outages.config import Paths
+    from outages.snapshot_run import take
+
+    paths = Paths(tmp_path)
+    out = tmp_path / "site"
+    t = take(paths, out, SNAP_TAKEN)
+    assert (t.code, t.error) == (0, None)
+    assert t.weeks == 53 and t.ranges == ("last-12-months", "2024", "2025", "2026")
+    assert t.taken_at == SNAP_TAKEN and t.written > 53 and t.size > 0
+    assert (out / "snapshot.json").is_file()
+    _set_last_check(snap_env, (SNAP_TAKEN - timedelta(hours=16)).astimezone(UTC).isoformat())
+    out2 = tmp_path / "site2"
+    t = take(paths, out2, SNAP_TAKEN)
+    assert t.code == 2 and t.error == "data is 16 h old; run check first or pass --allow-old"
+    assert not out2.exists()
+    assert take(paths, out2, SNAP_TAKEN, allow_old=True).code == 0
