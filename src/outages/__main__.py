@@ -721,10 +721,9 @@ def _snapshot(paths: Paths, args: argparse.Namespace) -> int:
         print(f"error: snapshot not written: the output contains a {leak}", file=sys.stderr)
         return 1
     written, removed = snapshot.write(args.out, files)
-    weeks = sum(1 for k in files if k.startswith("weeks/"))
-    ranges = [
-        k.removeprefix("stats/").removesuffix(".json") for k in files if k.startswith("stats/")
-    ]
+    parts = [k.split("/") for k in files]
+    weeks = sum(1 for p in parts if p[0] == "data" and p[2] == "weeks")
+    ranges = [p[3].removesuffix(".json") for p in parts if p[0] == "data" and p[2] == "stats"]
     size = sum(len(b) for b in files.values())
     print(f"taken_at {taken.isoformat()}; last_check_at {snapshot.manila_iso(last) or 'never'}")
     print(f"{weeks} weeks written, {removed} old file(s) removed; ranges: {', '.join(ranges)}")

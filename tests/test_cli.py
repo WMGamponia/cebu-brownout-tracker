@@ -605,7 +605,7 @@ def test_snapshot_offline(capsys, tmp_path, snap_env):
     out = tmp_path / "site"
     assert main(["snapshot", "--out", str(out)]) == 0
     assert (out / "snapshot.json").is_file()
-    assert len(list((out / "weeks").glob("*.geojson"))) == 53
+    assert len(list(out.glob("data/*/weeks/*.geojson"))) == 53
     assert hashlib.sha256(snap_env.read_bytes()).hexdigest() == before
     assert not list(snap_env.parent.glob("outages.db-*"))
     printed = capsys.readouterr().out

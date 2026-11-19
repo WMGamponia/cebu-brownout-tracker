@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from map_world import boundaries, gazetteer, populate, populate_streets
@@ -20,9 +21,11 @@ from outages.snapshot import (
     PUBLIC_TABLES,
     build_files,
     check_out_dir,
+    data_id,
     find_leak,
     guard,
     ranges,
+    static_hash,
     windows,
     write,
 )
@@ -30,6 +33,7 @@ from outages.timeparse import MANILA
 
 TAKEN = datetime(2026, 11, 12, 20, 5, 11, tzinfo=MANILA)
 LAST_CHECK = "2026-11-12T00:00:00+00:00"
+D = "data/20261112T200511/"
 
 
 @pytest.fixture
@@ -124,48 +128,74 @@ def test_ranges():
 
 def test_build_files_layout(conn, world):
     files = _files(conn, world)
-    for key in (
+    snap = json.loads(files["snapshot.json"])
+    st = snap["static"]
+    assert re.fullmatch(r"static/[0-9a-f]{10}/", st)
+    for key in ("index.html", "history.html", "snapshot.json", "LICENSES.md", ".nojekyll"):
+        assert key in files, key
+    assert D + "boundaries.geojson" in files
+    for rel in (
+        "js/map.js",
+        "js/source.js",
+        "map.css",
+        "base.css",
+        "js/timebar.js",
+        "js/bcard.js",
+        "js/cards.js",
+        "js/menu.js",
+        "js/frame.js",
+        "js/dom.js",
+        "vendor/leaflet-1.9.4/leaflet.js",
+    ):
+        assert st + rel in files, rel
+    assert len([k for k in files if k.startswith(D + "weeks/")]) == 53
+    assert sorted(k for k in files if k.startswith(D + "stats/")) == [
+        D + "stats/2024.json",
+        D + "stats/2025.json",
+        D + "stats/2026.json",
+        D + "stats/last-12-months.json",
+    ]
+    tops = {k.split("/")[0] for k in files}
+    assert tops == {
         "index.html",
         "history.html",
         "snapshot.json",
-        "boundaries.geojson",
         "LICENSES.md",
         ".nojekyll",
-        "static/js/map.js",
-        "static/js/source.js",
-        "static/map.css",
-        "static/base.css",
-        "static/js/timebar.js",
-        "static/js/bcard.js",
-        "static/js/cards.js",
-        "static/js/menu.js",
-        "static/js/frame.js",
-        "static/js/dom.js",
-        "static/vendor/leaflet-1.9.4/leaflet.js",
-    ):
-        assert key in files, key
-    assert len([k for k in files if k.startswith("weeks/")]) == 53
-    assert sorted(k for k in files if k.startswith("stats/")) == [
-        "stats/2024.json",
-        "stats/2025.json",
-        "stats/2026.json",
-        "stats/last-12-months.json",
-    ]
+        "data",
+        "static",
+    }
     assert not [k for k in files if "\\" in k or k.startswith("/")]
     for page in ("index.html", "history.html"):
         html = files[page].decode("utf-8")
         assert '<html lang="en" data-mode="snapshot">' in html
+        assert '"static/js/' not in html and '"static/base.css' not in html
+        assert f'href="{st}base.css"' in html
+    assert f'src="{st}js/map.js"' in files["index.html"].decode("utf-8")
+    assert f'src="{st}js/history.js"' in files["history.html"].decode("utf-8")
     assert 'href="history.html"' in files["index.html"].decode("utf-8")
-    assert files["boundaries.geojson"] == dumps(world[1]).encode("utf-8")
+    assert files[D + "boundaries.geojson"] == dumps(world[1]).encode("utf-8")
+
+
+def test_data_id_is_manila():
+    assert data_id(datetime(2026, 11, 19, 12, 1, 5, tzinfo=UTC)) == "20261119T200105"
+
+
+def test_static_hash_stable_and_sensitive():
+    a = {"js/map.js": b"x", "base.css": b"y"}
+    h = static_hash(a)
+    assert re.fullmatch(r"[0-9a-f]{10}", h)
+    assert static_hash(dict(reversed(list(a.items())))) == h
+    assert static_hash({"js/map.js": b"z", "base.css": b"y"}) != h
 
 
 def test_week_files_equal_build(conn, world):
     gaz, b = world
     files = _files(conn, world)
     w = Window(date(2026, 11, 5), date(2026, 11, 11))
-    assert files["weeks/2026-11-05.geojson"] == dumps(build(conn, gaz, b, w, TAKEN)).encode()
+    assert files[D + "weeks/2026-11-05.geojson"] == dumps(build(conn, gaz, b, w, TAKEN)).encode()
     snap = default_window(conn, TAKEN)
-    assert files["weeks/2026-11-12.geojson"] == dumps(build(conn, gaz, b, snap, TAKEN)).encode()
+    assert files[D + "weeks/2026-11-12.geojson"] == dumps(build(conn, gaz, b, snap, TAKEN)).encode()
 
 
 def test_stats_files_equal_compute(conn, world):
@@ -173,15 +203,19 @@ def test_stats_files_equal_compute(conn, world):
     files = _files(conn, world)
     rng = Range(date(2025, 1, 1), date(2025, 12, 31))
     rows, cov = load_rows(conn, rng)
-    assert files["stats/2025.json"] == dumps(compute(rows, rng, gaz, cov, TAKEN)).encode()
+    assert files[D + "stats/2025.json"] == dumps(compute(rows, rng, gaz, cov, TAKEN)).encode()
     rng = Range(date(2025, 11, 13), date(2026, 11, 12))
     rows, cov = load_rows(conn, rng)
-    assert files["stats/last-12-months.json"] == dumps(compute(rows, rng, gaz, cov, TAKEN)).encode()
+    doc = dumps(compute(rows, rng, gaz, cov, TAKEN)).encode()
+    assert files[D + "stats/last-12-months.json"] == doc
 
 
 def test_snapshot_json_fields(conn, world):
     s = json.loads(_files(conn, world)["snapshot.json"])
-    assert s["format"] == 1
+    assert s["format"] == 2
+    assert s["data"] == D
+    assert s["static"].startswith("static/")
+    assert s["fresh_for_h"] == 15
     assert s["taken_at"] == "2026-11-12T20:05:11+08:00"
     assert s["last_check_at"] == "2026-11-12T08:00:00+08:00"
     assert s["snapshot_week"] == "2026-11-12"
@@ -275,25 +309,84 @@ def test_foreign_file_inside_weeks_refused(tmp_path):
     assert "my-notes.txt" in check_out_dir(out)
 
 
-def test_refresh_removes_dropped_week_keeps_git_file(tmp_path):
-    out = tmp_path / "site"
-    _make_snapshot_dir(out, weeks=("2025-11-06", "2025-11-13"))
-    (out / "stats").mkdir()
-    (out / "stats" / "2023.json").write_text("{}", encoding="utf-8")
-    git = out / ".git"
-    git.write_text("gitdir: E:/x/.git/worktrees/site\n", encoding="utf-8")
-    files = {
-        "snapshot.json": b"{}",
-        "weeks/2025-11-13.geojson": b"{}",
-        "stats/2024.json": b"{}",
-        "static/js/a.js": b"x",
+def _v2(id_, h, week="2026-11-12"):
+    snap = {"format": 2, "data": f"data/{id_}/", "static": f"static/{h}/"}
+    return {
+        "snapshot.json": json.dumps(snap).encode(),
+        "index.html": b"x",
+        f"data/{id_}/weeks/{week}.geojson": b"{}",
+        f"data/{id_}/boundaries.geojson": b"{}",
+        f"static/{h}/js/map.js": h.encode(),
     }
-    assert write(out, files) == (4, 2)
-    assert not (out / "weeks" / "2025-11-06.geojson").exists()
-    assert not (out / "stats" / "2023.json").exists()
-    assert (out / "weeks" / "2025-11-13.geojson").read_bytes() == b"{}"
-    assert (out / "static" / "js" / "a.js").read_bytes() == b"x"
-    assert git.read_text(encoding="utf-8") == "gitdir: E:/x/.git/worktrees/site\n"
+
+
+def _tree(out):
+    return {p.relative_to(out).as_posix() for p in out.rglob("*") if p.is_file()}
+
+
+A, B, C, E = "20261118T200001", "20261119T060001", "20261119T200001", "20261120T060001"
+H1, H2 = "aaaaaaaaaa", "bbbbbbbbbb"
+GITLINK = "gitdir: E:/x/.git/worktrees/site"
+
+
+def test_write_keeps_previous_version_only(tmp_path):
+    out = tmp_path / "site"
+    git = out / ".git"
+    write(out, _v2(A, H1))
+    git.write_text(GITLINK, encoding="utf-8")
+    write(out, _v2(B, H1))
+    assert {f"data/{A}/boundaries.geojson", f"data/{B}/boundaries.geojson"} <= _tree(out)
+    write(out, _v2(C, H2))
+    t = _tree(out)
+    assert not [k for k in t if k.startswith(f"data/{A}/")]
+    assert f"data/{B}/boundaries.geojson" in t and f"data/{C}/boundaries.geojson" in t
+    assert {f"static/{H1}/js/map.js", f"static/{H2}/js/map.js"} <= t
+    assert write(out, _v2(E, H2)) == (5, 3)  # C kept as the previous; B and H1 go
+    t = _tree(out)
+    assert not [k for k in t if k.startswith((f"data/{B}/", f"static/{H1}/"))]
+    assert not (out / "data" / B).exists() and not (out / "static" / H1).exists()
+    assert git.read_text(encoding="utf-8") == GITLINK
+    assert check_out_dir(out) is None
+
+
+def test_legacy_layout_kept_once(tmp_path):
+    out = tmp_path / "site"
+    _make_snapshot_dir(out, weeks=("2026-11-12",))
+    (out / "snapshot.json").write_text('{"format": 1}', encoding="utf-8")
+    (out / "stats").mkdir()
+    (out / "stats" / "2025.json").write_text("{}", encoding="utf-8")
+    (out / "boundaries.geojson").write_text("{}", encoding="utf-8")
+    (out / "static" / "js").mkdir()
+    (out / "static" / "js" / "map.js").write_text("old", encoding="utf-8")
+    (out / "static" / "base.css").write_text("old", encoding="utf-8")
+    legacy = {
+        "weeks/2026-11-12.geojson",
+        "stats/2025.json",
+        "boundaries.geojson",
+        "static/js/map.js",
+        "static/base.css",
+    }
+    write(out, _v2(A, H1))
+    assert legacy <= _tree(out)
+    assert check_out_dir(out) is None
+    write(out, _v2(B, H1))
+    assert not legacy & _tree(out)
+    assert not (out / "weeks").exists() and not (out / "stats").exists()
+
+
+def test_check_out_dir_accepts_v2_and_legacy(tmp_path):
+    out = tmp_path / "site"
+    write(out, _v2(A, H1))
+    assert check_out_dir(out) is None
+    _make_snapshot_dir(out)
+    assert check_out_dir(out) is None
+
+
+def test_foreign_folder_in_data_refused(tmp_path):
+    out = tmp_path / "site"
+    write(out, _v2(A, H1))
+    (out / "data" / "notes").mkdir()
+    assert "data/notes" in check_out_dir(out)
 
 
 def test_write_is_byte_stable(tmp_path, conn, world):
