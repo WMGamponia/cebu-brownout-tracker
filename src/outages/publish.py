@@ -38,6 +38,10 @@ GIT_CONFIG = (
     "-c",
     "http.lowSpeedTime=60",
 )
+# `serve` runs under pythonw, which has no console, so each console child (git, taskkill) would
+# get a window of its own: it flashed over a fullscreen game and once killed git commit-tree
+# with 0xC000013A (2026-11-19 20:00). 0 off Windows, where creationflags must be 0.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,7 @@ def _kill_tree(p: subprocess.Popen) -> None:
                 ["taskkill", "/T", "/F", "/PID", str(p.pid)],
                 capture_output=True,
                 timeout=15,
+                creationflags=NO_WINDOW,
             )
         else:
             os.killpg(p.pid, signal.SIGKILL)
@@ -85,6 +90,7 @@ def _run_cmd(
                 stderr=err,
                 env=env,
                 start_new_session=os.name != "nt",
+                creationflags=NO_WINDOW,
             )
         except OSError as e:
             return GitResult(127, "", str(e))

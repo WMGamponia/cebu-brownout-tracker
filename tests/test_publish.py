@@ -213,6 +213,40 @@ def test_run_cmd_output_and_exit_code(tmp_path):
     assert (r.code, r.out.strip(), r.err.strip()) == (3, "out", "err")
 
 
+@pytest.mark.skipif(not hasattr(subprocess, "CREATE_NO_WINDOW"), reason="Windows only")
+def test_no_window_is_create_no_window_on_windows():
+    assert publish.NO_WINDOW == subprocess.CREATE_NO_WINDOW
+
+
+def test_run_cmd_and_kill_tree_open_no_console_window(monkeypatch, tmp_path):
+    """Under pythonw a console child gets a window of its own, which flashed over a fullscreen
+    game at 20:00 on 2026-11-19 (and git commit-tree died with 0xC000013A)."""
+    seen = []
+
+    class FakePopen:
+        pid = 4242
+
+        def __init__(self, cmd, **kw):
+            seen.append(("popen", kw.get("creationflags")))
+
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired("git", timeout)
+
+        def kill(self):
+            pass
+
+    def fake_run(cmd, **kw):
+        seen.append(("run", kw.get("creationflags")))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(publish.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(publish.subprocess, "run", fake_run)
+    monkeypatch.setattr(publish.os, "killpg", lambda *a: None, raising=False)
+    publish._run_cmd(["git", "status"], tmp_path, None, timeout=1)
+    assert seen[0] == ("popen", publish.NO_WINDOW)
+    assert all(flags == publish.NO_WINDOW for _, flags in seen if _ == "run")
+
+
 def test_run_git_never_prompts(monkeypatch, tmp_path):
     seen = {}
 
