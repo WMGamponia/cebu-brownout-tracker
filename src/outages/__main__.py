@@ -14,6 +14,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from outages import (
+    admintoken,
     bot,
     db,
     evaluate,
@@ -54,6 +55,7 @@ from outages.fetch import Fetcher
 from outages.history import load as history_load
 from outages.history import stats as history_stats
 from outages.map import server as map_server
+from outages.map.admin import AdminConfig
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
 from outages.map.review import ReviewConfig
@@ -93,6 +95,7 @@ LAN_WARNING = "map is reachable from your network; there is no login"
 # (Phase 6 spec 4.4); `alerts` only with --send.
 LOCKED_COMMANDS = ("serve", "bot", "check", "backfill")
 LOCK_NAME = "serve.lock"
+STOP_POLL_S = 2.0  # how often serve looks for the tray's stop request
 
 log = logging.getLogger("outages")
 
@@ -799,6 +802,34 @@ class _Runs:
         with self._lock:
             self._run(scheduler.latest_slot(utcnow()))
 
+    def manual(self) -> bool:
+        """A run the owner asked for (tray spec 5.5): False when a run is in progress, else
+        started on its own thread. It uses no slot, so the next scheduled run still happens."""
+        if not self._lock.acquire(blocking=False):
+            return False
+
+        def target() -> None:
+            try:
+                _scheduled_run(
+                    self.paths,
+                    self.settings,
+                    suggest=self.suggest,
+                    publisher=self.publisher,
+                    kind="manual",
+                )
+            except Exception:
+                log.exception("serve: manual run failed")
+            finally:
+                self._lock.release()
+
+        threading.Thread(target=target, name="manual-run", daemon=True).start()
+        return True
+
+    def wait_idle(self) -> None:
+        """Block until no run is in progress."""
+        with self._lock:
+            pass
+
     def watchdog(self) -> None:
         with self._lock:
             now = utcnow()
@@ -823,6 +854,55 @@ class _Runs:
         _scheduled_run(
             self.paths, self.settings, suggest=self.suggest, publisher=self.publisher, kind=kind
         )
+
+
+class ServeControl:
+    """What the tray may ask of `serve` through the admin routes (tray spec 5.5)."""
+
+    def __init__(
+        self,
+        paths: Paths,
+        settings: TelegramSettings | None,
+        runs: _Runs,
+        stop_event: threading.Event,
+    ) -> None:
+        self.paths, self.settings, self.runs, self.stop_event = paths, settings, runs, stop_event
+
+    def run_now(self) -> bool:
+        return self.runs.manual()
+
+    def pending(self) -> list[dict]:
+        conn = db.connect(self.paths.db)
+        try:
+            rows = conn.execute(
+                "SELECT chat_id, display_name, requested_at FROM subscribers"
+                " WHERE status = 'pending' ORDER BY requested_at, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        return [{"chat_id": r[0], "name": r[1], "requested_at": r[2]} for r in rows]
+
+    def decide(self, chat_id: int, approve: bool) -> bool:
+        conn = db.connect(self.paths.db)
+        try:
+            replies = bot.admin_decide(conn, chat_id, approve, utcnow())
+        finally:
+            conn.close()
+        if replies is None:
+            return False
+        if self.settings is None:
+            log.warning("serve: chat %s decided; no Telegram settings, no message sent", chat_id)
+            return True
+        client = make_telegram(self.settings.token)
+        try:
+            bot.deliver(client, replies)
+        finally:
+            client.close()
+        return True
+
+    def stop(self) -> None:
+        log.info("serve: stop requested; finishing any run in progress")
+        self.stop_event.set()
 
 
 def _run_once(
@@ -929,7 +1009,7 @@ def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
         conn.close()
 
 
-def make_map_app(paths: Paths, host: str = MAP_HOST):
+def make_map_app(paths: Paths, host: str = MAP_HOST, admin: AdminConfig | None = None):
     """The map app over the real DB; raises `BoundariesError` if the boundaries won't load.
     The street review routes come only with a loopback bind (Streets v2 spec 7.9)."""
     review = (
@@ -938,7 +1018,12 @@ def make_map_app(paths: Paths, host: str = MAP_HOST):
         else None
     )
     return create_app(
-        paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow(), review=review
+        paths.db,
+        load_boundaries(),
+        load_gazetteer(),
+        lambda: utcnow(),
+        review=review,
+        admin=admin if map_server.is_loopback(host) else None,
     )
 
 
@@ -995,13 +1080,21 @@ def _map_failed(paths: Paths, settings: TelegramSettings | None, message: str) -
         log.exception("map: could not report the failure")
 
 
-def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSettings | None) -> None:
-    """The map thread inside `serve`; a failure is reported and never stops the alert runs."""
+def _start_map(
+    paths: Paths,
+    args: argparse.Namespace,
+    settings: TelegramSettings | None,
+    admin: AdminConfig | None = None,
+) -> None:
+    """The map thread inside `serve`; a failure is reported and never stops the alert runs.
+    `admin` (the tray's routes) is attached on a loopback bind only."""
     if args.no_map:
         return
     _warn_if_lan(args.map_host)
+    if not map_server.is_loopback(args.map_host):
+        admin = None
     try:
-        app = make_map_app(paths, args.map_host)
+        app = make_map_app(paths, args.map_host, admin)
     except Exception as e:  # spec 6: nothing about the map may stop the alert runs
         _map_failed(paths, settings, f"map: not started: {e}")
         return
@@ -1035,8 +1128,6 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
             name="telegram-bot",
             daemon=True,
         ).start()
-    _start_map(paths, args, settings)
-    log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
     suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
     publisher = publish.make_publisher(paths)
@@ -1046,6 +1137,16 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
             publisher.settings.site,
             publisher.start_branch,
         )
+    runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
+    stop_requested = threading.Event()
+    admin = None
+    try:
+        token = admintoken.write_new(paths.data)
+        admin = AdminConfig(token, ServeControl(paths, settings, runs, stop_requested))
+    except OSError as e:  # the tray can't control this serve; alerts are unaffected
+        log.error("serve: could not write the admin token: %s", e)
+    _start_map(paths, args, settings, admin)
+    log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     if catch_up or settings is not None:
         _scheduled_run(
             paths,
@@ -1057,8 +1158,15 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
         )
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
-            scheduler.build(runs.scheduled, runs.watchdog).start()
+            sched = scheduler.build(runs.scheduled, runs.watchdog)
+
+            def stop_check() -> None:  # the tray's stop (tray spec 5.7)
+                if stop_requested.is_set():
+                    sched.shutdown(wait=False)
+
+            sched.add_job(stop_check, "interval", seconds=STOP_POLL_S, id="stop-check")
+            sched.start()
+        runs.wait_idle()  # a manual run in progress finishes before serve exits
     finally:
         stop.set()
     return 0

@@ -384,3 +384,35 @@ def test_join_request_reaches_admin_when_welcome_fails(conn):
     c = Client()
     deliver(c, replies, sleep=lambda s: None)
     assert c.sent == [ADMIN]
+
+
+# --- tray: approve or deny from the tray (tray spec 5.5) ---------------------------------------
+
+
+def test_admin_decide_approves_pending(conn):
+    from outages.bot import APPROVED, admin_decide
+
+    Bot(conn)(msg("/start"))
+    replies = admin_decide(conn, ANA, True, NOW)
+    assert [(r.chat_id, r.text) for r in replies] == [(ANA, APPROVED)]
+    assert store.get_subscriber(conn, ANA).status == "approved"
+
+
+def test_admin_decide_denies_pending(conn):
+    from outages.bot import DENIED, admin_decide
+
+    Bot(conn)(msg("/start"))
+    replies = admin_decide(conn, ANA, False, NOW)
+    assert [(r.chat_id, r.text) for r in replies] == [(ANA, DENIED)]
+    assert store.get_subscriber(conn, ANA).status == "blocked"
+
+
+def test_decide_not_pending(conn):
+    from outages.bot import admin_decide
+
+    bot = Bot(conn)
+    bot(msg("/start"))
+    bot(cb(f"ap:{ANA}"))  # decided in Telegram first
+    assert admin_decide(conn, ANA, False, NOW) is None
+    assert store.get_subscriber(conn, ANA).status == "approved"
+    assert admin_decide(conn, 999_999, True, NOW) is None

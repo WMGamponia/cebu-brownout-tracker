@@ -241,6 +241,20 @@ def _who(s: store.Subscriber) -> str:
     return e(s.display_name) if s.display_name else "—"
 
 
+def admin_decide(conn, chat_id: int, approve: bool, now: datetime) -> list[Reply] | None:
+    """Approve or deny a *pending* join request from the tray (tray spec 5.5): the decision plus
+    the message to the person; None when the chat isn't pending (decided in Telegram first).
+
+    Unlike the admin chat's buttons, this never changes an already-decided chat."""
+    before = store.get_subscriber(conn, chat_id)
+    if before is None or before.status != "pending":
+        return None
+    with conn:
+        store.decide(conn, chat_id, approve, now)
+    log.info("bot: chat %s %s (tray)", chat_id, "approved" if approve else "blocked")
+    return [Reply(chat_id, APPROVED if approve else DENIED)]
+
+
 def _on_decision(q: dict, conn, now: datetime, admin_chat_id: int) -> list[Reply]:
     action, _, raw = (q.get("data") or "").partition(":")
     msg = q["message"]

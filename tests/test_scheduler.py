@@ -715,3 +715,138 @@ def test_kind_catch_up_on_start(home, monkeypatch):
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
     assert cli.main(["serve"]) == 0
     assert kinds == ["catch_up"]
+
+
+# --- tray: manual runs, admin control, clean stop (tray spec 5.5, 5.7) -------------------------
+
+
+def test_manual_busy_returns_false(home, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(cli, "_scheduled_run", lambda *a, **k: calls.append(k))
+    runs = cli._Runs(home, None)
+    with runs._lock:
+        assert runs.manual() is False
+    assert calls == []
+
+
+def test_manual_runs_kind_manual(home, monkeypatch):
+    done = threading.Event()
+    seen: list = []
+
+    def fake(*a, **k):
+        seen.append(k.get("kind"))
+        done.set()
+
+    monkeypatch.setattr(cli, "_scheduled_run", fake)
+    runs = cli._Runs(home, None)
+    assert runs.manual() is True
+    assert done.wait(5)
+    assert seen == ["manual"]
+    deadline = datetime.now() + timedelta(seconds=5)
+    while not runs._lock.acquire(blocking=False):  # released after the run
+        assert datetime.now() < deadline
+    runs._lock.release()
+
+
+def test_manual_keeps_done_slot(home, monkeypatch):
+    done = threading.Event()
+    monkeypatch.setattr(cli, "_scheduled_run", lambda *a, **k: done.set())
+    runs = cli._Runs(home, None)
+    runs.manual()
+    assert done.wait(5)
+    assert runs._done is None
+
+
+def test_manual_run_error_releases_lock(home, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "_scheduled_run", boom)
+    runs = cli._Runs(home, None)
+    assert runs.manual() is True
+    deadline = datetime.now() + timedelta(seconds=5)
+    while not runs._lock.acquire(blocking=False):
+        assert datetime.now() < deadline
+    runs._lock.release()
+
+
+def test_serve_writes_admin_token_and_passes_admin(home, monkeypatch):
+    from outages import admintoken
+
+    _last_check(home, 2)
+    _quiet_serve(monkeypatch)
+    seen: dict = {}
+
+    def fake_app(paths, host, admin=None):
+        seen["admin"] = admin
+        return object()
+
+    monkeypatch.setattr(cli, "make_map_app", fake_app)
+    assert cli.main(["serve"]) == 0
+    token = admintoken.read(home.data)
+    assert token and seen["admin"].token == token
+
+
+def test_serve_lan_bind_gets_no_admin(home, monkeypatch):
+    _last_check(home, 2)
+    _quiet_serve(monkeypatch)
+    seen: dict = {}
+
+    def fake_app(paths, host, admin=None):
+        seen["admin"] = admin
+        return object()
+
+    monkeypatch.setattr(cli, "make_map_app", fake_app)
+    assert cli.main(["serve", "--map-host", "0.0.0.0"]) == 0
+    assert seen["admin"] is None
+
+
+def test_serve_stop_event_ends_scheduler(home, monkeypatch):
+    _last_check(home, 2)
+    monkeypatch.setattr(cli, "_scheduled_run", lambda *a, **k: None)
+    monkeypatch.setattr(cli.bot, "poll_forever", lambda *a, **k: None)
+    box: dict = {}
+
+    def fake_app(paths, host, admin=None):
+        box["admin"] = admin
+        return object()
+
+    monkeypatch.setattr(cli, "make_map_app", fake_app)
+    monkeypatch.setattr(cli, "STOP_POLL_S", 0.05)
+    result: list = []
+    t = threading.Thread(target=lambda: result.append(cli.main(["serve"])), daemon=True)
+    t.start()
+    deadline = datetime.now() + timedelta(seconds=5)
+    while "admin" not in box:
+        assert datetime.now() < deadline
+    box["admin"].control.stop()
+    t.join(10)
+    assert not t.is_alive() and result == [0]
+
+
+def test_control_pending_and_decide(home, monkeypatch):
+    from outages.alerts import store as astore
+
+    conn = db.connect(home.db)
+    astore.request_join(conn, 555, "Ana", NOW)
+    conn.commit()
+    conn.close()
+    sent = _recording_telegram(monkeypatch)
+    ctl = cli.ServeControl(home, SETTINGS, cli._Runs(home, SETTINGS), threading.Event())
+    assert [p["chat_id"] for p in ctl.pending()] == [555]
+    assert ctl.decide(555, True) is True
+    assert ctl.decide(555, True) is False
+    assert len([r for r in sent if r.url.path.endswith("/sendMessage")]) == 1
+
+
+def test_control_decide_without_telegram(home, caplog):
+    from outages.alerts import store as astore
+
+    conn = db.connect(home.db)
+    astore.request_join(conn, 556, "Bo", NOW)
+    conn.commit()
+    conn.close()
+    ctl = cli.ServeControl(home, None, cli._Runs(home, None), threading.Event())
+    with caplog.at_level(logging.WARNING, logger="outages"):
+        assert ctl.decide(556, False) is True
+    assert "no message sent" in caplog.text
