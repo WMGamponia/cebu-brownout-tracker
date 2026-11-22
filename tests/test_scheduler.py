@@ -462,7 +462,9 @@ def test_no_suggest_flag_and_switch(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None, progress=None: (
+            seen.append(suggest)
+        ),
     )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
     _last_check(home, 20)  # catch-up run on start
@@ -525,7 +527,9 @@ def test_watchdog_run_respects_no_suggest(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None, progress=None: (
+            seen.append(suggest)
+        ),
     )
     cli._Runs(home, None, suggest=False).scheduled()
     cli._Runs(home, None).scheduled()
@@ -850,3 +854,68 @@ def test_control_decide_without_telegram(home, caplog):
     with caplog.at_level(logging.WARNING, logger="outages"):
         assert ctl.decide(556, False) is True
     assert "no message sent" in caplog.text
+
+
+# --- tray feedback: run progress and settings (tray feedback spec) -----------------------------
+
+
+def test_progress_steps_full_run(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    steps: list = []
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order), progress=steps.append)
+    assert steps == ["check", "alerts", "publish", "suggest"]
+
+
+def test_progress_steps_alerts_only(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    steps: list = []
+    cli._scheduled_run(
+        home, SETTINGS, do_check=False, publisher=_Publisher(order), progress=steps.append
+    )
+    assert steps == ["alerts", "suggest"]
+
+
+def test_runs_current_during_and_after(home, monkeypatch):
+    runs = cli._Runs(home, None)
+    seen: list = []
+
+    def fake(*a, **k):
+        k["progress"]("check")
+        seen.append(runs.status())
+
+    monkeypatch.setattr(cli, "_scheduled_run", fake)
+    monkeypatch.setattr(cli, "utcnow", lambda: _at("20:00"))
+    runs.scheduled()
+    assert seen[0]["running"] is True
+    assert (seen[0]["kind"], seen[0]["step"]) == ("scheduled", "check")
+    assert seen[0]["started_at"] == _at("20:00").astimezone(UTC).isoformat(timespec="seconds")
+    assert runs.status() == {"running": False, "kind": None, "started_at": None, "step": None}
+
+
+def test_manual_run_current_kind_manual(home, monkeypatch):
+    runs = cli._Runs(home, None)
+    seen: list = []
+    done = threading.Event()
+
+    def fake(*a, **k):
+        seen.append(runs.status()["kind"])
+        done.set()
+
+    monkeypatch.setattr(cli, "_scheduled_run", fake)
+    assert runs.manual() is True
+    assert done.wait(5)
+    assert seen == ["manual"]
+
+
+def test_control_settings_roundtrip(home):
+    from outages import runstatus
+
+    ctl = cli.ServeControl(home, None, cli._Runs(home, None), threading.Event())
+    assert ctl.get_settings() == {"ollama_scheduled": False, "ollama_manual": False}
+    assert ctl.set_settings({"ollama_manual": True}) == {
+        "ollama_scheduled": False,
+        "ollama_manual": True,
+    }
+    conn = db.connect(home.db)
+    assert runstatus.read_settings(conn) == runstatus.Settings(False, True)
+    conn.close()

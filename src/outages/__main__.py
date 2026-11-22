@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import logging
 import sys
 import threading
@@ -774,12 +775,14 @@ def _scheduled_run(
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
     kind: runstatus.RunKind = "scheduled",
+    progress: Callable[[str], None] | None = None,
 ) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
-    raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
+    raises into the scheduler. Keeps a timer-woken PC awake until it is done. `progress(step)`
+    is told each step as it starts (tray feedback spec)."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check, suggest, publisher, kind)
+        _run_once(paths, settings, do_check, suggest, publisher, kind, progress)
 
 
 class _Runs:
@@ -800,6 +803,38 @@ class _Runs:
         self.publisher = publisher
         self._lock = threading.Lock()
         self._done: datetime | None = None
+        self.current: dict | None = None  # the run in progress (tray feedback spec)
+
+    def status(self) -> dict:
+        cur = self.current
+        if cur is None:
+            return {"running": False, "kind": None, "started_at": None, "step": None}
+        return {"running": True, **cur}
+
+    def _go(self, kind: runstatus.RunKind, do_check: bool = True) -> None:
+        """One run, with `current` kept up to date for /admin/status. Hold `_lock`."""
+        self.current = {
+            "kind": kind,
+            "started_at": utcnow().astimezone(UTC).isoformat(timespec="seconds"),
+            "step": None,
+        }
+
+        def progress(name: str) -> None:
+            if self.current is not None:
+                self.current = {**self.current, "step": name}
+
+        try:
+            _scheduled_run(
+                self.paths,
+                self.settings,
+                do_check=do_check,
+                suggest=self.suggest,
+                publisher=self.publisher,
+                kind=kind,
+                progress=progress,
+            )
+        finally:
+            self.current = None
 
     def scheduled(self) -> None:
         with self._lock:
@@ -809,14 +844,7 @@ class _Runs:
         """serve's start-up run (a check only when one is due), under the same lock as every
         other run, so a Run now from the tray during it gets "already running"."""
         with self._lock:
-            _scheduled_run(
-                self.paths,
-                self.settings,
-                do_check=do_check,
-                suggest=self.suggest,
-                publisher=self.publisher,
-                kind="catch_up",
-            )
+            self._go("catch_up", do_check)
 
     def manual(self) -> bool:
         """A run the owner asked for (tray spec 5.5): False when a run is in progress, else
@@ -826,13 +854,7 @@ class _Runs:
 
         def target() -> None:
             try:
-                _scheduled_run(
-                    self.paths,
-                    self.settings,
-                    suggest=self.suggest,
-                    publisher=self.publisher,
-                    kind="manual",
-                )
+                self._go("manual")
             except Exception:
                 log.exception("serve: manual run failed")
             finally:
@@ -867,9 +889,7 @@ class _Runs:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(
-            self.paths, self.settings, suggest=self.suggest, publisher=self.publisher, kind=kind
-        )
+        self._go(kind)
 
 
 class ServeControl:
@@ -920,6 +940,26 @@ class ServeControl:
         log.info("serve: stop requested; finishing any run in progress")
         self.stop_event.set()
 
+    def status(self) -> dict:
+        return self.runs.status()
+
+    def get_settings(self) -> dict:
+        conn = db.connect(self.paths.db)
+        try:
+            return dataclasses.asdict(runstatus.read_settings(conn))
+        finally:
+            conn.close()
+
+    def set_settings(self, values: dict) -> dict:
+        conn = db.connect(self.paths.db)
+        try:
+            new = dataclasses.replace(runstatus.read_settings(conn), **values)
+            runstatus.write_settings(conn, new)
+            log.info("serve: settings %s", dataclasses.asdict(new))
+            return dataclasses.asdict(new)
+        finally:
+            conn.close()
+
 
 def _run_once(
     paths: Paths,
@@ -928,10 +968,18 @@ def _run_once(
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
     kind: runstatus.RunKind = "scheduled",
+    progress: Callable[[str], None] | None = None,
 ) -> None:
+    def step(name: str) -> None:
+        if progress is not None:
+            progress(name)
+
+    if do_check:
+        step("check")
     check_ok = _check(paths) if do_check else True
     if do_check:
         _record(paths, runstatus.record_run, kind, check_ok)
+    step("alerts")
     if settings is not None:
         conn = db.connect(paths.db)
         client = make_telegram(settings.token)
@@ -952,12 +1000,14 @@ def _run_once(
     if publisher is None and do_check:
         _record(paths, runstatus.record_publish, "off", "")
     if publisher is not None and do_check and check_ok:  # new data only (live-site spec 5.1)
+        step("publish")
         try:
             _publish(paths, settings, publisher)
         except Exception as e:
             log.exception("publish failed; alerts are unaffected")
             _record(paths, runstatus.record_publish, "failed", str(e) or type(e).__name__)
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
+        step("suggest")
         try:
             _suggest_hook(paths, settings)
         except Exception:

@@ -16,6 +16,7 @@ from outages import db
 
 RunKind = Literal["scheduled", "catch_up", "watchdog", "manual"]
 PublishStatus = Literal["published", "skipped", "failed", "off"]
+SuggestStatus = Literal["used", "not_needed", "unreachable", "skipped", "failed"]
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,17 @@ class RunStatus:
     publish_status: str | None
     publish_detail: str | None
     publish_at: datetime | None
+    suggest_status: str | None = None  # the street-suggestion step: did it use Ollama?
+    suggest_detail: str | None = None
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Start Ollama for runs (tray feedback spec): one switch for scheduled runs (and their
+    catch-ups), one for Run now. Both off unless the owner turns them on."""
+
+    ollama_scheduled: bool = False
+    ollama_manual: bool = False
 
 
 def _ts(now: datetime) -> str:
@@ -66,4 +78,28 @@ def read(conn: sqlite3.Connection) -> RunStatus:
         publish_status=get("last_publish_status"),
         publish_detail=get("last_publish_detail"),
         publish_at=_dt(get("last_publish_at")),
+        suggest_status=get("last_suggest_status"),
+        suggest_detail=get("last_suggest_detail"),
     )
+
+
+def record_suggest(
+    conn: sqlite3.Connection, status: SuggestStatus, detail: str, now: datetime
+) -> None:
+    with conn:
+        db.set_meta(conn, "last_suggest_status", status)
+        db.set_meta(conn, "last_suggest_detail", detail)
+        db.set_meta(conn, "last_suggest_at", _ts(now))
+
+
+def read_settings(conn: sqlite3.Connection) -> Settings:
+    return Settings(
+        ollama_scheduled=db.get_meta(conn, "ollama_autostart_scheduled") == "1",
+        ollama_manual=db.get_meta(conn, "ollama_autostart_manual") == "1",
+    )
+
+
+def write_settings(conn: sqlite3.Connection, s: Settings) -> None:
+    with conn:
+        db.set_meta(conn, "ollama_autostart_scheduled", "1" if s.ollama_scheduled else "0")
+        db.set_meta(conn, "ollama_autostart_manual", "1" if s.ollama_manual else "0")
