@@ -34,12 +34,18 @@ class ServeClient:
         self._http.close()
 
     def healthz(self) -> bool:
-        """True when serve answers at all (even 503 "not ready": it is alive)."""
+        """True when *serve* answers: its JSON with a `schema`, or its 503 "not ready" (alive,
+        with no database yet). Anything else on the port is not serve (port in use)."""
         try:
-            self._http.get("/healthz")
-        except httpx.HTTPError:
+            r = self._http.get("/healthz")
+            body = r.json()
+        except (httpx.HTTPError, ValueError):
             return False
-        return True
+        if not isinstance(body, dict):
+            return False
+        if r.status_code == 200:
+            return "schema" in body
+        return r.status_code == 503 and "error" in body
 
     def _admin(self, method: str, path: str, body: dict | None = None) -> httpx.Response | None:
         for _ in range(2):

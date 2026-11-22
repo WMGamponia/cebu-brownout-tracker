@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from outages.tray.state import Event
@@ -28,12 +29,15 @@ class Seen:
         keys = data.get("seen") if isinstance(data, dict) else None
         self._keys = [k for k in keys if isinstance(k, str)] if isinstance(keys, list) else []
 
-    def fresh(self, events: list[Event]) -> list[Event]:
-        """The events not notified before; marks and saves them."""
+    def fresh(
+        self, events: list[Event], deliver: Callable[[Event], bool] = lambda e: True
+    ) -> list[Event]:
+        """The events not notified before that `deliver` accepted; only those are marked and
+        saved, so a notification that failed is tried again on the next refresh."""
         known = set(self._keys)
         new = []
         for e in events:
-            if e.key not in known:
+            if e.key not in known and deliver(e):
                 known.add(e.key)
                 new.append(e)
                 self._keys.append(e.key)

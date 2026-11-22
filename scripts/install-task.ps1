@@ -75,6 +75,15 @@ try {
         exit 1
     }
 
+    # The logon task runs the tray; without its extra it would exit at once and serve would
+    # never start. python.exe (not pythonw) so the exit code is waited for.
+    $python = Join-Path $Root ".venv\Scripts\python.exe"
+    & $python -c "import pystray, PIL" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error 'The tray extra is missing. Install it first: .venv\Scripts\pip install -e ".[tray]"' -ErrorAction Continue
+        exit 1
+    }
+
     $user = "$env:USERDOMAIN\$env:USERNAME"
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 

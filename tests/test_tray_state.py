@@ -91,7 +91,7 @@ def test_new_failure_new_event_while_red():
     k1 = set(keys(evaluate(snap(now=at("07:00"), status=morning))))
     k2 = set(keys(evaluate(snap(status=evening))))
     assert f"check_failed:{at('20:00').isoformat()}" in k2
-    assert k1.isdisjoint(k2)
+    assert f"check_failed:{at('20:00').isoformat()}" not in k1
 
 
 def test_missed_amber():

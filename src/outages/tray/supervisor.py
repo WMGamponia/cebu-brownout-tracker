@@ -9,6 +9,7 @@ free. Not thread-safe: the tray calls it from one worker thread.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import subprocess
 import sys
@@ -21,6 +22,8 @@ from typing import Protocol
 from outages import lock
 from outages.config import MAP_PORT
 from outages.tray.state import ProcState
+
+log = logging.getLogger("outages")
 
 LOCK_HELD_EXIT = 3  # `python -m outages` returns 3 when another instance holds the lock
 LOCK_NAME = "serve.lock"
@@ -138,8 +141,24 @@ class Supervisor:
         self.state, self.since = state, self._clock()
 
     def _launch(self) -> None:
-        self._proc = self._spawn()
+        try:
+            self._proc = self._spawn()
+        except OSError as e:  # counts as a crash: backs off, then caps, never strands the tray
+            log.error("tray: could not start serve: %s", e)
+            self._proc = None
+            self._crashed(self._clock())
+            return
         self._set("starting")
+
+    def _crashed(self, now: datetime) -> None:
+        self._crashes = [c for c in self._crashes if now - c < self._cap_window] + [now]
+        self.last_crash = now
+        if len(self._crashes) >= self._cap_count:
+            self._set("capped")
+            return
+        delay = self._backoff[min(len(self._crashes), len(self._backoff)) - 1]
+        self._restart_at = now + timedelta(seconds=delay)
+        self._set("restarting")
 
     def start(self) -> None:
         if self._lock_held():
@@ -162,14 +181,7 @@ class Supervisor:
             if code == LOCK_HELD_EXIT:
                 self._set("adopted")
                 return
-            self._crashes = [c for c in self._crashes if now - c < self._cap_window] + [now]
-            self.last_crash = now
-            if len(self._crashes) >= self._cap_count:
-                self._set("capped")
-                return
-            delay = self._backoff[min(len(self._crashes), len(self._backoff)) - 1]
-            self._restart_at = now + timedelta(seconds=delay)
-            self._set("restarting")
+            self._crashed(now)
         elif self.state == "restarting":
             if self._restart_at is not None and now >= self._restart_at:
                 self._launch()
@@ -178,16 +190,18 @@ class Supervisor:
 
     def stop(self, request_stop: Callable[[], bool], timeout_s: float) -> None:
         """Ask serve to stop (it finishes a run in progress), wait up to `timeout_s`, then kill
-        it as a last resort. An unreachable stop request kills at once."""
+        it as a last resort. Our own child is killed at once if the stop request can't reach it.
+        An adopted lock holder is killed only if it answered the stop request (it is a serve):
+        one that didn't may be a hand-run `check` or `backfill`, and is left alone."""
         deadline = self._clock() + timedelta(seconds=timeout_s)
         if self.state == "adopted":
             if request_stop():
                 while self._lock_held() and self._clock() < deadline:
                     self._sleep(1)
-            if self._lock_held():
-                pid = self._lock_pid()
-                if pid is not None:
-                    self._kill_pid(pid)
+                if self._lock_held():
+                    pid = self._lock_pid()
+                    if pid is not None:
+                        self._kill_pid(pid)
         elif self._proc is not None:
             proc = self._proc
             if request_stop():

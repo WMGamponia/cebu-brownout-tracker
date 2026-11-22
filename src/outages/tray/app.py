@@ -27,13 +27,14 @@ from outages.runstatus import RunStatus
 from outages.tray import autostart
 from outages.tray.client import ServeClient
 from outages.tray.seen import Seen
-from outages.tray.state import Snapshot, View, evaluate
+from outages.tray.state import Snapshot, View, evaluate, menu_key
 from outages.tray.supervisor import Supervisor, lock_held, lock_pid, spawn_serve
 
 log = logging.getLogger("outages")
 
 TITLE = "Outage Tracker"
 POLL_S = 30
+NOTIFY_MAX = 250
 QUIT_WAIT_S = 600
 COLOURS = {"green": "#2e9e44", "amber": "#e0a100", "red": "#d0342c", "grey": "#8a8a8a"}
 NO_STATUS = RunStatus(None, None, None, None, None, None, None)
@@ -91,6 +92,8 @@ class TrayApp:
         self.pending: list[dict] = []
         self.autostart: bool | None = None
         self.busy_text: str | None = None  # "Stopping after the current run…"
+        self.last_healthy_at: datetime | None = None
+        self._menu_key: tuple | None = None
         self.icon = pystray.Icon("outage-tracker", _image("grey"), TITLE, menu=self._menu())
 
     # --- worker thread -------------------------------------------------------------------------
@@ -102,17 +105,29 @@ class TrayApp:
 
         return action
 
-    def _notify(self, text: str) -> None:
+    def _notify(self, text: str) -> bool:
+        """Show a Windows notification; False when it couldn't be shown (it is retried)."""
+        if len(text) > NOTIFY_MAX:  # Windows' limit is 255 characters
+            text = text[: NOTIFY_MAX - 1] + "…"
         try:
             self.icon.notify(text, TITLE)
         except Exception:
             log.exception("tray: notification failed")
+            return False
+        return True
+
+    def _redraw_menu(self) -> None:
+        key = menu_key(self.view, self.pending, self.autostart, self.sup.state, self.busy_text)
+        if key != self._menu_key:  # never destroy an open menu for nothing
+            self._menu_key = key
+            self.icon.update_menu()
 
     def _refresh(self) -> None:
         self.sup.tick()
         healthy = self.client.healthz()
         if healthy:
             self.sup.mark_healthy()
+            self.last_healthy_at = utcnow()
         status = _read_status(self.data / "outages.db")
         self.pending = self.client.pending() if healthy else []
         crashed = self.sup.last_crash if self.sup.state != "capped" else None
@@ -124,18 +139,28 @@ class TrayApp:
             status=status,
             pending=self.pending,
             crashed_at=crashed,
+            last_healthy_at=self.last_healthy_at,
         )
         self.view = evaluate(snap)
-        for e in self.seen.fresh(self.view.events):
-            self._notify(e.text)
+        self.seen.fresh(self.view.events, deliver=lambda e: self._notify(e.text))
         self.icon.icon = _image(self.view.colour)
         self.icon.title = self.view.tooltip
-        self.icon.update_menu()
+        self._redraw_menu()
+
+    def _start(self) -> None:
+        try:
+            self.seen.load()
+            self.autostart = autostart.is_enabled()
+        except Exception:
+            log.exception("tray: start-up step failed")
+        self.sup.start()  # a failed spawn counts as a crash inside the supervisor
 
     def _work(self) -> None:
-        self.seen.load()
-        self.autostart = autostart.is_enabled()
-        self.sup.start()
+        try:
+            self._start()
+        except Exception:  # never leave the icon stuck at "Starting…" with no worker
+            log.exception("tray: could not start")
+            self._notify("The tray couldn't start serve; see data\\logs\\tray.log")
         while not self.quitting.is_set():
             try:
                 while not self.actions.empty():
@@ -177,7 +202,7 @@ class TrayApp:
 
     def _stopping(self, fn: Callable[[], None]) -> None:
         self.busy_text = "Stopping after the current run…"
-        self.icon.update_menu()
+        self._redraw_menu()
         try:
             fn()
         finally:

@@ -805,6 +805,19 @@ class _Runs:
         with self._lock:
             self._run(scheduler.latest_slot(utcnow()))
 
+    def catch_up(self, do_check: bool) -> None:
+        """serve's start-up run (a check only when one is due), under the same lock as every
+        other run, so a Run now from the tray during it gets "already running"."""
+        with self._lock:
+            _scheduled_run(
+                self.paths,
+                self.settings,
+                do_check=do_check,
+                suggest=self.suggest,
+                publisher=self.publisher,
+                kind="catch_up",
+            )
+
     def manual(self) -> bool:
         """A run the owner asked for (tray spec 5.5): False when a run is in progress, else
         started on its own thread. It uses no slot, so the next scheduled run still happens."""
@@ -1151,14 +1164,7 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     _start_map(paths, args, settings, admin)
     log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     if catch_up or settings is not None:
-        _scheduled_run(
-            paths,
-            settings,
-            do_check=catch_up,
-            suggest=suggest,
-            publisher=publisher,
-            kind="catch_up",
-        )
+        runs.catch_up(catch_up)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
             sched = scheduler.build(runs.scheduled, runs.watchdog)
@@ -1324,7 +1330,9 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
     args = _parser().parse_args(argv)
     paths = Paths.default()
-    handlers = _setup_logging(paths)
+    # the tray logs to its own data/logs/tray.log: two long-lived processes holding
+    # outages.log open would break its rotation on Windows
+    handlers = [] if args.command == "tray" else _setup_logging(paths)
     try:
         return _run(args, paths)
     except KeyboardInterrupt:

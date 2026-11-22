@@ -301,9 +301,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -Un
   that finds a `serve` already running takes it over (the menu says "serve started elsewhere");
   Quit stops it too.
 
-**After an update:** `git pull` → `.venv\Scripts\pip install -e ".[tray]"` →
-`Stop-ScheduledTask "OutageTracker serve"` → `Start-ScheduledTask "OutageTracker serve"`. Stopping
-mid-run is safe for the DB; at worst one alert is sent twice.
+**After an update:** **Quit** from the tray menu (it stops `serve`, after any run in progress) →
+`git pull` → `.venv\Scripts\pip install -e ".[tray]"` → `Start-ScheduledTask "OutageTracker serve"`.
+Don't use `Stop-ScheduledTask` for this: it ends the tray but can leave the old `serve` running,
+which the new tray would then adopt with the old code (and publishing would skip with "main moved
+since serve started"). If that happens, use **Restart serve** in the menu. Stopping mid-run is
+safe for the DB; at worst one alert is sent twice.
 
 **"Data more than 15 h old" on the map:** check the task's *Last Run Result* in Task Scheduler,
 the tail of `data\logs\outages.log`, and whether the PC slept past a run. `serve` looks every

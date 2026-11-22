@@ -22,6 +22,7 @@ Colour = Literal["green", "amber", "red", "grey"]
 
 HEALTHZ_GRACE = timedelta(seconds=60)
 TOOLTIP_MAX = 127  # Windows' limit for a tray tooltip
+DETAIL_MAX = 200  # keeps "Publish failed: <detail>" under the 255-char notification limit
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class Snapshot:
     status: RunStatus
     pending: list[dict]
     crashed_at: datetime | None
+    last_healthy_at: datetime | None = None  # the last time /healthz answered
 
 
 @dataclass(frozen=True)
@@ -75,14 +77,23 @@ def next_run(now: datetime) -> datetime:
     return min(s for s in slots if s > local)
 
 
+def _detail(text: str | None) -> str:
+    """The first non-empty line of a publish detail (git's stderr can be long), clipped."""
+    for line in (text or "").splitlines():
+        if line.strip():
+            line = line.strip()
+            return line if len(line) <= DETAIL_MAX else line[: DETAIL_MAX - 1] + "…"
+    return ""
+
+
 def _publish_line(s: RunStatus) -> str:
     if s.publish_status is None:
         return "Publish: none yet"
     if s.publish_status == "off":
         return "Publish: off"
     if s.publish_status == "published":
-        return f"Publish: published {s.publish_detail or ''}".rstrip()
-    return f"Publish: {s.publish_status}: {s.publish_detail or ''}".rstrip(": ")
+        return f"Publish: published {_detail(s.publish_detail)}".rstrip()
+    return f"Publish: {s.publish_status}: {_detail(s.publish_detail)}".rstrip(": ")
 
 
 def _publish_short(s: RunStatus) -> str:
@@ -91,8 +102,8 @@ def _publish_short(s: RunStatus) -> str:
     if s.publish_status == "off":
         return "publishing off"
     if s.publish_status == "published":
-        return f"published {(s.publish_detail or '').split(' ')[0]}".rstrip()
-    return f"publish {s.publish_status}: {s.publish_detail or ''}".rstrip(": ")
+        return f"published {_detail(s.publish_detail).split(' ')[0]}".rstrip()
+    return f"publish {s.publish_status}: {_detail(s.publish_detail)}".rstrip(": ")
 
 
 def _red(s: Snapshot, run_key: str, alive: bool) -> list[Event]:
@@ -106,13 +117,15 @@ def _red(s: Snapshot, run_key: str, alive: bool) -> list[Event]:
         red.append(Event(f"check_failed:{run_key}", "Check failed"))
     if st.publish_status in ("failed", "skipped"):
         label = "Publish skipped" if st.publish_status == "skipped" else "Publish failed"
+        when = _iso(st.publish_at) if st.publish_at else run_key
         red.append(
-            Event(f"publish_{st.publish_status}:{run_key}", f"{label}: {st.publish_detail or ''}")
+            Event(f"publish_{st.publish_status}:{when}", f"{label}: {_detail(st.publish_detail)}")
         )
-    if alive and not s.healthz_ok and s.now - s.proc_since >= HEALTHZ_GRACE:
+    answered = max(s.proc_since, s.last_healthy_at or s.proc_since)
+    if alive and not s.healthz_ok and s.now - answered >= HEALTHZ_GRACE:
         red.append(
             Event(
-                f"not_answering:{_iso(s.proc_since)}",
+                f"not_answering:{_iso(answered)}",
                 "serve is running but not answering (map port in use?)",
             )
         )
@@ -181,3 +194,12 @@ def evaluate(s: Snapshot) -> View:
     if len(tooltip) > TOOLTIP_MAX:
         tooltip = tooltip[: TOOLTIP_MAX - 1] + "…"
     return View(colour, headline, lines, tooltip, events, can_act=s.healthz_ok)
+
+
+def menu_key(
+    view: View, pending: list[dict], autostart: bool | None, proc: str, busy: str | None
+) -> tuple:
+    """Everything the menu shows: rebuild it only when this changes, so a menu the owner has
+    open isn't destroyed under them by every 30 s refresh."""
+    people = tuple((p.get("chat_id"), p.get("name")) for p in pending)
+    return (view.headline, tuple(view.lines), view.can_act, people, autostart, proc, busy)
