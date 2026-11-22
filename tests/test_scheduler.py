@@ -462,7 +462,7 @@ def test_no_suggest_flag_and_switch(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
     )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
     _last_check(home, 20)  # catch-up run on start
@@ -525,7 +525,7 @@ def test_watchdog_run_respects_no_suggest(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
     )
     cli._Runs(home, None, suggest=False).scheduled()
     cli._Runs(home, None).scheduled()
@@ -616,3 +616,102 @@ def test_runs_pass_the_publisher(home, monkeypatch):
     runs = cli._Runs(home, SETTINGS, publisher=pub)
     runs.scheduled()
     assert seen == [pub]
+
+
+# --- tray: each run's outcome is recorded in meta (tray spec 5.2) ------------------------------
+
+
+def _status(home):
+    from outages import runstatus
+
+    conn = db.connect(home.db)
+    try:
+        return runstatus.read(conn)
+    finally:
+        conn.close()
+
+
+def test_run_once_records_run_and_publish(home, monkeypatch):
+    from outages.publish import Outcome
+
+    order = _ordered_run(home, monkeypatch)
+    pub = _Publisher(order, Outcome("skipped", "not on main", None))
+    cli._scheduled_run(home, SETTINGS, publisher=pub)
+    s = _status(home)
+    assert (s.last_run_at, s.last_run_kind, s.last_check_ok) == (NOW, "scheduled", True)
+    assert (s.publish_status, s.publish_detail, s.publish_at) == ("skipped", "not on main", NOW)
+
+
+def test_failed_check_keeps_publish_status(home, monkeypatch):
+    from outages import runstatus
+
+    t0 = NOW - timedelta(hours=12)
+    conn = db.connect(home.db)
+    runstatus.record_publish(conn, "published", "abc1234 x", t0)
+    conn.close()
+    order = _ordered_run(home, monkeypatch, check=lambda *a, **k: pipeline.CheckSummary(errors=1))
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order))
+    s = _status(home)
+    assert s.last_check_ok is False
+    assert (s.publish_status, s.publish_at) == ("published", t0)
+
+
+def test_alerts_only_run_writes_nothing(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, do_check=False, publisher=_Publisher(order))
+    assert _status(home).last_run_at is None
+
+
+def test_no_publisher_records_off(home, monkeypatch):
+    _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, publisher=None)
+    assert _status(home).publish_status == "off"
+
+
+def test_publish_error_records_failed(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order, error=RuntimeError("boom")))
+    s = _status(home)
+    assert (s.publish_status, s.publish_detail) == ("failed", "boom")
+
+
+def test_status_write_failure_never_breaks_the_run(home, monkeypatch, caplog):
+    from outages import runstatus
+
+    order = _ordered_run(home, monkeypatch)
+
+    def broken(*a, **k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(runstatus, "record_run", broken)
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order))
+    assert order == ["check", "alerts", "publish", "suggest"]
+    assert "could not record" in caplog.text
+
+
+def _kinds(monkeypatch) -> list:
+    kinds: list = []
+    monkeypatch.setattr(
+        cli, "_scheduled_run", lambda *a, **k: kinds.append(k.get("kind", "scheduled"))
+    )
+    return kinds
+
+
+def test_kind_scheduled_and_watchdog(home, monkeypatch):
+    kinds = _kinds(monkeypatch)
+    monkeypatch.setattr(cli, "utcnow", lambda: _at("11:24"))
+    conn = db.connect(home.db)
+    db.set_meta(conn, "last_check_at", "2026-11-13T12:01:55+00:00")
+    conn.commit()
+    conn.close()
+    cli._Runs(home, None).watchdog()
+    monkeypatch.setattr(cli, "utcnow", lambda: _at("20:00"))
+    cli._Runs(home, None).scheduled()
+    assert kinds == ["watchdog", "scheduled"]
+
+
+def test_kind_catch_up_on_start(home, monkeypatch):
+    kinds = _kinds(monkeypatch)
+    monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
+    assert cli.main(["serve"]) == 0
+    assert kinds == ["catch_up"]

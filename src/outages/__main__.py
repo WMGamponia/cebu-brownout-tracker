@@ -8,6 +8,7 @@ import logging
 import sys
 import threading
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -22,6 +23,7 @@ from outages import (
     power,
     publish,
     report,
+    runstatus,
     scheduler,
     snapshot,
     snapshot_run,
@@ -765,12 +767,13 @@ def _scheduled_run(
     do_check: bool = True,
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
+    kind: runstatus.RunKind = "scheduled",
 ) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check, suggest, publisher)
+        _run_once(paths, settings, do_check, suggest, publisher, kind)
 
 
 class _Runs:
@@ -811,13 +814,15 @@ class _Runs:
                 "serve: missed the %s run (PC asleep?); running it now",
                 slot.astimezone(MANILA).strftime("%H:%M"),
             )
-            self._run(slot)
+            self._run(slot, kind="watchdog")
 
-    def _run(self, slot: datetime) -> None:
+    def _run(self, slot: datetime, kind: runstatus.RunKind = "scheduled") -> None:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(self.paths, self.settings, suggest=self.suggest, publisher=self.publisher)
+        _scheduled_run(
+            self.paths, self.settings, suggest=self.suggest, publisher=self.publisher, kind=kind
+        )
 
 
 def _run_once(
@@ -826,8 +831,11 @@ def _run_once(
     do_check: bool,
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
+    kind: runstatus.RunKind = "scheduled",
 ) -> None:
     check_ok = _check(paths) if do_check else True
+    if do_check:
+        _record(paths, runstatus.record_run, kind, check_ok)
     if settings is not None:
         conn = db.connect(paths.db)
         client = make_telegram(settings.token)
@@ -845,11 +853,14 @@ def _run_once(
         finally:
             client.close()
             conn.close()
+    if publisher is None and do_check:
+        _record(paths, runstatus.record_publish, "off", "")
     if publisher is not None and do_check and check_ok:  # new data only (live-site spec 5.1)
         try:
             _publish(paths, settings, publisher)
-        except Exception:
+        except Exception as e:
             log.exception("publish failed; alerts are unaffected")
+            _record(paths, runstatus.record_publish, "failed", str(e) or type(e).__name__)
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
         try:
             _suggest_hook(paths, settings)
@@ -857,11 +868,24 @@ def _run_once(
             log.exception("street suggestions failed; alerts are unaffected")
 
 
+def _record(paths: Paths, write: Callable[..., None], *args: object) -> None:
+    """One status write for the tray (tray spec 5.2) on its own connection; never raises."""
+    try:
+        conn = db.connect(paths.db)
+        try:
+            write(conn, *args, utcnow())
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("serve: could not record the run status for the tray")
+
+
 def _publish(paths: Paths, settings: TelegramSettings | None, publisher: publish.Publisher) -> None:
     """Publish the site; its note, if any, goes to the admin chat once per key."""
     now = utcnow()
     outcome = publisher.publish(now)
     log.info("publish: %s (%s)", outcome.status, outcome.detail)
+    _record(paths, runstatus.record_publish, outcome.status, outcome.detail)
     note = outcome.note
     if note is None:
         return
@@ -1023,7 +1047,14 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
             publisher.start_branch,
         )
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest, publisher=publisher)
+        _scheduled_run(
+            paths,
+            settings,
+            do_check=catch_up,
+            suggest=suggest,
+            publisher=publisher,
+            kind="catch_up",
+        )
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
             runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
