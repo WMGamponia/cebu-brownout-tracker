@@ -54,7 +54,8 @@ def test_green():
     assert v.events == []
     assert v.lines[0] == "Last run: Mon 23 Nov 20:00 · OK"
     assert v.lines[1] == "Publish: published abc1234 snapshot 2026-11-23 20:00"
-    assert v.lines[2] == "Next run: Tue 24 Nov 06:00"
+    assert v.lines[2] == "Ollama: no run yet"
+    assert v.lines[3] == "Next run: Tue 24 Nov 06:00"
 
 
 def test_publish_skipped_red():
@@ -192,3 +193,66 @@ def test_headline_names_state():
     assert evaluate(snap()).headline == "Running fine"
     s = replace(GOOD, publish_status="skipped", publish_detail="not on main")
     assert evaluate(snap(status=s)).headline == "Publish skipped: not on main"
+
+
+# --- tray feedback: running state and Ollama line ----------------------------------------------
+
+import pytest  # noqa: E402
+
+from outages.tray.state import menu_key  # noqa: E402
+
+
+def running(step="publish", secs=42, kind="manual"):
+    started = (NOW - timedelta(seconds=secs)).isoformat()
+    return {"running": True, "kind": kind, "started_at": started, "step": step}
+
+
+def test_running_blue_headline():
+    v = evaluate(snap(run=running()))
+    assert v.colour == "blue" and v.headline == "Running: publish (0:42)"
+
+
+def test_running_no_step_yet():
+    assert evaluate(snap(run=running(step=None, secs=3))).headline == "Running: starting (0:03)"
+
+
+def test_red_beats_blue():
+    s = replace(GOOD, publish_status="skipped", publish_detail="not on main")
+    assert evaluate(snap(status=s, run=running())).colour == "red"
+
+
+def test_blue_beats_amber():
+    s = replace(GOOD, last_check_at=NOW - timedelta(hours=16))
+    assert evaluate(snap(status=s, run=running())).colour == "blue"
+
+
+def test_can_run_false_while_running():
+    assert evaluate(snap(run=running())).can_run is False
+    assert evaluate(snap()).can_run is True
+    assert evaluate(snap(healthz_ok=False)).can_run is False
+
+
+@pytest.mark.parametrize(
+    ("status", "detail", "line"),
+    [
+        ("used", "3 new street suggestions", "Ollama: used · 3 new street suggestions"),
+        ("not_needed", "", "Ollama: not needed this run"),
+        ("unreachable", "x", "Ollama: not running · street suggestions skipped"),
+        ("skipped", "no OSM extract", "Ollama: not used · no OSM extract"),
+        ("failed", "boom\nmore", "Ollama: street suggestions failed · boom"),
+    ],
+)
+def test_ollama_line_each_status(status, detail, line):
+    v = evaluate(snap(status=replace(GOOD, suggest_status=status, suggest_detail=detail)))
+    assert v.lines[2] == line
+
+
+def test_ollama_line_none():
+    assert evaluate(snap()).lines[2] == "Ollama: no run yet"
+
+
+def test_menu_key_includes_settings():
+    v = evaluate(snap())
+    a = menu_key(v, [], True, "running", None, {"ollama_scheduled": False})
+    b = menu_key(v, [], True, "running", None, {"ollama_scheduled": True})
+    assert a != b
