@@ -212,6 +212,13 @@ def test_lock_held_and_pid_real_lock(tmp_path, held_lock):
     assert lock_held(tmp_path) is False
 
 
+def test_serve_command_port():
+    from outages.tray.supervisor import serve_command
+
+    assert serve_command(8765)[-2:] == ["outages", "serve"]
+    assert serve_command(8799)[-4:] == ["outages", "serve", "--map-port", "8799"]
+
+
 def test_restart_now_clears_cap():
     w = World()
     s = w.sup()

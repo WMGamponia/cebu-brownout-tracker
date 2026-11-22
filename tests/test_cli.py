@@ -752,3 +752,45 @@ def test_take_returns_codes(tmp_path, snap_env):
     assert t.code == 2 and t.error == "data is 16 h old; run check first or pass --allow-old"
     assert not out2.exists()
     assert take(paths, out2, SNAP_TAKEN, allow_old=True).code == 0
+
+
+# --- tray command (tray spec 5.1) --------------------------------------------------------------
+
+
+def test_tray_not_windows(capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert main(["tray"]) == 2
+    assert "error: the tray runs on Windows only" in capsys.readouterr().err
+
+
+def test_tray_missing_extra(capsys, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "pystray", None)  # import pystray -> ImportError
+    assert main(["tray"]) == 2
+    assert 'pip install -e ".[tray]"' in capsys.readouterr().err
+
+
+def test_tray_not_locked():
+    import argparse
+
+    from outages.__main__ import needs_lock
+
+    assert needs_lock(argparse.Namespace(command="tray")) is False
+
+
+def test_tray_runs_app(monkeypatch, tmp_path):
+    import types
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "pystray", types.ModuleType("pystray"))
+    monkeypatch.setitem(sys.modules, "PIL", types.ModuleType("PIL"))
+    seen: list = []
+    fake_app = types.ModuleType("outages.tray.app")
+    fake_app.run = lambda root, port: seen.append((root, port)) or 0
+    monkeypatch.setitem(sys.modules, "outages.tray.app", fake_app)
+    assert main(["tray"]) == 0
+    assert main(["tray", "--map-port", "8799"]) == 0
+    assert seen == [(tmp_path, 8765), (tmp_path, 8799)]

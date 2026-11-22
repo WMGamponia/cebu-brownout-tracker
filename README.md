@@ -271,6 +271,15 @@ it stays in `data/` (never committed).
 ## Running at login (Windows)
 
 `serve` runs the checks, alerts, bot and map; it should start when you log in and survive sleep.
+At logon the **tray** starts it: a coloured dot in the notification area (green fine, amber
+needs a look, red broken, grey stopped) that runs `serve` as a hidden child, restarts it after a
+crash, notifies only when something needs you (a failed check or publish, a skipped publish, a
+missed run, a crash, a join request), and has Run now, Approve/Deny, Open log, Open map, Start at
+logon and Quit in its right-click menu. Install its extra once:
+
+```powershell
+.venv\Scripts\pip install -e ".[tray]"
+```
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -WhatIf   # see what it would register
@@ -278,16 +287,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1    
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-task.ps1 -Uninstall
 ```
 
-- **"OutageTracker serve"** starts `.venv\Scripts\pythonw.exe -m outages serve` at logon (no
-  console; the log is `data\logs\outages.log`), restarts it up to 3 times a minute apart, and
-  never starts a second copy.
+- **"OutageTracker serve"** starts `.venv\Scripts\pythonw.exe -m outages tray` at logon (no
+  console; the logs are `data\logs\outages.log` and `data\logs\tray.log`), restarts it up to
+  3 times a minute apart, and never starts a second copy. The tray starts `serve` and restarts
+  it after 10 s, 60 s, then 5 min; a 4th crash within 30 min stops that (red, and "Start serve"
+  in the menu). Re-run the script (elevated) after updating from a version that started `serve`
+  directly.
 - **"OutageTracker wake"** wakes the PC at 05:58 and 19:58 and keeps it awake for 15 minutes
   for the 06:00 / 20:00 runs (`serve` also keeps it awake until each run ends). Turn on
   **Allow wake timers** in your power plan (Control Panel → Power Options → advanced settings →
   Sleep). `-NoWake` skips it (a laptop asleep in a bag won't wake anyway).
-- A `serve` started in a terminal while the task runs exits 3: the lock allows one.
+- A `serve` started in a terminal while the task runs exits 3: the lock allows one. A tray
+  that finds a `serve` already running takes it over (the menu says "serve started elsewhere");
+  Quit stops it too.
 
-**After an update:** `git pull` → `.venv\Scripts\pip install -e .` →
+**After an update:** `git pull` → `.venv\Scripts\pip install -e ".[tray]"` →
 `Stop-ScheduledTask "OutageTracker serve"` → `Start-ScheduledTask "OutageTracker serve"`. Stopping
 mid-run is safe for the DB; at worst one alert is sent twice.
 

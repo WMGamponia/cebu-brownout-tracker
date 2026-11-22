@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Protocol
 
 from outages import lock
+from outages.config import MAP_PORT
 from outages.tray.state import ProcState
 
 LOCK_HELD_EXIT = 3  # `python -m outages` returns 3 when another instance holds the lock
@@ -73,10 +74,15 @@ def _pythonw() -> str:
     return str(w if exe.name.lower() == "python.exe" and w.is_file() else exe)
 
 
-def spawn_serve(root: Path) -> Proc:
+def serve_command(port: int = MAP_PORT) -> list[str]:
+    cmd = [_pythonw(), "-m", "outages", "serve"]
+    return cmd if port == MAP_PORT else [*cmd, "--map-port", str(port)]
+
+
+def spawn_serve(root: Path, port: int = MAP_PORT) -> Proc:
     """`pythonw -m outages serve` in `root`, with no console window."""
     p = subprocess.Popen(
-        [_pythonw(), "-m", "outages", "serve"],
+        serve_command(port),
         cwd=root,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

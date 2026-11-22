@@ -23,6 +23,11 @@ dev = [
     "pytest-cov>=7",
     "ruff>=0.17",
 ]
+# Windows tray icon (python -m outages tray); not needed by CI or the other commands
+tray = [
+    "pystray>=0.19.5",
+    "Pillow>=11",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

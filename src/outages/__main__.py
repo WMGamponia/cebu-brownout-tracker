@@ -86,6 +86,7 @@ COMMANDS = {
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
+    "tray": "Windows tray icon: starts and watches serve, shows the last run and publish",
     "stats": "history stats for a date range (read-only; no VECO fetch): --from, --to",
     "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
     "snapshot": "static demo snapshot for GitHub Pages (offline, read-only)",
@@ -286,6 +287,8 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sn = parsers["snapshot"]
     sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
+    t = parsers["tray"]
+    t.add_argument("--map-port", type=int, default=MAP_PORT, help="serve's map port to use")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
     s.add_argument(
@@ -1172,6 +1175,22 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
     return 0
 
 
+def _tray(paths: Paths, port: int = MAP_PORT) -> int:
+    """The tray (tray spec 5.1): Windows only, with the optional `[tray]` extra installed."""
+    if sys.platform != "win32":
+        print("error: the tray runs on Windows only", file=sys.stderr)
+        return 2
+    try:
+        import PIL  # noqa: F401
+        import pystray  # noqa: F401
+    except ImportError:
+        print('error: install the tray extra: pip install -e ".[tray]"', file=sys.stderr)
+        return 2
+    from outages.tray import app as tray_app
+
+    return tray_app.run(paths.root, port)
+
+
 def _report(paths: Paths, conn) -> int:
     lines = "\n".join(
         (
@@ -1220,6 +1239,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
         return _bot(paths)
     if command == "map":
         return _map(paths, args)
+    if command == "tray":
+        return _tray(paths, args.map_port)
     if command == "streets":
         return _streets(paths, args)
     if command == "stats":
