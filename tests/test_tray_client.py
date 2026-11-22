@@ -137,3 +137,48 @@ def test_stop(tmp_path):
         return httpx.Response(202, json={})
 
     assert client(tmp_path, handler).stop() is True
+
+
+# --- tray feedback: status and settings --------------------------------------------------------
+
+
+def test_status_parses(tmp_path):
+    admintoken.write_new(tmp_path)
+    body = {"running": True, "kind": "manual", "started_at": "x", "step": "check"}
+
+    def handler(req):
+        assert req.url.path == "/admin/status"
+        return httpx.Response(200, json=body)
+
+    assert client(tmp_path, handler).status() == body
+
+
+def test_status_404_is_idle(tmp_path):
+    admintoken.write_new(tmp_path)
+    assert client(tmp_path, lambda r: httpx.Response(404, json={})).status() is None
+    assert client(tmp_path, lambda r: httpx.Response(200, json=[1])).status() is None
+
+
+def test_settings_roundtrip(tmp_path):
+    admintoken.write_new(tmp_path)
+    state = {"ollama_scheduled": False, "ollama_manual": False}
+
+    def handler(req):
+        if req.method == "POST":
+            state.update(json.loads(req.content))
+        return httpx.Response(200, json=state)
+
+    c = client(tmp_path, handler)
+    assert c.settings() == {"ollama_scheduled": False, "ollama_manual": False}
+    assert c.set_settings({"ollama_manual": True})["ollama_manual"] is True
+    assert c.settings()["ollama_manual"] is True
+
+
+def test_settings_error_is_none(tmp_path):
+    admintoken.write_new(tmp_path)
+
+    def handler(req):
+        raise httpx.ConnectError("down")
+
+    c = client(tmp_path, handler)
+    assert c.settings() is None and c.set_settings({"ollama_manual": True}) is None

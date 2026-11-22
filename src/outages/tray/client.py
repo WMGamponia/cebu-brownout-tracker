@@ -87,6 +87,26 @@ class ServeClient:
             return "not_pending"
         return "error"
 
+    def _dict(self, method: str, path: str, body: dict | None = None) -> dict | None:
+        r = self._admin(method, path, body)
+        if r is None or r.status_code != 200:
+            return None
+        try:
+            data = r.json()
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def status(self) -> dict | None:
+        """The run in progress (`/admin/status`); None when serve can't say (old serve: idle)."""
+        return self._dict("GET", "/admin/status")
+
+    def settings(self) -> dict | None:
+        return self._dict("GET", "/admin/settings")
+
+    def set_settings(self, values: dict) -> dict | None:
+        return self._dict("POST", "/admin/settings", values)
+
     def stop(self) -> bool:
         r = self._admin("POST", "/admin/stop")
         return r is not None and r.status_code == 202

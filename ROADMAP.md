@@ -191,6 +191,11 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **Owner decisions:** visibility first (icon colour + Windows notifications only when something needs the owner); kept run now, join approvals, start at logon; dropped editable schedules, an app blocklist and a barangay list; **the tray starts and supervises `serve`** (approach C), a right-click menu, not a window.
   - **Built** (native execution, TDD): `meta` run/publish status, `data/admin.token` + token-guarded loopback `/admin/*` routes, manual runs through the same one-run lock, clean stop, pure status rules, notified-event store, supervisor (backoff 10 s / 60 s / 5 min, cap at 4 crashes in 30 min, adopts a running `serve`), `pystray` UI (optional `[tray]` extra). Checked by hand on a DB copy: crash → restart and notification, a new tray adopts an orphaned `serve`.
 
+- **2026-11-23** — **Tray feedback** (`feat/tray-feedback`). Spec `docs/superpowers/specs/2026-11-23-tray-feedback-design.md`, plan `docs/superpowers/plans/2026-11-23-tray-feedback.md`.
+  - **Why (owner):** the tray gave no feedback on anything done from its menu; Restart serve was silent even when it couldn't restart an old adopted `serve`.
+  - **Owner decisions:** feedback in the tray first, a window later only if still wanted; show whether the last run used Ollama; separate switches to start Ollama for scheduled runs and for Run now, closing it afterwards.
+  - **Built** (native execution, TDD): `/admin/status` (run kind, start, step), suggestion outcome in `meta`, `/admin/settings`, `outages.ollama` (start hidden, wait 60 s, close only what it started), blue running state, a notification per action.
+
 ### Known issues
 - **A run slept through is caught up, not on time:** the watchdog runs it within ~5 min of waking, and only once per slot; if VECO or the network is down at that moment (as right after a wake), the next try is the next 06:00 / 20:00 (the admin chat gets "VECO not reachable").
 - **Phase 6 review minors (deferred):** ~~(1) `snapshot` reads its 53 weeks and 4 ranges without one read transaction, so a `check` committing mid-snapshot could make weeks and stats disagree~~ → fixed by the live site for `serve`'s own publishes (they run after the check, in the same process); a hand `snapshot` during a run still can; ~~(2) `static/` in the snapshot folder is neither checked nor pruned~~ → fixed: `static/<hash>/`, older versions pruned; (3) the lock file is opened in text mode (a CRLF after the PID on Windows, harmless); (4) no test kills a lock holder mid-run (a by-hand probe passed on Windows); (5) the leak scan reads `.env` from the working directory, and only current subscribers' chat IDs; (6) committed docs show local paths (`E:\Work\…`); (7) `/history`'s "See that week on the map" bound uses `snapshot_week + 6` even for a short snapshot week.
@@ -315,6 +320,14 @@ Owner, 2026-11-22: see whether `serve` ran and published without opening anythin
 - [x] Supervisor and admin client.
 - [x] Tray icon, menu, `tray` command, start at logon, docs.
 - [ ] Switched on: merged, `pip install -e ".[tray]"`, `install-task.ps1` re-run elevated, tray seen at logon.
+
+## Tray feedback (after the tray app)
+Owner, 2026-11-23: every tray action answers; see a run in progress; Ollama per run.
+- [x] Run progress, `/admin/status`, Ollama settings in `serve`.
+- [x] Start and close Ollama around street suggestions; suggestion outcome in `meta`.
+- [x] Blue running state, Ollama line, notification texts.
+- [x] Tray wiring, docs.
+- [ ] Checked on screen by the owner (notifications, blue icon, checkboxes).
 
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.
