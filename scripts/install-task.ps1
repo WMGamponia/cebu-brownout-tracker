@@ -1,12 +1,14 @@
 <#
 .SYNOPSIS
-  Start `python -m outages serve` at logon with Task Scheduler, and wake the PC before each run.
+  Start the tray (`python -m outages tray`, which runs serve) at logon, and wake the PC before each run.
 
 .DESCRIPTION
   Registers two tasks for the current user (Phase 6 spec 4.11):
-    "OutageTracker serve"  at logon: .venv\Scripts\pythonw.exe -m outages serve in the project
-                           root; no time limit, restart 3 x 1 min on failure, start when
+    "OutageTracker serve"  at logon: .venv\Scripts\pythonw.exe -m outages tray in the project
+                           root (the tray starts serve as a hidden child and restarts it);
+                           no time limit, restart 3 x 1 min on failure, start when
                            available, run on battery, never a second instance.
+                           Needs the tray extra: .venv\Scripts\pip install -e ".[tray]".
     "OutageTracker wake"   daily 05:58 and 19:58, wakes the computer and keeps it awake for
                            15 min (pythonw -c "...power.hold(900)"), so the 06:00 / 20:00 runs
                            happen on a sleeping PC. Skipped with -NoWake.
@@ -73,16 +75,25 @@ try {
         exit 1
     }
 
+    # The logon task runs the tray; without its extra it would exit at once and serve would
+    # never start. python.exe (not pythonw) so the exit code is waited for.
+    $python = Join-Path $Root ".venv\Scripts\python.exe"
+    & $python -c "import pystray, PIL" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error 'The tray extra is missing. Install it first: .venv\Scripts\pip install -e ".[tray]"' -ErrorAction Continue
+        exit 1
+    }
+
     $user = "$env:USERDOMAIN\$env:USERNAME"
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 
-    $serveAction = New-ScheduledTaskAction -Execute $pythonw -Argument "-m outages serve" -WorkingDirectory $Root
+    $serveAction = New-ScheduledTaskAction -Execute $pythonw -Argument "-m outages tray" -WorkingDirectory $Root
     $serveTrigger = New-ScheduledTaskTrigger -AtLogOn -User $user
     $serveSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
         -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable `
         -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
     Register-OutageTask $ServeTask $serveAction $serveTrigger $serveSettings $principal `
-        "Cebu Brownout Tracker: check + alerts at 06:00 and 20:00, the bot and the map."
+        "Cebu Brownout Tracker tray: starts and watches serve (runs at 06:00 and 20:00, the bot and the map)."
 
     if ($NoWake) {
         Write-Host "skipped: $WakeTask (-NoWake)"

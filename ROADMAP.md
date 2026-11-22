@@ -186,6 +186,11 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **Late mornings:** the owner shuts the PC down at night, so the 05:58 wake task can't fire and `serve` waits for a login (06:00 ran at 07:47, 07:29, 09:34 on 17–19 Nov). Trying hibernate (wake timers on; sleep as fallback). Not code.
   - **Built** (native execution, TDD): versioned snapshot (`data/<id>/`, `static/<hash>/`, previous kept, format 2), pages on the real clock while the last check is ≤ 15 h old, `snapshot_run.take()`, `publish.py` (tested against a real bare repo, including a moved remote), wired into `_run_once`. Browser-checked against a real-DB snapshot in both fresh and old modes.
 
+- **2026-11-22** — **Tray app: brainstorm, spec, plan, build** (`feat/tray-app`). Spec `docs/superpowers/specs/2026-11-22-tray-app-design.md`, plan `docs/superpowers/plans/2026-11-22-tray-app.md`.
+  - **Why (owner):** no way to tell whether `serve` ran or published. A skipped publish (checkout not on `main`) went only to the Telegram admin chat, which the owner rarely reads; it was first blamed on a running game.
+  - **Owner decisions:** visibility first (icon colour + Windows notifications only when something needs the owner); kept run now, join approvals, start at logon; dropped editable schedules, an app blocklist and a barangay list; **the tray starts and supervises `serve`** (approach C), a right-click menu, not a window.
+  - **Built** (native execution, TDD): `meta` run/publish status, `data/admin.token` + token-guarded loopback `/admin/*` routes, manual runs through the same one-run lock, clean stop, pure status rules, notified-event store, supervisor (backoff 10 s / 60 s / 5 min, cap at 4 crashes in 30 min, adopts a running `serve`), `pystray` UI (optional `[tray]` extra). Checked by hand on a DB copy: crash → restart and notification, a new tray adopts an orphaned `serve`.
+
 ### Known issues
 - **A run slept through is caught up, not on time:** the watchdog runs it within ~5 min of waking, and only once per slot; if VECO or the network is down at that moment (as right after a wake), the next try is the next 06:00 / 20:00 (the admin chat gets "VECO not reachable").
 - **Phase 6 review minors (deferred):** ~~(1) `snapshot` reads its 53 weeks and 4 ranges without one read transaction, so a `check` committing mid-snapshot could make weeks and stats disagree~~ → fixed by the live site for `serve`'s own publishes (they run after the check, in the same process); a hand `snapshot` during a run still can; ~~(2) `static/` in the snapshot folder is neither checked nor pruned~~ → fixed: `static/<hash>/`, older versions pruned; (3) the lock file is opened in text mode (a CRLF after the PID on Windows, harmless); (4) no test kills a lock holder mid-run (a by-hand probe passed on Windows); (5) the leak scan reads `.env` from the working directory, and only current subscribers' chat IDs; (6) committed docs show local paths (`E:\Work\…`); (7) `/history`'s "See that week on the map" bound uses `snapshot_week + 6` even for a short snapshot week.
@@ -300,6 +305,16 @@ Owner, 2026-11-15, changed 2026-11-19: replace the hand-refreshed demo with a si
 - [x] Pages use the real clock; a notice appears only when the data is old (> 15 h).
 - [x] Versioned `data/` and `static/` paths, so the 10-minute Pages cache never mixes versions.
 - [ ] Switched on: `main` checked out, `PUBLISH_SITE=1`, first publish confirmed on the Pages URL.
+
+## Tray app (after the live site)
+Owner, 2026-11-22: see whether `serve` ran and published without opening anything.
+- [x] Run and publish outcome recorded in `meta`.
+- [x] Admin token and token-guarded `/admin/*` routes.
+- [x] Manual runs, approvals and clean stop wired into `serve`.
+- [x] Status rules and notified-event store.
+- [x] Supervisor and admin client.
+- [x] Tray icon, menu, `tray` command, start at logon, docs.
+- [ ] Switched on: merged, `pip install -e ".[tray]"`, `install-task.ps1` re-run elevated, tray seen at logon.
 
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.

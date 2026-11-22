@@ -300,7 +300,7 @@ def test_make_map_app_review_only_on_loopback(monkeypatch, tmp_path):
 
     seen = {}
 
-    def fake(db_path, b, g, clock, review=None):
+    def fake(db_path, b, g, clock, review=None, admin=None):
         seen["review"] = review
         return object()
 

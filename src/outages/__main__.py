@@ -8,11 +8,13 @@ import logging
 import sys
 import threading
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from outages import (
+    admintoken,
     bot,
     db,
     evaluate,
@@ -22,6 +24,7 @@ from outages import (
     power,
     publish,
     report,
+    runstatus,
     scheduler,
     snapshot,
     snapshot_run,
@@ -52,6 +55,7 @@ from outages.fetch import Fetcher
 from outages.history import load as history_load
 from outages.history import stats as history_stats
 from outages.map import server as map_server
+from outages.map.admin import AdminConfig
 from outages.map.app import create_app
 from outages.map.build import BoundariesError, load_boundaries
 from outages.map.review import ReviewConfig
@@ -82,6 +86,7 @@ COMMANDS = {
     "alerts": "alert run on stored data: --dry-run prints it, --send sends it (no VECO fetch)",
     "bot": "run the Telegram bot (/start, /add, /list, /remove) until Ctrl+C (no VECO fetch)",
     "map": "serve the outage map (read-only; no VECO fetch) until Ctrl+C",
+    "tray": "Windows tray icon: starts and watches serve, shows the last run and publish",
     "stats": "history stats for a date range (read-only; no VECO fetch): --from, --to",
     "streets": "street lines: `fetch` the OSM extract (Overpass, --yes), `match`, --review",
     "snapshot": "static demo snapshot for GitHub Pages (offline, read-only)",
@@ -91,6 +96,7 @@ LAN_WARNING = "map is reachable from your network; there is no login"
 # (Phase 6 spec 4.4); `alerts` only with --send.
 LOCKED_COMMANDS = ("serve", "bot", "check", "backfill")
 LOCK_NAME = "serve.lock"
+STOP_POLL_S = 2.0  # how often serve looks for the tray's stop request
 
 log = logging.getLogger("outages")
 
@@ -281,6 +287,8 @@ def _add_args(parsers: dict[str, argparse.ArgumentParser]) -> None:
     sn = parsers["snapshot"]
     sn.add_argument("--out", required=True, type=Path, help="output folder (e.g. site)")
     sn.add_argument("--allow-old", action="store_true", help="publish data older than 15 h")
+    t = parsers["tray"]
+    t.add_argument("--map-port", type=int, default=MAP_PORT, help="serve's map port to use")
     s = parsers["serve"]
     s.add_argument("--no-map", action="store_true", help="don't serve the map")
     s.add_argument(
@@ -765,12 +773,13 @@ def _scheduled_run(
     do_check: bool = True,
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
+    kind: runstatus.RunKind = "scheduled",
 ) -> None:
     """A check, then (with Telegram settings) an alert run on whatever is stored, even after a
     failed check. Opens its own connections: APScheduler runs jobs on a worker thread. Never
     raises into the scheduler. Keeps a timer-woken PC awake until it is done."""
     with power.keep_awake():
-        _run_once(paths, settings, do_check, suggest, publisher)
+        _run_once(paths, settings, do_check, suggest, publisher, kind)
 
 
 class _Runs:
@@ -796,6 +805,47 @@ class _Runs:
         with self._lock:
             self._run(scheduler.latest_slot(utcnow()))
 
+    def catch_up(self, do_check: bool) -> None:
+        """serve's start-up run (a check only when one is due), under the same lock as every
+        other run, so a Run now from the tray during it gets "already running"."""
+        with self._lock:
+            _scheduled_run(
+                self.paths,
+                self.settings,
+                do_check=do_check,
+                suggest=self.suggest,
+                publisher=self.publisher,
+                kind="catch_up",
+            )
+
+    def manual(self) -> bool:
+        """A run the owner asked for (tray spec 5.5): False when a run is in progress, else
+        started on its own thread. It uses no slot, so the next scheduled run still happens."""
+        if not self._lock.acquire(blocking=False):
+            return False
+
+        def target() -> None:
+            try:
+                _scheduled_run(
+                    self.paths,
+                    self.settings,
+                    suggest=self.suggest,
+                    publisher=self.publisher,
+                    kind="manual",
+                )
+            except Exception:
+                log.exception("serve: manual run failed")
+            finally:
+                self._lock.release()
+
+        threading.Thread(target=target, name="manual-run", daemon=True).start()
+        return True
+
+    def wait_idle(self) -> None:
+        """Block until no run is in progress."""
+        with self._lock:
+            pass
+
     def watchdog(self) -> None:
         with self._lock:
             now = utcnow()
@@ -811,13 +861,64 @@ class _Runs:
                 "serve: missed the %s run (PC asleep?); running it now",
                 slot.astimezone(MANILA).strftime("%H:%M"),
             )
-            self._run(slot)
+            self._run(slot, kind="watchdog")
 
-    def _run(self, slot: datetime) -> None:
+    def _run(self, slot: datetime, kind: runstatus.RunKind = "scheduled") -> None:
         if self._done is not None and self._done >= slot:
             return
         self._done = slot
-        _scheduled_run(self.paths, self.settings, suggest=self.suggest, publisher=self.publisher)
+        _scheduled_run(
+            self.paths, self.settings, suggest=self.suggest, publisher=self.publisher, kind=kind
+        )
+
+
+class ServeControl:
+    """What the tray may ask of `serve` through the admin routes (tray spec 5.5)."""
+
+    def __init__(
+        self,
+        paths: Paths,
+        settings: TelegramSettings | None,
+        runs: _Runs,
+        stop_event: threading.Event,
+    ) -> None:
+        self.paths, self.settings, self.runs, self.stop_event = paths, settings, runs, stop_event
+
+    def run_now(self) -> bool:
+        return self.runs.manual()
+
+    def pending(self) -> list[dict]:
+        conn = db.connect(self.paths.db)
+        try:
+            rows = conn.execute(
+                "SELECT chat_id, display_name, requested_at FROM subscribers"
+                " WHERE status = 'pending' ORDER BY requested_at, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        return [{"chat_id": r[0], "name": r[1], "requested_at": r[2]} for r in rows]
+
+    def decide(self, chat_id: int, approve: bool) -> bool:
+        conn = db.connect(self.paths.db)
+        try:
+            replies = bot.admin_decide(conn, chat_id, approve, utcnow())
+        finally:
+            conn.close()
+        if replies is None:
+            return False
+        if self.settings is None:
+            log.warning("serve: chat %s decided; no Telegram settings, no message sent", chat_id)
+            return True
+        client = make_telegram(self.settings.token)
+        try:
+            bot.deliver(client, replies)
+        finally:
+            client.close()
+        return True
+
+    def stop(self) -> None:
+        log.info("serve: stop requested; finishing any run in progress")
+        self.stop_event.set()
 
 
 def _run_once(
@@ -826,8 +927,11 @@ def _run_once(
     do_check: bool,
     suggest: bool = True,
     publisher: publish.Publisher | None = None,
+    kind: runstatus.RunKind = "scheduled",
 ) -> None:
     check_ok = _check(paths) if do_check else True
+    if do_check:
+        _record(paths, runstatus.record_run, kind, check_ok)
     if settings is not None:
         conn = db.connect(paths.db)
         client = make_telegram(settings.token)
@@ -845,11 +949,14 @@ def _run_once(
         finally:
             client.close()
             conn.close()
+    if publisher is None and do_check:
+        _record(paths, runstatus.record_publish, "off", "")
     if publisher is not None and do_check and check_ok:  # new data only (live-site spec 5.1)
         try:
             _publish(paths, settings, publisher)
-        except Exception:
+        except Exception as e:
             log.exception("publish failed; alerts are unaffected")
+            _record(paths, runstatus.record_publish, "failed", str(e) or type(e).__name__)
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
         try:
             _suggest_hook(paths, settings)
@@ -857,11 +964,24 @@ def _run_once(
             log.exception("street suggestions failed; alerts are unaffected")
 
 
+def _record(paths: Paths, write: Callable[..., None], *args: object) -> None:
+    """One status write for the tray (tray spec 5.2) on its own connection; never raises."""
+    try:
+        conn = db.connect(paths.db)
+        try:
+            write(conn, *args, utcnow())
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("serve: could not record the run status for the tray")
+
+
 def _publish(paths: Paths, settings: TelegramSettings | None, publisher: publish.Publisher) -> None:
     """Publish the site; its note, if any, goes to the admin chat once per key."""
     now = utcnow()
     outcome = publisher.publish(now)
     log.info("publish: %s (%s)", outcome.status, outcome.detail)
+    _record(paths, runstatus.record_publish, outcome.status, outcome.detail)
     note = outcome.note
     if note is None:
         return
@@ -905,7 +1025,7 @@ def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
         conn.close()
 
 
-def make_map_app(paths: Paths, host: str = MAP_HOST):
+def make_map_app(paths: Paths, host: str = MAP_HOST, admin: AdminConfig | None = None):
     """The map app over the real DB; raises `BoundariesError` if the boundaries won't load.
     The street review routes come only with a loopback bind (Streets v2 spec 7.9)."""
     review = (
@@ -914,7 +1034,12 @@ def make_map_app(paths: Paths, host: str = MAP_HOST):
         else None
     )
     return create_app(
-        paths.db, load_boundaries(), load_gazetteer(), lambda: utcnow(), review=review
+        paths.db,
+        load_boundaries(),
+        load_gazetteer(),
+        lambda: utcnow(),
+        review=review,
+        admin=admin if map_server.is_loopback(host) else None,
     )
 
 
@@ -971,13 +1096,21 @@ def _map_failed(paths: Paths, settings: TelegramSettings | None, message: str) -
         log.exception("map: could not report the failure")
 
 
-def _start_map(paths: Paths, args: argparse.Namespace, settings: TelegramSettings | None) -> None:
-    """The map thread inside `serve`; a failure is reported and never stops the alert runs."""
+def _start_map(
+    paths: Paths,
+    args: argparse.Namespace,
+    settings: TelegramSettings | None,
+    admin: AdminConfig | None = None,
+) -> None:
+    """The map thread inside `serve`; a failure is reported and never stops the alert runs.
+    `admin` (the tray's routes) is attached on a loopback bind only."""
     if args.no_map:
         return
     _warn_if_lan(args.map_host)
+    if not map_server.is_loopback(args.map_host):
+        admin = None
     try:
-        app = make_map_app(paths, args.map_host)
+        app = make_map_app(paths, args.map_host, admin)
     except Exception as e:  # spec 6: nothing about the map may stop the alert runs
         _map_failed(paths, settings, f"map: not started: {e}")
         return
@@ -1011,8 +1144,6 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
             name="telegram-bot",
             daemon=True,
         ).start()
-    _start_map(paths, args, settings)
-    log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     catch_up = scheduler.needs_catch_up(last_check_at, utcnow())
     suggest = STREETS_SUGGEST_AUTO and not args.no_suggest
     publisher = publish.make_publisher(paths)
@@ -1022,15 +1153,48 @@ def _serve(paths: Paths, last_check_at: str | None, args: argparse.Namespace) ->
             publisher.settings.site,
             publisher.start_branch,
         )
+    runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
+    stop_requested = threading.Event()
+    admin = None
+    try:
+        token = admintoken.write_new(paths.data)
+        admin = AdminConfig(token, ServeControl(paths, settings, runs, stop_requested))
+    except OSError as e:  # the tray can't control this serve; alerts are unaffected
+        log.error("serve: could not write the admin token: %s", e)
+    _start_map(paths, args, settings, admin)
+    log.info("serve: check + alerts at %s Asia/Manila; Ctrl+C to stop", " and ".join(RUN_TIMES))
     if catch_up or settings is not None:
-        _scheduled_run(paths, settings, do_check=catch_up, suggest=suggest, publisher=publisher)
+        runs.catch_up(catch_up)
     try:
         with contextlib.suppress(KeyboardInterrupt, SystemExit):  # Ctrl+C stops serve
-            runs = _Runs(paths, settings, suggest=suggest, publisher=publisher)
-            scheduler.build(runs.scheduled, runs.watchdog).start()
+            sched = scheduler.build(runs.scheduled, runs.watchdog)
+
+            def stop_check() -> None:  # the tray's stop (tray spec 5.7)
+                if stop_requested.is_set():
+                    sched.shutdown(wait=False)
+
+            sched.add_job(stop_check, "interval", seconds=STOP_POLL_S, id="stop-check")
+            sched.start()
+        runs.wait_idle()  # a manual run in progress finishes before serve exits
     finally:
         stop.set()
     return 0
+
+
+def _tray(paths: Paths, port: int = MAP_PORT) -> int:
+    """The tray (tray spec 5.1): Windows only, with the optional `[tray]` extra installed."""
+    if sys.platform != "win32":
+        print("error: the tray runs on Windows only", file=sys.stderr)
+        return 2
+    try:
+        import PIL  # noqa: F401
+        import pystray  # noqa: F401
+    except ImportError:
+        print('error: install the tray extra: pip install -e ".[tray]"', file=sys.stderr)
+        return 2
+    from outages.tray import app as tray_app
+
+    return tray_app.run(paths.root, port)
 
 
 def _report(paths: Paths, conn) -> int:
@@ -1081,6 +1245,8 @@ def _dispatch(args: argparse.Namespace, paths: Paths) -> int:
         return _bot(paths)
     if command == "map":
         return _map(paths, args)
+    if command == "tray":
+        return _tray(paths, args.map_port)
     if command == "streets":
         return _streets(paths, args)
     if command == "stats":
@@ -1164,7 +1330,9 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(errors="replace")
     args = _parser().parse_args(argv)
     paths = Paths.default()
-    handlers = _setup_logging(paths)
+    # the tray logs to its own data/logs/tray.log: two long-lived processes holding
+    # outages.log open would break its rotation on Windows
+    handlers = [] if args.command == "tray" else _setup_logging(paths)
     try:
         return _run(args, paths)
     except KeyboardInterrupt:
