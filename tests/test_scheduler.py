@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from datetime import UTC, datetime, timedelta
@@ -421,11 +422,15 @@ def test_map_unexpected_startup_error_keeps_alerts(home, monkeypatch, caplog):
 
 
 def _record_suggest(monkeypatch, order: list, summary=None):
+    from outages.streets.suggest import Outcome
+
     def fake(paths, now, **kw):
         order.append("suggest")
-        return summary
+        if summary is None:
+            return Outcome("skipped", "no OSM extract", None)
+        return Outcome("used", f"{summary.new} new street suggestions", summary)
 
-    monkeypatch.setattr(cli.street_suggest, "suggest_new", fake)
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
 
 
 def test_hook_runs_after_alerts(home, monkeypatch):
@@ -480,7 +485,7 @@ def test_hook_swallows_exceptions(home, monkeypatch, caplog):
     def boom(paths, now, **kw):
         raise RuntimeError("suggester broke")
 
-    monkeypatch.setattr(cli.street_suggest, "suggest_new", boom)
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", boom)
     cli._scheduled_run(home, None, do_check=False)  # never raises into the scheduler
     assert "suggester broke" in caplog.text
 
@@ -919,3 +924,116 @@ def test_control_settings_roundtrip(home):
     conn = db.connect(home.db)
     assert runstatus.read_settings(conn) == runstatus.Settings(False, True)
     conn.close()
+
+
+# --- tray feedback: start and close Ollama around street suggestions ---------------------------
+
+
+def _set(home, scheduled=False, manual=False):
+    from outages import runstatus
+
+    conn = db.connect(home.db)
+    runstatus.write_settings(conn, runstatus.Settings(scheduled, manual))
+    conn.close()
+
+
+def _fake_ollama(monkeypatch, result="started"):
+    calls: dict = {"ensure": 0, "stopped": 0}
+
+    class Handle:
+        pid = 77
+
+        def stop(self):
+            calls["stopped"] += 1
+
+    def ensure(*a, **k):
+        calls["ensure"] += 1
+        return Handle() if result == "started" else result
+
+    monkeypatch.setattr(cli.ollama, "ensure_running", ensure)
+    return calls
+
+
+def _fake_outcome(monkeypatch, outcome=None, error=None):
+    from outages.streets.suggest import Outcome
+
+    def fake(paths, now, **k):
+        if error:
+            raise error
+        return outcome or Outcome("used", "3 new street suggestions", None)
+
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
+
+
+def test_suggest_records_outcome(home, monkeypatch):
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("used", "3 new street suggestions")
+
+
+def test_manual_uses_manual_setting(home, monkeypatch):
+    _set(home, scheduled=False, manual=True)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert calls["ensure"] == 0
+    cli._suggest_hook(home, None, kind="manual")
+    assert calls == {"ensure": 1, "stopped": 1}
+
+
+def test_catch_up_uses_scheduled_setting(home, monkeypatch):
+    _set(home, scheduled=True, manual=False)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    for kind in ("catch_up", "watchdog", "scheduled"):
+        cli._suggest_hook(home, None, kind=kind)
+    cli._suggest_hook(home, None, kind="manual")
+    assert calls == {"ensure": 3, "stopped": 3}
+
+
+def test_started_ollama_stopped_on_error(home, monkeypatch):
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch, error=RuntimeError("boom"))
+    with contextlib.suppress(RuntimeError):
+        cli._suggest_hook(home, None, kind="scheduled")
+    assert calls["stopped"] == 1
+
+
+def test_already_running_ollama_not_stopped(home, monkeypatch):
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch, result=None)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert calls == {"ensure": 1, "stopped": 0}
+    assert _status(home).suggest_detail == "3 new street suggestions"
+
+
+def test_missing_exe_is_unreachable(home, monkeypatch):
+    _set(home, scheduled=True)
+    _fake_ollama(monkeypatch, result="Ollama not found")
+    _fake_outcome(monkeypatch, error=AssertionError("must not suggest"))
+    cli._suggest_hook(home, None, kind="scheduled")
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("unreachable", "Ollama not found")
+
+
+def test_closed_note_in_detail(home, monkeypatch):
+    _set(home, scheduled=True)
+    _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert _status(home).suggest_detail == (
+        "3 new street suggestions (started for this run, then closed)"
+    )
+
+
+def test_no_suggest_records_skipped(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, suggest=False, publisher=_Publisher(order))
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == (
+        "skipped",
+        "street suggestions off (--no-suggest)",
+    )

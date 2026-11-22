@@ -569,29 +569,43 @@ def _apply(
 # --- serve hook (spec 7.8) ------------------------------------------------------------------
 
 
-def suggest_new(
+@dataclass(frozen=True)
+class Outcome:
+    """What the suggestion step did, for the tray (tray feedback spec): did it use Ollama?"""
+
+    status: str  # used | not_needed | unreachable | skipped | failed
+    detail: str
+    summary: RunSummary | None
+
+
+def _first_line(text: str) -> str:
+    return next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+
+
+def suggest_outcome(
     paths: Paths,
     now: datetime,
     picker=None,
     boundaries: dict | None = None,
     budget_groups: int = SUGGEST_BUDGET_GROUPS,
     budget_s: float = SUGGEST_BUDGET_S,
-) -> RunSummary | None:
-    """New groups to the queue after a serve run, at most `budget_groups` or `budget_s`.
-
-    None (one log line) when inert: the test split isn't frozen, no extract, no
-    `street_matches`, or Ollama is down. Never raises."""
+) -> Outcome:
+    """New groups to the queue after a serve run, at most `budget_groups` or `budget_s`, and
+    what happened. Inert (one log line, `skipped`) when the test split isn't frozen, there is no
+    extract, no database or no `street_matches`; `unreachable` when Ollama is down. Never
+    raises."""
     try:
         if not (paths.root / EVAL_DIR / "FROZEN").is_file():
-            log.info("street suggestions: inert until %s/FROZEN exists", EVAL_DIR.as_posix())
-            return None
+            why = f"inert until {EVAL_DIR.as_posix()}/FROZEN exists"
+            log.info("street suggestions: %s", why)
+            return Outcome("skipped", why, None)
         index = StreetIndex.load(paths.data / OSM_DIR_NAME)
         if index is None:
             log.info("street suggestions: no OSM extract; skipped")
-            return None
+            return Outcome("skipped", "no OSM extract", None)
         if not paths.db.is_file():
             log.info("street suggestions: no database; skipped")
-            return None
+            return Outcome("skipped", "no database", None)
         conn = db.connect_ro(paths.db)
         try:
             has = conn.execute(
@@ -599,7 +613,7 @@ def suggest_new(
             ).fetchone()
             if not has:
                 log.info("street suggestions: no street_matches; skipped")
-                return None
+                return Outcome("skipped", "no street_matches", None)
             if picker is None:
                 picker = QwenPicker(open_cache(paths.data / "streets" / "llm_cache.db"))
             if boundaries is None:
@@ -619,10 +633,10 @@ def suggest_new(
             conn.close()
     except LLMUnavailable as e:
         log.info("street suggestions: skipped (%s)", e)
-        return None
-    except Exception:
+        return Outcome("unreachable", str(e), None)
+    except Exception as e:
         log.exception("street suggestions: failed; alerts are unaffected")
-        return None
+        return Outcome("failed", _first_line(str(e)) or type(e).__name__, None)
     log.info(
         "street suggestions: new %d, picked %d, invalid %d, no candidates %d",
         s.new,
@@ -630,4 +644,18 @@ def suggest_new(
         s.invalid,
         s.no_candidates,
     )
-    return s
+    if s.new > 0:  # Ollama answered the check and was asked about new groups
+        return Outcome("used", f"{s.new} new street suggestions", s)
+    return Outcome("not_needed", "", s)
+
+
+def suggest_new(
+    paths: Paths,
+    now: datetime,
+    picker=None,
+    boundaries: dict | None = None,
+    budget_groups: int = SUGGEST_BUDGET_GROUPS,
+    budget_s: float = SUGGEST_BUDGET_S,
+) -> RunSummary | None:
+    """`suggest_outcome`'s summary: None when inert, Ollama is down, or it failed."""
+    return suggest_outcome(paths, now, picker, boundaries, budget_groups, budget_s).summary

@@ -687,3 +687,61 @@ def test_apply_reports_decisions_dropped_for_an_existing_alias(tmp_path):
     assert s.rejected == 0 and len(s.dropped) == 1 and s.dropped[0].endswith("'gorordo avnue'")
     assert queue.read(q) == []
     conn.close()
+
+
+# --- tray feedback: the step's outcome (did it use Ollama?) ------------------------------------
+
+
+def _outcome(paths, picker):
+    from outages.streets.suggest import suggest_outcome
+
+    return suggest_outcome(paths, NOW, picker=picker, boundaries=boundaries())
+
+
+def test_outcome_used(hook_home):
+    o = _outcome(hook_home, FakeQwen())
+    assert (o.status, o.detail) == ("used", "20 new street suggestions")
+    assert o.summary.new == 20
+
+
+def test_outcome_not_needed(hook_home):
+    _outcome(hook_home, FakeQwen())
+    _outcome(hook_home, FakeQwen())
+    o = _outcome(hook_home, FakeQwen())
+    assert (o.status, o.detail) == ("not_needed", "")
+
+
+def test_outcome_unreachable(hook_home):
+    o = _outcome(hook_home, FakeQwen(down=True))
+    assert o.status == "unreachable" and "Ollama not reachable" in o.detail
+    assert o.summary is None
+
+
+def test_outcome_skipped_no_extract(hook_home):
+    import shutil
+
+    from outages.config import OSM_DIR_NAME
+
+    shutil.rmtree(hook_home.data / OSM_DIR_NAME)
+    o = _outcome(hook_home, FakeQwen())
+    assert (o.status, o.detail) == ("skipped", "no OSM extract")
+
+
+def test_outcome_skipped_not_frozen(hook_home):
+    (hook_home.root / "evals" / "streets" / "FROZEN").unlink()
+    o = _outcome(hook_home, FakeQwen())
+    assert o.status == "skipped" and "FROZEN" in o.detail
+
+
+def test_outcome_failed_first_line(hook_home):
+    class Boom(FakeQwen):
+        def check(self):
+            raise RuntimeError("bad thing\nmore detail")
+
+    o = _outcome(hook_home, Boom())
+    assert (o.status, o.detail) == ("failed", "bad thing")
+
+
+def test_suggest_new_still_returns_summary(hook_home):
+    assert _hook(hook_home, FakeQwen()).new == 20
+    assert _hook(hook_home, FakeQwen(down=True)) is None

@@ -8,9 +8,7 @@ free. Not thread-safe: the tray calls it from one worker thread.
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
 import subprocess
 import sys
 import time
@@ -21,13 +19,13 @@ from typing import Protocol
 
 from outages import lock
 from outages.config import MAP_PORT
+from outages.proc import NO_WINDOW, kill_pid_tree
 from outages.tray.state import ProcState
 
 log = logging.getLogger("outages")
 
 LOCK_HELD_EXIT = 3  # `python -m outages` returns 3 when another instance holds the lock
 LOCK_NAME = "serve.lock"
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 NEW_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
@@ -37,21 +35,6 @@ class Proc(Protocol):
     def poll(self) -> int | None: ...
 
     def kill_tree(self) -> None: ...
-
-
-def kill_pid_tree(pid: int) -> None:
-    """Kill `pid` and its children, hidden; errors ignored (it may be gone already)."""
-    if os.name != "nt":
-        with contextlib.suppress(OSError):
-            os.kill(pid, 9)
-        return
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(pid)],
-            capture_output=True,
-            timeout=15,
-            creationflags=NO_WINDOW,
-        )
 
 
 class _Popen:

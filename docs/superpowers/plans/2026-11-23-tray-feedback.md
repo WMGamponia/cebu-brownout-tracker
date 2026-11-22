@@ -94,7 +94,7 @@
     - each existing inert `return None` → `skipped` with its log reason as detail (`"inert until … FROZEN exists"`, `"no OSM extract"`, `"no database"`, `"no street_matches"`);
     - `LLMUnavailable` → `unreachable`, `str(e)`;
     - any other exception → `failed`, first line of `str(e)`;
-    - a finished run with `picked + invalid > 0` → `used`, `"{new} new street suggestions"`; otherwise `not_needed`, `""`.
+    - a finished run with `new > 0` → `used`, `"{new} new street suggestions"`; otherwise `not_needed`, `""`.
   - `outages.ollama`:
     - `reachable(url: str = OLLAMA_URL, timeout: float = 2.0) -> bool`
     - `find_exe() -> Path | None`

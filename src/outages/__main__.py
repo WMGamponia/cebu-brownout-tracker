@@ -21,6 +21,7 @@ from outages import (
     evaluate,
     gazetteer_build,
     lock,
+    ollama,
     pipeline,
     power,
     publish,
@@ -1009,9 +1010,11 @@ def _run_once(
     if suggest:  # after the alerts have gone out: never delays them (Streets v2 spec 7.8)
         step("suggest")
         try:
-            _suggest_hook(paths, settings)
+            _suggest_hook(paths, settings, kind)
         except Exception:
             log.exception("street suggestions failed; alerts are unaffected")
+    elif do_check:
+        _record(paths, runstatus.record_suggest, "skipped", "street suggestions off (--no-suggest)")
 
 
 def _record(paths: Paths, write: Callable[..., None], *args: object) -> None:
@@ -1051,10 +1054,45 @@ def _publish(paths: Paths, settings: TelegramSettings | None, publisher: publish
         conn.close()
 
 
-def _suggest_hook(paths: Paths, settings: TelegramSettings | None) -> None:
-    """Bounded new street suggestions; one admin note per (Manila day, count) when rows came."""
-    now = utcnow()
-    s = street_suggest.suggest_new(paths, now)
+def _ollama_wanted(paths: Paths, kind: runstatus.RunKind) -> bool:
+    """The owner's "Start Ollama for … runs" switch for this kind of run (off on any error)."""
+    try:
+        conn = db.connect(paths.db)
+        try:
+            s = runstatus.read_settings(conn)
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("serve: could not read the Ollama settings")
+        return False
+    return s.ollama_manual if kind == "manual" else s.ollama_scheduled
+
+
+def _suggest_hook(
+    paths: Paths, settings: TelegramSettings | None, kind: runstatus.RunKind = "scheduled"
+) -> None:
+    """Bounded new street suggestions; one admin note per (Manila day, count) when rows came.
+    With the owner's switch on for this kind of run, starts Ollama first if it isn't running
+    and closes it afterwards (only the one it started). The outcome goes to `meta`."""
+    started = None
+    if _ollama_wanted(paths, kind):
+        got = ollama.ensure_running()
+        if isinstance(got, str):
+            log.info("street suggestions: skipped (%s)", got)
+            _record(paths, runstatus.record_suggest, "unreachable", got)
+            return
+        started = got
+    try:
+        now = utcnow()
+        outcome = street_suggest.suggest_outcome(paths, now)
+    finally:
+        if started is not None:
+            started.stop()
+    detail = outcome.detail
+    if started is not None:
+        detail = f"{detail} (started for this run, then closed)".lstrip()
+    _record(paths, runstatus.record_suggest, outcome.status, detail)
+    s = outcome.summary
     if s is None or s.new == 0 or settings is None:
         return
     key = f"suggest:{now.astimezone(MANILA):%Y-%m-%d}:{s.new}"
