@@ -582,6 +582,17 @@ def _first_line(text: str) -> str:
     return next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
 
 
+def inert_reason(paths: Paths) -> str | None:
+    """Why the suggestion step has nothing to do (checked before Ollama is started for it)."""
+    if not (paths.root / EVAL_DIR / "FROZEN").is_file():
+        return f"inert until {EVAL_DIR.as_posix()}/FROZEN exists"
+    if not (paths.data / OSM_DIR_NAME).is_dir():
+        return "no OSM extract"
+    if not paths.db.is_file():
+        return "no database"
+    return None
+
+
 def suggest_outcome(
     paths: Paths,
     now: datetime,

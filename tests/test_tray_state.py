@@ -237,7 +237,7 @@ def test_can_run_false_while_running():
     [
         ("used", "3 new street suggestions", "Ollama: used · 3 new street suggestions"),
         ("not_needed", "", "Ollama: not needed this run"),
-        ("unreachable", "x", "Ollama: not running · street suggestions skipped"),
+        ("unreachable", "x", "Ollama: not running · street suggestions skipped · x"),
         ("skipped", "no OSM extract", "Ollama: not used · no OSM extract"),
         ("failed", "boom\nmore", "Ollama: street suggestions failed · boom"),
     ],

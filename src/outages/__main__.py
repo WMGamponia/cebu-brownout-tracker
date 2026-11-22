@@ -1075,6 +1075,11 @@ def _suggest_hook(
     With the owner's switch on for this kind of run, starts Ollama first if it isn't running
     and closes it afterwards (only the one it started). The outcome goes to `meta`."""
     started = None
+    inert = street_suggest.inert_reason(paths)
+    if inert is not None:  # nothing to suggest: never start Ollama for it
+        log.info("street suggestions: %s; skipped", inert)
+        _record(paths, runstatus.record_suggest, "skipped", inert)
+        return
     if _ollama_wanted(paths, kind):
         got = ollama.ensure_running()
         if isinstance(got, str):

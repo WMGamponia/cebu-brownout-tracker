@@ -30,6 +30,7 @@ class RunStatus:
     publish_at: datetime | None
     suggest_status: str | None = None  # the street-suggestion step: did it use Ollama?
     suggest_detail: str | None = None
+    suggest_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ def read(conn: sqlite3.Connection) -> RunStatus:
         publish_at=_dt(get("last_publish_at")),
         suggest_status=get("last_suggest_status"),
         suggest_detail=get("last_suggest_detail"),
+        suggest_at=_dt(get("last_suggest_at")),
     )
 
 

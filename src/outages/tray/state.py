@@ -110,8 +110,8 @@ def publish_short(s: RunStatus) -> str:
 
 OLLAMA_LINES = {
     "used": "Ollama: used · {detail}",
-    "not_needed": "Ollama: not needed this run",
-    "unreachable": "Ollama: not running · street suggestions skipped",
+    "not_needed": "Ollama: not needed this run · {detail}",
+    "unreachable": "Ollama: not running · street suggestions skipped · {detail}",
     "skipped": "Ollama: not used · {detail}",
     "failed": "Ollama: street suggestions failed · {detail}",
 }

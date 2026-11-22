@@ -167,8 +167,9 @@ class TrayApp:
         self.view = evaluate(snap)
         self.seen.fresh(self.view.events, deliver=lambda e: self._notify(e.text))
         running = self.run_state is not None
-        finished = feedback.should_announce_finish(self.awaited_since, status, running)
-        if finished and self._notify(feedback.run_finished(status)):
+        known = st is not None  # serve said whether a run is in progress
+        finished = feedback.should_announce_finish(self.awaited_since, status, running, known)
+        if finished and self._notify(feedback.run_finished(status, since=self.awaited_since)):
             self.awaited_since = None
         back = self.awaiting_restart and healthy and self.sup.state in ("running", "adopted")
         if back and self._notify(feedback.restarted()):

@@ -6,6 +6,7 @@ logon, or one the owner opened) is left alone.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -25,14 +26,23 @@ WAIT_S = 60
 
 
 class Started:
-    """An Ollama this run started."""
+    """An Ollama this run started (its `Popen`, so a PID reused after it exited is never
+    killed)."""
 
-    def __init__(self, pid: int) -> None:
-        self.pid = pid
+    def __init__(self, proc) -> None:
+        self.proc = proc
+        self.pid = proc.pid
+
+    def exited(self) -> bool:
+        return self.proc.poll() is not None
 
     def stop(self) -> None:
+        if self.exited():
+            return
         log.info("ollama: closing the one started for this run (pid %d)", self.pid)
         kill_pid_tree(self.pid)
+        with contextlib.suppress(Exception):
+            self.proc.wait(timeout=15)
 
 
 def reachable(url: str = OLLAMA_URL, timeout: float = 2.0) -> bool:
@@ -66,7 +76,7 @@ def _spawn(exe: Path) -> Started:
         stderr=subprocess.DEVNULL,
         creationflags=NO_WINDOW,
     )
-    return Started(p.pid)
+    return Started(p)
 
 
 def ensure_running(
@@ -93,7 +103,8 @@ def ensure_running(
     deadline = clock() + wait_s
     while clock() < deadline:
         if reachable():
-            return started
+            # ours exited (port taken) but another Ollama answers: not ours to close
+            return None if started.exited() else started
         sleep(1)
     started.stop()
     return f"Ollama didn't start within {wait_s:g} s"

@@ -29,9 +29,18 @@ def run_busy(step: str | None, elapsed_s: int) -> str:
     return f"A run is already in progress ({step or 'starting'}, {mmss(elapsed_s)})"
 
 
-def run_finished(s: RunStatus) -> str:
-    parts = ["OK" if s.last_check_ok else "check failed", publish_short(s)]
-    if s.suggest_status in OLLAMA_WORDS:
+def _this_run(at: datetime | None, since: datetime | None) -> bool:
+    """True when an outcome was recorded by the run since `since` (always, without `since`)."""
+    return since is None or (at is not None and at >= since)
+
+
+def run_finished(s: RunStatus, since: datetime | None = None) -> str:
+    """The run's result; parts the run didn't record itself (a failed check publishes nothing)
+    are left out rather than showing the previous run's."""
+    parts = ["OK" if s.last_check_ok else "check failed"]
+    if s.publish_status is not None and _this_run(s.publish_at, since):
+        parts.append(publish_short(s))
+    if s.suggest_status in OLLAMA_WORDS and _this_run(s.suggest_at, since):
         parts.append(OLLAMA_WORDS[s.suggest_status])
     return "Run finished: " + " · ".join(parts)
 
@@ -69,11 +78,14 @@ def ollama_setting(which: str, on: bool) -> str:
 
 
 def should_announce_finish(
-    awaited_since: datetime | None, status: RunStatus, running: bool
+    awaited_since: datetime | None, status: RunStatus, running: bool, known: bool = True
 ) -> bool:
-    """True once the Run now the owner clicked has finished (and only for that run)."""
+    """True once the Run now the owner clicked has finished (and only for that run). `known`:
+    serve said whether a run is in progress; without that (an old serve, a timeout) the run
+    may still be going, so nothing is announced."""
     return (
-        awaited_since is not None
+        known
+        and awaited_since is not None
         and not running
         and status.last_run_kind == "manual"
         and status.last_run_at is not None

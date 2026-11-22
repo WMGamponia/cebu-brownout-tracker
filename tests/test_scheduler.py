@@ -431,6 +431,7 @@ def _record_suggest(monkeypatch, order: list, summary=None):
         return Outcome("used", f"{summary.new} new street suggestions", summary)
 
     monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
 
 
 def test_hook_runs_after_alerts(home, monkeypatch):
@@ -486,6 +487,7 @@ def test_hook_swallows_exceptions(home, monkeypatch, caplog):
         raise RuntimeError("suggester broke")
 
     monkeypatch.setattr(cli.street_suggest, "suggest_outcome", boom)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
     cli._scheduled_run(home, None, do_check=False)  # never raises into the scheduler
     assert "suggester broke" in caplog.text
 
@@ -963,6 +965,7 @@ def _fake_outcome(monkeypatch, outcome=None, error=None):
         return outcome or Outcome("used", "3 new street suggestions", None)
 
     monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
 
 
 def test_suggest_records_outcome(home, monkeypatch):
@@ -1037,3 +1040,14 @@ def test_no_suggest_records_skipped(home, monkeypatch):
         "skipped",
         "street suggestions off (--no-suggest)",
     )
+
+
+def test_inert_step_never_starts_ollama(home, monkeypatch):
+    """Final review M6: no Ollama start when suggestions have nothing to do (e.g. no extract)."""
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: "no OSM extract")
+    cli._suggest_hook(home, None, kind="catch_up")
+    assert calls["ensure"] == 0
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("skipped", "no OSM extract")

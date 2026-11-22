@@ -745,3 +745,11 @@ def test_outcome_failed_first_line(hook_home):
 def test_suggest_new_still_returns_summary(hook_home):
     assert _hook(hook_home, FakeQwen()).new == 20
     assert _hook(hook_home, FakeQwen(down=True)) is None
+
+
+def test_inert_reason(hook_home):
+    from outages.streets.suggest import inert_reason
+
+    assert inert_reason(hook_home) is None
+    (hook_home.root / "evals" / "streets" / "FROZEN").unlink()
+    assert "FROZEN" in inert_reason(hook_home)

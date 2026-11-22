@@ -27,6 +27,9 @@ def _ensure(answers, exe=Path("C:/x/ollama.exe"), wait_s=60):
     class Handle:
         pid = 77
 
+        def exited(self):
+            return False
+
         def stop(self):
             stopped.append(self.pid)
 
