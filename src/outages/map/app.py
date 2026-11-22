@@ -24,6 +24,8 @@ from outages import db
 from outages.areas.gazetteer import Gazetteer
 from outages.history.load import load_rows
 from outages.history.stats import compute, parse_range
+from outages.map.admin import AdminConfig
+from outages.map.admin import build_router as build_admin_router
 from outages.map.build import build, dumps, schema_ready
 from outages.map.review import STATIC as REVIEW_STATIC
 from outages.map.review import ReviewConfig, build_router
@@ -62,8 +64,10 @@ def create_app(
     gaz: Gazetteer,
     clock: Callable[[], datetime],
     review: ReviewConfig | None = None,
+    admin: AdminConfig | None = None,
 ) -> FastAPI:
-    """`review` (loopback binds only) adds the street review routes (Streets v2 spec 7.9)."""
+    """`review` (loopback binds only) adds the street review routes (Streets v2 spec 7.9);
+    `admin` (loopback binds only) adds the tray's admin routes (tray spec 5.5)."""
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
     @contextmanager
@@ -159,6 +163,8 @@ def create_app(
         last = datetime.fromisoformat(row[0]).astimezone(MANILA).isoformat() if row else None
         return JSONResponse({"ok": True, "schema": version, "last_check_at": last})
 
+    if admin is not None:
+        app.include_router(build_admin_router(admin))
     if review is not None:
         app.include_router(build_router(review, ro, boundaries))
         app.mount(
