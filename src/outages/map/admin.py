@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 HEADER = "X-Outages-Admin"
+SETTINGS_KEYS = ("ollama_scheduled", "ollama_manual")
 
 
 class AdminControl(Protocol):
@@ -29,6 +30,15 @@ class AdminControl(Protocol):
 
     def stop(self) -> None:
         """Ask serve to finish any run in progress, then exit."""
+
+    def status(self) -> dict:
+        """`{"running", "kind", "started_at", "step"}` for the run in progress, if any."""
+
+    def get_settings(self) -> dict:
+        """`{"ollama_scheduled": bool, "ollama_manual": bool}`."""
+
+    def set_settings(self, values: dict) -> dict:
+        """Update some settings; returns them all."""
 
 
 @dataclass
@@ -79,6 +89,34 @@ def build_router(cfg: AdminConfig) -> APIRouter:
         if not await run_in_threadpool(cfg.control.decide, chat_id, approve):
             return _error(404, "not pending")
         return JSONResponse({"ok": True})
+
+    @router.get("/admin/status", include_in_schema=False)
+    def status(request: Request) -> JSONResponse:
+        if not allowed(request):
+            return _error(403, "forbidden")
+        return JSONResponse(cfg.control.status())
+
+    @router.get("/admin/settings", include_in_schema=False)
+    def get_settings(request: Request) -> JSONResponse:
+        if not allowed(request):
+            return _error(403, "forbidden")
+        return JSONResponse(cfg.control.get_settings())
+
+    @router.post("/admin/settings", include_in_schema=False)
+    async def set_settings(request: Request) -> JSONResponse:
+        if not allowed(request):
+            return _error(403, "forbidden")
+        try:
+            body = await request.json()
+        except ValueError:
+            return _error(400, "bad body")
+        if (
+            not isinstance(body, dict)
+            or not body
+            or any(k not in SETTINGS_KEYS or not isinstance(v, bool) for k, v in body.items())
+        ):
+            return _error(400, "bad body")
+        return JSONResponse(await run_in_threadpool(cfg.control.set_settings, body))
 
     @router.post("/admin/stop", include_in_schema=False)
     def stop(request: Request) -> JSONResponse:

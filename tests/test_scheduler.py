@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from datetime import UTC, datetime, timedelta
@@ -421,11 +422,16 @@ def test_map_unexpected_startup_error_keeps_alerts(home, monkeypatch, caplog):
 
 
 def _record_suggest(monkeypatch, order: list, summary=None):
+    from outages.streets.suggest import Outcome
+
     def fake(paths, now, **kw):
         order.append("suggest")
-        return summary
+        if summary is None:
+            return Outcome("skipped", "no OSM extract", None)
+        return Outcome("used", f"{summary.new} new street suggestions", summary)
 
-    monkeypatch.setattr(cli.street_suggest, "suggest_new", fake)
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
 
 
 def test_hook_runs_after_alerts(home, monkeypatch):
@@ -462,7 +468,9 @@ def test_no_suggest_flag_and_switch(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None, progress=None: (
+            seen.append(suggest)
+        ),
     )
     monkeypatch.setattr(scheduler.BlockingScheduler, "start", lambda self: None)
     _last_check(home, 20)  # catch-up run on start
@@ -478,7 +486,8 @@ def test_hook_swallows_exceptions(home, monkeypatch, caplog):
     def boom(paths, now, **kw):
         raise RuntimeError("suggester broke")
 
-    monkeypatch.setattr(cli.street_suggest, "suggest_new", boom)
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", boom)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
     cli._scheduled_run(home, None, do_check=False)  # never raises into the scheduler
     assert "suggester broke" in caplog.text
 
@@ -525,7 +534,9 @@ def test_watchdog_run_respects_no_suggest(home, monkeypatch):
     monkeypatch.setattr(
         cli,
         "_scheduled_run",
-        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None: seen.append(suggest),
+        lambda p, s, do_check=True, suggest=True, publisher=None, kind=None, progress=None: (
+            seen.append(suggest)
+        ),
     )
     cli._Runs(home, None, suggest=False).scheduled()
     cli._Runs(home, None).scheduled()
@@ -850,3 +861,193 @@ def test_control_decide_without_telegram(home, caplog):
     with caplog.at_level(logging.WARNING, logger="outages"):
         assert ctl.decide(556, False) is True
     assert "no message sent" in caplog.text
+
+
+# --- tray feedback: run progress and settings (tray feedback spec) -----------------------------
+
+
+def test_progress_steps_full_run(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    steps: list = []
+    cli._scheduled_run(home, SETTINGS, publisher=_Publisher(order), progress=steps.append)
+    assert steps == ["check", "alerts", "publish", "suggest"]
+
+
+def test_progress_steps_alerts_only(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    steps: list = []
+    cli._scheduled_run(
+        home, SETTINGS, do_check=False, publisher=_Publisher(order), progress=steps.append
+    )
+    assert steps == ["alerts", "suggest"]
+
+
+def test_runs_current_during_and_after(home, monkeypatch):
+    runs = cli._Runs(home, None)
+    seen: list = []
+
+    def fake(*a, **k):
+        k["progress"]("check")
+        seen.append(runs.status())
+
+    monkeypatch.setattr(cli, "_scheduled_run", fake)
+    monkeypatch.setattr(cli, "utcnow", lambda: _at("20:00"))
+    runs.scheduled()
+    assert seen[0]["running"] is True
+    assert (seen[0]["kind"], seen[0]["step"]) == ("scheduled", "check")
+    assert seen[0]["started_at"] == _at("20:00").astimezone(UTC).isoformat(timespec="seconds")
+    assert runs.status() == {"running": False, "kind": None, "started_at": None, "step": None}
+
+
+def test_manual_run_current_kind_manual(home, monkeypatch):
+    runs = cli._Runs(home, None)
+    seen: list = []
+    done = threading.Event()
+
+    def fake(*a, **k):
+        seen.append(runs.status()["kind"])
+        done.set()
+
+    monkeypatch.setattr(cli, "_scheduled_run", fake)
+    assert runs.manual() is True
+    assert done.wait(5)
+    assert seen == ["manual"]
+
+
+def test_control_settings_roundtrip(home):
+    from outages import runstatus
+
+    ctl = cli.ServeControl(home, None, cli._Runs(home, None), threading.Event())
+    assert ctl.get_settings() == {"ollama_scheduled": False, "ollama_manual": False}
+    assert ctl.set_settings({"ollama_manual": True}) == {
+        "ollama_scheduled": False,
+        "ollama_manual": True,
+    }
+    conn = db.connect(home.db)
+    assert runstatus.read_settings(conn) == runstatus.Settings(False, True)
+    conn.close()
+
+
+# --- tray feedback: start and close Ollama around street suggestions ---------------------------
+
+
+def _set(home, scheduled=False, manual=False):
+    from outages import runstatus
+
+    conn = db.connect(home.db)
+    runstatus.write_settings(conn, runstatus.Settings(scheduled, manual))
+    conn.close()
+
+
+def _fake_ollama(monkeypatch, result="started"):
+    calls: dict = {"ensure": 0, "stopped": 0}
+
+    class Handle:
+        pid = 77
+
+        def stop(self):
+            calls["stopped"] += 1
+
+    def ensure(*a, **k):
+        calls["ensure"] += 1
+        return Handle() if result == "started" else result
+
+    monkeypatch.setattr(cli.ollama, "ensure_running", ensure)
+    return calls
+
+
+def _fake_outcome(monkeypatch, outcome=None, error=None):
+    from outages.streets.suggest import Outcome
+
+    def fake(paths, now, **k):
+        if error:
+            raise error
+        return outcome or Outcome("used", "3 new street suggestions", None)
+
+    monkeypatch.setattr(cli.street_suggest, "suggest_outcome", fake)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: None)
+
+
+def test_suggest_records_outcome(home, monkeypatch):
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("used", "3 new street suggestions")
+
+
+def test_manual_uses_manual_setting(home, monkeypatch):
+    _set(home, scheduled=False, manual=True)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert calls["ensure"] == 0
+    cli._suggest_hook(home, None, kind="manual")
+    assert calls == {"ensure": 1, "stopped": 1}
+
+
+def test_catch_up_uses_scheduled_setting(home, monkeypatch):
+    _set(home, scheduled=True, manual=False)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    for kind in ("catch_up", "watchdog", "scheduled"):
+        cli._suggest_hook(home, None, kind=kind)
+    cli._suggest_hook(home, None, kind="manual")
+    assert calls == {"ensure": 3, "stopped": 3}
+
+
+def test_started_ollama_stopped_on_error(home, monkeypatch):
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch, error=RuntimeError("boom"))
+    with contextlib.suppress(RuntimeError):
+        cli._suggest_hook(home, None, kind="scheduled")
+    assert calls["stopped"] == 1
+
+
+def test_already_running_ollama_not_stopped(home, monkeypatch):
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch, result=None)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert calls == {"ensure": 1, "stopped": 0}
+    assert _status(home).suggest_detail == "3 new street suggestions"
+
+
+def test_missing_exe_is_unreachable(home, monkeypatch):
+    _set(home, scheduled=True)
+    _fake_ollama(monkeypatch, result="Ollama not found")
+    _fake_outcome(monkeypatch, error=AssertionError("must not suggest"))
+    cli._suggest_hook(home, None, kind="scheduled")
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("unreachable", "Ollama not found")
+
+
+def test_closed_note_in_detail(home, monkeypatch):
+    _set(home, scheduled=True)
+    _fake_ollama(monkeypatch)
+    _fake_outcome(monkeypatch)
+    cli._suggest_hook(home, None, kind="scheduled")
+    assert _status(home).suggest_detail == (
+        "3 new street suggestions (started for this run, then closed)"
+    )
+
+
+def test_no_suggest_records_skipped(home, monkeypatch):
+    order = _ordered_run(home, monkeypatch)
+    cli._scheduled_run(home, SETTINGS, suggest=False, publisher=_Publisher(order))
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == (
+        "skipped",
+        "street suggestions off (--no-suggest)",
+    )
+
+
+def test_inert_step_never_starts_ollama(home, monkeypatch):
+    """Final review M6: no Ollama start when suggestions have nothing to do (e.g. no extract)."""
+    _set(home, scheduled=True)
+    calls = _fake_ollama(monkeypatch)
+    monkeypatch.setattr(cli.street_suggest, "inert_reason", lambda paths: "no OSM extract")
+    cli._suggest_hook(home, None, kind="catch_up")
+    assert calls["ensure"] == 0
+    s = _status(home)
+    assert (s.suggest_status, s.suggest_detail) == ("skipped", "no OSM extract")

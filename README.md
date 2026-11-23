@@ -272,10 +272,15 @@ it stays in `data/` (never committed).
 
 `serve` runs the checks, alerts, bot and map; it should start when you log in and survive sleep.
 At logon the **tray** starts it: a coloured dot in the notification area (green fine, amber
-needs a look, red broken, grey stopped) that runs `serve` as a hidden child, restarts it after a
-crash, notifies only when something needs you (a failed check or publish, a skipped publish, a
-missed run, a crash, a join request), and has Run now, Approve/Deny, Open log, Open map, Start at
-logon and Quit in its right-click menu. Install its extra once:
+needs a look, red broken, grey stopped, **blue running**, with the step and time in the menu)
+that runs `serve` as a hidden child, restarts it after a crash, notifies when something needs you
+(a failed check or publish, a skipped publish, a missed run, a crash, a join request), and has
+Run now, Approve/Deny, Open log, Open map, Start at logon and Quit in its right-click menu. Every
+menu action answers with a notification ("Run started", then "Run finished: OK · published … ·
+Ollama used"; "Juan approved"; "serve restarted"). The menu also says whether the last run used
+Ollama (street suggestions), and two checkboxes, **Start Ollama for scheduled runs** and **Start
+Ollama for Run now**, start Ollama for a run when it isn't running and close it afterwards; an
+Ollama you started yourself is never closed. Install its extra once:
 
 ```powershell
 .venv\Scripts\pip install -e ".[tray]"

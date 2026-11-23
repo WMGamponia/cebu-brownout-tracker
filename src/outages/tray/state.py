@@ -18,7 +18,7 @@ from outages.runstatus import RunStatus
 from outages.timeparse import MANILA
 
 ProcState = Literal["starting", "running", "restarting", "stopped", "capped", "adopted"]
-Colour = Literal["green", "amber", "red", "grey"]
+Colour = Literal["green", "amber", "red", "grey", "blue"]
 
 HEALTHZ_GRACE = timedelta(seconds=60)
 TOOLTIP_MAX = 127  # Windows' limit for a tray tooltip
@@ -35,6 +35,7 @@ class Snapshot:
     pending: list[dict]
     crashed_at: datetime | None
     last_healthy_at: datetime | None = None  # the last time /healthz answered
+    run: dict | None = None  # /admin/status while a run is in progress
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class View:
     tooltip: str
     events: list[Event]
     can_act: bool
+    can_run: bool = False  # Run now: serve answers and no run is in progress
 
 
 def _iso(t: datetime) -> str:
@@ -96,7 +98,7 @@ def _publish_line(s: RunStatus) -> str:
     return f"Publish: {s.publish_status}: {_detail(s.publish_detail)}".rstrip(": ")
 
 
-def _publish_short(s: RunStatus) -> str:
+def publish_short(s: RunStatus) -> str:
     if s.publish_status is None:
         return "no publish yet"
     if s.publish_status == "off":
@@ -104,6 +106,32 @@ def _publish_short(s: RunStatus) -> str:
     if s.publish_status == "published":
         return f"published {_detail(s.publish_detail).split(' ')[0]}".rstrip()
     return f"publish {s.publish_status}: {_detail(s.publish_detail)}".rstrip(": ")
+
+
+OLLAMA_LINES = {
+    "used": "Ollama: used · {detail}",
+    "not_needed": "Ollama: not needed this run · {detail}",
+    "unreachable": "Ollama: not running · street suggestions skipped · {detail}",
+    "skipped": "Ollama: not used · {detail}",
+    "failed": "Ollama: street suggestions failed · {detail}",
+}
+
+
+def _ollama_line(s: RunStatus) -> str:
+    template = OLLAMA_LINES.get(s.suggest_status or "")
+    if template is None:
+        return "Ollama: no run yet"
+    return template.format(detail=_detail(s.suggest_detail)).rstrip(" ·")
+
+
+def _running_headline(run: dict, now: datetime) -> str:
+    try:
+        started = datetime.fromisoformat(run["started_at"])
+        secs = int((now - started).total_seconds())
+    except (KeyError, TypeError, ValueError):
+        secs = 0
+    secs = max(0, secs)
+    return f"Running: {run.get('step') or 'starting'} ({secs // 60}:{secs % 60:02d})"
 
 
 def _red(s: Snapshot, run_key: str, alive: bool) -> list[Event]:
@@ -170,9 +198,12 @@ def evaluate(s: Snapshot) -> View:
             Event(f"join:{p['chat_id']}", f"Join request from {who}: right-click to approve")
         )
 
+    running = bool(s.run and s.run.get("running"))
     if red:
         colour: Colour = "red"
         headline = red[0].text
+    elif running and s.healthz_ok:
+        colour, headline = "blue", _running_headline(s.run, s.now)
     elif s.proc == "stopped" or starting:
         colour, headline = "grey", ("Starting serve" if starting else "serve is stopped")
     elif amber:
@@ -187,19 +218,43 @@ def evaluate(s: Snapshot) -> View:
         run_line = f"Last run: {_day_hm(st.last_run_at)} · {ok}"
         run_short = f"Last run {_hm(st.last_run_at)} {ok}"
     nxt = next_run(s.now)
-    lines = [run_line, _publish_line(st), f"Next run: {_day_hm(nxt)}"]
+    lines = [run_line, _publish_line(st), _ollama_line(st), f"Next run: {_day_hm(nxt)}"]
     if s.proc == "adopted":
         lines.append("serve: started elsewhere")
-    tooltip = f"{run_short} · {_publish_short(st)} · next {_hm(nxt)}"
+    tooltip = f"{run_short} · {publish_short(st)} · next {_hm(nxt)}"
     if len(tooltip) > TOOLTIP_MAX:
         tooltip = tooltip[: TOOLTIP_MAX - 1] + "…"
-    return View(colour, headline, lines, tooltip, events, can_act=s.healthz_ok)
+    return View(
+        colour,
+        headline,
+        lines,
+        tooltip,
+        events,
+        can_act=s.healthz_ok,
+        can_run=s.healthz_ok and not running,
+    )
 
 
 def menu_key(
-    view: View, pending: list[dict], autostart: bool | None, proc: str, busy: str | None
+    view: View,
+    pending: list[dict],
+    autostart: bool | None,
+    proc: str,
+    busy: str | None,
+    settings: dict | None = None,
 ) -> tuple:
     """Everything the menu shows: rebuild it only when this changes, so a menu the owner has
     open isn't destroyed under them by every 30 s refresh."""
     people = tuple((p.get("chat_id"), p.get("name")) for p in pending)
-    return (view.headline, tuple(view.lines), view.can_act, people, autostart, proc, busy)
+    opts = tuple(sorted((settings or {}).items()))
+    return (
+        view.headline,
+        tuple(view.lines),
+        view.can_act,
+        view.can_run,
+        people,
+        autostart,
+        proc,
+        busy,
+        opts,
+    )

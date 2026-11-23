@@ -8,26 +8,24 @@ free. Not thread-safe: the tray calls it from one worker thread.
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
 import subprocess
 import sys
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from outages import lock
 from outages.config import MAP_PORT
+from outages.proc import NO_WINDOW, kill_pid_tree
 from outages.tray.state import ProcState
 
 log = logging.getLogger("outages")
 
 LOCK_HELD_EXIT = 3  # `python -m outages` returns 3 when another instance holds the lock
 LOCK_NAME = "serve.lock"
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 NEW_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
@@ -37,21 +35,6 @@ class Proc(Protocol):
     def poll(self) -> int | None: ...
 
     def kill_tree(self) -> None: ...
-
-
-def kill_pid_tree(pid: int) -> None:
-    """Kill `pid` and its children, hidden; errors ignored (it may be gone already)."""
-    if os.name != "nt":
-        with contextlib.suppress(OSError):
-            os.kill(pid, 9)
-        return
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(pid)],
-            capture_output=True,
-            timeout=15,
-            creationflags=NO_WINDOW,
-        )
 
 
 class _Popen:
@@ -188,14 +171,19 @@ class Supervisor:
         elif self.state == "adopted" and not self._lock_held():
             self._launch()
 
-    def stop(self, request_stop: Callable[[], bool], timeout_s: float) -> None:
+    def stop(
+        self, request_stop: Callable[[], bool], timeout_s: float
+    ) -> Literal["stopped", "left"]:
         """Ask serve to stop (it finishes a run in progress), wait up to `timeout_s`, then kill
         it as a last resort. Our own child is killed at once if the stop request can't reach it.
         An adopted lock holder is killed only if it answered the stop request (it is a serve):
         one that didn't may be a hand-run `check` or `backfill`, and is left alone."""
         deadline = self._clock() + timedelta(seconds=timeout_s)
+        result: Literal["stopped", "left"] = "stopped"
         if self.state == "adopted":
-            if request_stop():
+            if not request_stop():
+                result = "left"  # not an answering serve: never killed (e.g. a backfill)
+            else:
                 while self._lock_held() and self._clock() < deadline:
                     self._sleep(1)
                 if self._lock_held():
@@ -212,9 +200,13 @@ class Supervisor:
         self._proc = None
         self._restart_at = None
         self._set("stopped")
+        return result
 
-    def restart_now(self, request_stop: Callable[[], bool], timeout_s: float) -> None:
+    def restart_now(
+        self, request_stop: Callable[[], bool], timeout_s: float
+    ) -> Literal["stopped", "left"]:
         self._crashes = []
         self.last_crash = None
-        self.stop(request_stop, timeout_s)
+        result = self.stop(request_stop, timeout_s)
         self.start()
+        return result

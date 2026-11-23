@@ -232,3 +232,35 @@ def test_restart_now_clears_cap():
     assert s.state == "starting"
     crash(s, w)
     assert s.state == "restarting"
+
+
+# --- tray feedback: stop/restart report what happened ------------------------------------------
+
+
+def test_stop_returns_left_for_unanswering_adopted():
+    w = World(locked=True)
+    s = w.sup()
+    s.start()
+    assert s.stop(lambda: False, 600) == "left"
+    assert w.killed_pids == []
+
+
+def test_stop_returns_stopped():
+    w = World()
+    s = w.sup()
+    s.start()
+    p = w.spawned[0]
+
+    def request_stop():
+        p.code = 0
+        return True
+
+    assert s.stop(request_stop, 600) == "stopped"
+
+
+def test_restart_now_returns_left():
+    w = World(locked=True)
+    s = w.sup()
+    s.start()
+    assert s.restart_now(lambda: False, 600) == "left"
+    assert s.state == "adopted"

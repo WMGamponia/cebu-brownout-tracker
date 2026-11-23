@@ -38,3 +38,27 @@ def test_read_last_check_at(tmp_path):
     db.set_meta(conn, "last_check_at", NOW.isoformat())
     conn.commit()
     assert runstatus.read(conn).last_check_at == NOW
+
+
+# --- tray feedback: suggestion outcome and Ollama settings ------------------------------------
+
+
+def test_record_suggest_roundtrip(tmp_path):
+    conn = _conn(tmp_path)
+    runstatus.record_suggest(conn, "used", "3 new street suggestions", NOW)
+    s = runstatus.read(conn)
+    assert (s.suggest_status, s.suggest_detail) == ("used", "3 new street suggestions")
+
+
+def test_old_status_has_no_suggest(tmp_path):
+    assert runstatus.read(_conn(tmp_path)).suggest_status is None
+
+
+def test_settings_default_off(tmp_path):
+    assert runstatus.read_settings(_conn(tmp_path)) == runstatus.Settings(False, False)
+
+
+def test_settings_roundtrip(tmp_path):
+    conn = _conn(tmp_path)
+    runstatus.write_settings(conn, runstatus.Settings(ollama_scheduled=False, ollama_manual=True))
+    assert runstatus.read_settings(conn) == runstatus.Settings(False, True)

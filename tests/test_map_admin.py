@@ -43,6 +43,18 @@ class FakeControl:
     def stop(self) -> None:
         self.stops += 1
 
+    def status(self) -> dict:
+        return {"running": True, "kind": "manual", "started_at": "x", "step": "publish"}
+
+    def get_settings(self) -> dict:
+        return dict(self.settings)
+
+    def set_settings(self, values: dict) -> dict:
+        self.settings.update(values)
+        return dict(self.settings)
+
+    settings = {"ollama_scheduled": False, "ollama_manual": False}
+
 
 @pytest.fixture
 def world(tmp_path) -> dict:
@@ -143,3 +155,41 @@ def test_stop_202(world):
 def test_routes_absent_without_admin(world):
     c, _ = _client(world, admin=False)
     assert c.post("/admin/run", headers=AUTH).status_code == 404
+
+
+# --- tray feedback: status and settings routes -------------------------------------------------
+
+
+def test_status_route(world):
+    c, _ = _client(world)
+    r = c.get("/admin/status", headers=AUTH)
+    assert r.status_code == 200 and r.json()["step"] == "publish"
+
+
+def test_status_needs_token(world):
+    c, _ = _client(world)
+    assert c.get("/admin/status").status_code == 403
+
+
+def test_settings_get_and_post(world):
+    ctl = FakeControl()
+    ctl.settings = {"ollama_scheduled": False, "ollama_manual": False}
+    c, _ = _client(world, ctl)
+    assert c.get("/admin/settings", headers=AUTH).json() == ctl.settings
+    r = c.post("/admin/settings", headers=AUTH, json={"ollama_scheduled": True})
+    assert r.status_code == 200
+    assert r.json() == {"ollama_scheduled": True, "ollama_manual": False}
+
+
+@pytest.mark.parametrize("body", [{"nope": True}, {"ollama_manual": 1}, [True], {}])
+def test_settings_bad_body_400(world, body):
+    ctl = FakeControl()
+    ctl.settings = {"ollama_scheduled": False, "ollama_manual": False}
+    c, _ = _client(world, ctl)
+    assert c.post("/admin/settings", headers=AUTH, json=body).status_code == 400
+    assert ctl.settings == {"ollama_scheduled": False, "ollama_manual": False}
+
+
+def test_settings_needs_token(world):
+    c, _ = _client(world)
+    assert c.post("/admin/settings", json={"ollama_manual": True}).status_code == 403
