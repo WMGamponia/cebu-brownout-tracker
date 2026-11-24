@@ -9,7 +9,7 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
 
 ## Status
 
-**Current phase:** Live site **built** on `feat/live-site` (2026-11-19), not yet merged or switched on; Map UI refresh merged (PR #16), Streets v2 merged (PR #5, 2026-11-14). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
+**Current phase:** Live site, tray app and tray feedback switched on (2026-11-24); next in line: Discord alerts; Map UI refresh merged (PR #16), Streets v2 merged (PR #5, 2026-11-14). Phases 1–6 merged; the code is public at `https://github.com/WMGamponia/cebu-brownout-tracker` (MIT) and the demo snapshot at `https://wmgamponia.github.io/cebu-brownout-tracker/`; street drawing on since the Streets v2 test run (2026-11-13).
 **History:** commit hashes and PR numbers before Phase 6 refer to the private archive (`WMGamponia/OutageTracker`); the public repo's history was rewritten from it.
 **Source:** `https://www.visayanelectric.com/blog-posts-sitemap.xml` → posts whose slug contains `interruption` (151 posts, Jan 2024 → now; one lacks the `service-` prefix).
 
@@ -196,6 +196,9 @@ Runs on my own PC: **Python + httpx/selectolax + SQLite + APScheduler**, a Teleg
   - **Owner decisions:** feedback in the tray first, a window later only if still wanted; show whether the last run used Ollama; separate switches to start Ollama for scheduled runs and for Run now, closing it afterwards.
   - **Built** (native execution, TDD): `/admin/status` (run kind, start, step), suggestion outcome in `meta`, `/admin/settings`, `outages.ollama` (start hidden, wait 60 s, close only what it started), blue running state, a notification per action.
 
+- **2026-11-24** — **Switched on: live site, tray app, tray feedback.** PRs #22 and #23 merged; main checked out; tray restarted from the desktop shortcut; `install-task.ps1` re-run elevated (the logon task now starts `tray`). Owner's Run now published `4b764e8` to `gh-pages` (09:05 Manila) — the first publish from `main` seen end to end.
+  - Not yet seen: the tray starting at a real logon, and a real Ollama start/close (no OSM extract, so suggestions are inert and Ollama is never started).
+
 ### Known issues
 - **A run slept through is caught up, not on time:** the watchdog runs it within ~5 min of waking, and only once per slot; if VECO or the network is down at that moment (as right after a wake), the next try is the next 06:00 / 20:00 (the admin chat gets "VECO not reachable").
 - **Phase 6 review minors (deferred):** ~~(1) `snapshot` reads its 53 weeks and 4 ranges without one read transaction, so a `check` committing mid-snapshot could make weeks and stats disagree~~ → fixed by the live site for `serve`'s own publishes (they run after the check, in the same process); a hand `snapshot` during a run still can; ~~(2) `static/` in the snapshot folder is neither checked nor pruned~~ → fixed: `static/<hash>/`, older versions pruned; (3) the lock file is opened in text mode (a CRLF after the PID on Windows, harmless); (4) no test kills a lock holder mid-run (a by-hand probe passed on Windows); (5) the leak scan reads `.env` from the working directory, and only current subscribers' chat IDs; (6) committed docs show local paths (`E:\Work\…`); (7) `/history`'s "See that week on the map" bound uses `snapshot_week + 6` even for a short snapshot week.
@@ -309,7 +312,7 @@ Owner, 2026-11-15, changed 2026-11-19: replace the hand-refreshed demo with a si
 - [x] After each successful check, on `main` only: `snapshot`, leak scan, one-commit `gh-pages` push with lease; a failed or skipped publish never blocks alerts and goes to the admin chat once a day.
 - [x] Pages use the real clock; a notice appears only when the data is old (> 15 h).
 - [x] Versioned `data/` and `static/` paths, so the 10-minute Pages cache never mixes versions.
-- [ ] Switched on: `main` checked out, `PUBLISH_SITE=1`, first publish confirmed on the Pages URL.
+- [x] Switched on: `main` checked out, `PUBLISH_SITE=1`, first publish confirmed (`4b764e8` on `gh-pages`, 2026-11-24).
 
 ## Tray app (after the live site)
 Owner, 2026-11-22: see whether `serve` ran and published without opening anything.
@@ -319,7 +322,7 @@ Owner, 2026-11-22: see whether `serve` ran and published without opening anythin
 - [x] Status rules and notified-event store.
 - [x] Supervisor and admin client.
 - [x] Tray icon, menu, `tray` command, start at logon, docs.
-- [ ] Switched on: merged, `pip install -e ".[tray]"`, `install-task.ps1` re-run elevated, tray seen at logon.
+- [x] Switched on: merged, `pip install -e ".[tray]"`, `install-task.ps1` re-run elevated (2026-11-24); tray at a real logon not yet seen.
 
 ## Tray feedback (after the tray app)
 Owner, 2026-11-23: every tray action answers; see a run in progress; Ollama per run.
@@ -327,7 +330,7 @@ Owner, 2026-11-23: every tray action answers; see a run in progress; Ollama per 
 - [x] Start and close Ollama around street suggestions; suggestion outcome in `meta`.
 - [x] Blue running state, Ollama line, notification texts.
 - [x] Tray wiring, docs.
-- [ ] Checked on screen by the owner (notifications, blue icon, checkboxes).
+- [x] Checked on screen by the owner: Run now works (2026-11-24).
 
 ## Phase 7 — Later
 - [ ] MCWD water interruptions.
