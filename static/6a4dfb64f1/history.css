@@ -1,0 +1,72 @@
+/* Cebu Brownout History (Phase 5 spec 4.8), in the shared dark look (UI refresh spec 6).
+   Tokens, cards, buttons and Leaflet overrides come from base.css. The map's bins stay in
+   history.js and are not changed here. */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: rgba(17, 20, 24, 0.94);
+  border-bottom: 1px solid var(--hairline);
+}
+@supports ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+  .top { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+}
+.top-inner { max-width: 1100px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.title-row { display: flex; align-items: center; gap: 12px; }
+.back { text-decoration: none; color: var(--text); }
+h1 { font-size: var(--fs-l); margin: 0; }
+h2 { font-size: var(--fs-m); margin: 0 0 8px; }
+.block h2 + * { margin-top: 0; }
+.block > h2:not(:first-child) { margin-top: 16px; }
+.range { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--fs-s); }
+.range input, .range select {
+  font: inherit;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.range select option { background: var(--bg); }
+
+main { padding: 12px 16px 32px; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.notices { display: flex; flex-direction: column; gap: 6px; }
+.notices p { margin: 0; }
+.snapshot { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+
+.map-wrap { display: grid; grid-template-columns: 1fr 280px; gap: 12px; }
+.map-card { overflow: hidden; padding: 0; }
+#map { height: 460px; }
+.side { display: flex; flex-direction: column; gap: 12px; }
+.legend-box, .detail, .block { padding: 12px 14px; }
+.legend-title { margin: 0 0 6px; font-weight: 600; font-size: var(--fs-s); }
+.legend { list-style: none; margin: 0; padding: 0; font-size: var(--fs-s); }
+.legend li { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+.sw { display: inline-block; width: 18px; height: 12px; border-radius: 3px; border: 1px solid #8a8a8a; flex: none; }
+.detail { font-size: var(--fs-s); }
+.detail h3 { margin: 0 0 4px; font-size: var(--fs-m); }
+.detail p { margin: 2px 0; }
+
+.tbl { border-collapse: collapse; width: 100%; font-size: var(--fs-s); }
+.tbl th, .tbl td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--hairline); }
+.tbl th { color: var(--muted); font-weight: 600; }
+.tbl td.num, .tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.barcol { width: 30%; }
+.hbar { display: block; height: 8px; border-radius: 4px; background: var(--chart-bar); }
+.tbl tr:first-child .hbar { background: var(--chart-worst); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+#months { width: 100%; height: 180px; display: block; }
+#months rect { fill: var(--chart-bar); }
+#months rect.worst { fill: var(--chart-worst); }
+#months text { font-size: 10px; fill: var(--muted); }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.plain { list-style: none; margin: 0; padding: 0; font-size: var(--fs-s); }
+.plain li { margin: 3px 0; }
+.credits { font-size: var(--fs-s); color: var(--muted); }
+.credits p { margin: 4px 0; }
+@media (max-width: 760px) {
+  .map-wrap, .cols { grid-template-columns: 1fr; }
+  #map { height: 360px; }
+  .barcol { width: 22%; }
+}
